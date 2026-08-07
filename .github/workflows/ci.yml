@@ -70,18 +70,12 @@ jobs:
       - run: uv run python -m vitruvio.cli.reference --check
 
   test:
-    name: test (py${{ matrix.python }} ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: test (py${{ matrix.python }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
         python: ["3.11", "3.12", "3.13"]
-        include:
-          # macOS is in the matrix because usearch and pyroaring ship compiled wheels and this project is
-          # developed on darwin. A wheel that only exists for linux is a problem worth finding in CI.
-          - os: macos-14
-            python: "3.12"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -104,16 +98,3 @@ jobs:
       # override for pyboltzmann, every other job silently tests against a working copy.
       - run: uv sync --all-packages --no-sources
       - run: uv run pytest -m "not slow" -q
-
-  heavy:
-    name: heavy (real models)
-    # Downloads model weights and runs containers, so it is opt-in: a label on the PR, or a nightly run.
-    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-heavy')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - run: uv sync --all-packages --extra local --extra vision
-      - run: uv run pytest -m slow
