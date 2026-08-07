@@ -140,7 +140,15 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.mypy]
-python_version = "3.11"
+# Deliberately *not* pinning python_version. Each `types` matrix job then checks under its own interpreter, which is
+# the only thing that makes three of them worth running -- pinned to 3.11 all three checked identical semantics, and
+# the only difference between them was the installed dependency stubs.
+#
+# Which is exactly how the pin failed: on 3.13 the installed numpy ships stubs written with PEP 695 `type` statements,
+# and mypy asked to reason as 3.11 rejected its own dependency's syntax. Nothing was wrong with this codebase; the
+# checker had been told to disbelieve the interpreter it was running on.
+#
+# The reverse risk -- 3.12+ syntax passing here and failing on 3.11 -- is what the 3.11 job in the same matrix catches.
 warn_return_any = true
 warn_unused_configs = true
 warn_redundant_casts = true
