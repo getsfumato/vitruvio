@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vitruvio-indices"
+version = "0.1.0"
+description = "Index engines for the Boltzmann protocol: six kinds behind one Index seam"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Alex Fiorenza", email = "alexfiorenza2012@gmail.com"}]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pyboltzmann>=0.3.0,<0.4.0",
+    "vitruvio-kernel",
+    "vitruvio-stats",
+    "vitruvio-embeddings",
+    "msgspec>=0.18.0",
+    "pyroaring>=1.0.0",
+    "snowballstemmer>=2.2.0",
+    "numpy>=1.26",
+    "usearch>=2.12.0",
+]
+
+[tool.hatch.build.targets.wheel]
+# PEP 420: there is no src/vitruvio/__init__.py in any member, so all nine distributions install into
+# one shared `vitruvio` namespace. Adding an __init__.py here would shadow the others.
+only-include = ["src/vitruvio/indices"]
+# `sources` strips the src/ prefix so the wheel holds vitruvio/indices/, and -- the part that actually
+# matters -- an editable install puts src/ on sys.path rather than src/vitruvio/. With `packages` instead,
+# hatchling treats src/vitruvio as the source root, and `import vitruvio.indices` fails while `import indices`
+# succeeds: nine distributions each claiming to be the top level of a namespace they were meant to share.
+sources = ["src"]
