@@ -1179,6 +1179,193 @@ class BrainService:
 
     # --- Distribution ---------------------------------------------------------
 
+    # --- The project ----------------------------------------------------------
+
+    def project(self) -> dict[str, Any]:
+        """
+        Every brain this project holds, where each one lives, and where each one publishes.
+
+        Deliberately does **not** open any brain. A project of six subjects would otherwise pay six index
+        rebuilds to answer "what is in here", and the answer is a configuration question. What it does read is
+        each layout's own snapshot pointer, which is a file.
+
+        Returns:
+            dict[str, Any]: The project, its brains, and the account their repositories derive from.
+        """
+        from vitruvio.kernel import is_layout
+        from vitruvio.runtime.registry import account_for
+
+        # `project` is the whole file and `project.project` is the [project] section -- named apart here, because
+        # `self.config.project.project.name` is a sentence nobody should have to parse.
+        document = self.config.project
+        identity = document.project
+        account = None
+        if not document.registry.namespace and not document.registry.reference:
+            account = account_for()
+
+        brains = []
+        for name in sorted(document.brains):
+            path = document.brain_path(name)
+            spec = document.brains[name]
+            brains.append(
+                {
+                    "name": name,
+                    "path": str(path) if path else None,
+                    "description": spec.description,
+                    "exists": bool(path and is_layout(path)),
+                    "repository": document.repository_for(name, account=account),
+                    "explicit_reference": spec.reference,
+                    "selected": path == self.config.brain,
+                }
+            )
+
+        return {
+            "name": identity.name,
+            "description": identity.description,
+            "config_file": str(self.config.config_file) if self.config.config_file else None,
+            "namespace": document.registry.namespace,
+            "account": account,
+            "tag": document.registry.tag,
+            "brains": brains,
+        }
+
+    def add_brain(
+        self,
+        name: str,
+        *,
+        path: str | None = None,
+        description: str | None = None,
+        reference: str | None = None,
+        create: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Register a brain in the project, creating its layout when it does not exist yet.
+
+        Args:
+            name (str): The brain's name. Becomes part of its derived repository, so it lives under OCI's
+                naming rules -- ``analisis-ii`` rather than ``Análisis II``.
+            path (str | None): Where the layout goes. Defaults to ``./brains/<name>`` beside the config.
+            description (str | None): What it holds, for ``project show``.
+            reference (str | None): An explicit repository, when the derived one is not wanted.
+            create (bool): Create the layout if it is absent.
+
+        Returns:
+            dict[str, Any]: The registered brain.
+
+        Raises:
+            VitruvioError: If the project has no configuration file to write to, or the name is already taken.
+        """
+        from vitruvio.kernel import NamedBrainSpec, is_layout, update_config
+
+        config_path = self.config.config_file
+        if config_path is None:
+            raise VitruvioError(
+                "this project has no vitruvio.toml to add a brain to",
+                hint="run `vitruvio project init <name>` first",
+            )
+        if name in self.config.project.brains:
+            raise VitruvioError(
+                f"this project already has a brain called {name!r}",
+                hint="pick another name, or `vitruvio project remove` it first",
+            )
+
+        # Validated before anything is written, so a rejected name does not leave a half-registered project.
+        spec = NamedBrainSpec(path=path or f"./brains/{name}", description=description, reference=reference)
+        NamedBrainSpec.model_validate(spec.model_dump())
+        from vitruvio.kernel import ProjectConfig
+
+        ProjectConfig.model_validate({"brains": {name: spec.model_dump(exclude_none=True)}})
+
+        target = (config_path.parent / spec.path).expanduser().resolve()
+        created = False
+        if create and not is_layout(target):
+            from vitruvio.kernel import resolve as resolve_config
+
+            sub = resolve_config(brain=target, config=config_path, require_layout=False)
+            with _translated():
+                open_brain(sub, Capability.INSPECT, create=True)
+            created = True
+
+        update_config(config_path, f"brains.{name}.path", spec.path)
+        if description:
+            update_config(config_path, f"brains.{name}.description", description)
+        if reference:
+            update_config(config_path, f"brains.{name}.reference", reference)
+
+        return {
+            "name": name,
+            "path": str(target),
+            "created": created,
+            "description": description,
+            "config_file": str(config_path),
+        }
+
+    def remove_brain(self, name: str) -> dict[str, Any]:
+        """
+        Unregister a brain from the project. The layout on disk is left alone.
+
+        Never deletes data, and that is not timidity: a brain is content-addressed knowledge that may be the only
+        copy, and "remove it from this project" and "destroy it" are different requests. The path is reported so
+        the caller can act on the second one deliberately.
+
+        Args:
+            name (str): The brain's name.
+
+        Returns:
+            dict[str, Any]: What was unregistered, and where its layout still is.
+
+        Raises:
+            VitruvioError: If the project has no such brain.
+        """
+        from vitruvio.kernel import update_config
+
+        config_path = self.config.config_file
+        if config_path is None or name not in self.config.project.brains:
+            raise VitruvioError(
+                f"this project has no brain called {name!r}",
+                hint=f"known: {', '.join(sorted(self.config.project.brains)) or '(none)'}",
+            )
+
+        path = self.config.project.brain_path(name)
+        update_config(config_path, f"brains.{name}", None)
+        return {"name": name, "path": str(path) if path else None, "config_file": str(config_path)}
+
+    def reference_for(self, given: str | None = None) -> str:
+        """
+        Which repository this brain publishes to or pulls from.
+
+        Four layers, and the lookups get more expensive as they go, so each is tried only when the ones before it
+        came up empty:
+
+        1. what the command was given;
+        2. this brain's own ``reference``, or one derived from ``[registry].namespace``;
+        3. one derived from whichever registry account is logged in -- the case that makes
+           ``registry login --from-docker`` once enough for a whole project;
+        4. nothing, and an error that names all three ways to fix it.
+
+        Args:
+            given (str | None): An explicit reference from the command line.
+
+        Returns:
+            str: The repository, without a tag.
+
+        Raises:
+            VitruvioError: If no layer names one.
+        """
+        from vitruvio.runtime.distribution import require_reference
+
+        if given:
+            return given
+
+        configured = self.config.repository()
+        if configured is None:
+            # Only now: this reads the keyring and possibly runs a credential helper, which is not something to
+            # do on a command that already knew its destination.
+            from vitruvio.runtime.registry import account_for
+
+            configured = self.config.repository(account_for())
+        return require_reference(configured, None)
+
     def _client(
         self,
         reference: str,
@@ -1262,9 +1449,9 @@ class BrainService:
         """
         import asyncio
 
-        from vitruvio.runtime.distribution import preflight, require_reference
+        from vitruvio.runtime.distribution import preflight
 
-        target = require_reference(self.config.project.registry.reference, reference)
+        target = self.reference_for(reference)
         client, _, warnings = self._client(
             target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
         )
@@ -1298,10 +1485,9 @@ class BrainService:
         """
         import asyncio
 
-        from vitruvio.runtime.distribution import require_reference
         from vitruvio.runtime.vouch import vouch_travelling
 
-        target = require_reference(self.config.project.registry.reference, reference)
+        target = self.reference_for(reference)
         chosen = [_memory_type(item) for item in modules] if modules else None
         client, effective, warnings = self._client(
             target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
@@ -1350,9 +1536,7 @@ class BrainService:
         """
         import asyncio
 
-        from vitruvio.runtime.distribution import require_reference
-
-        target = require_reference(self.config.project.registry.reference, reference)
+        target = self.reference_for(reference)
         chosen = [_memory_type(item) for item in modules] if modules else None
         client, effective, warnings = self._client(
             target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
@@ -1390,9 +1574,7 @@ class BrainService:
         """
         import asyncio
 
-        from vitruvio.runtime.distribution import require_reference
-
-        target = require_reference(self.config.project.registry.reference, reference)
+        target = self.reference_for(reference)
         chosen = [_memory_type(item) for item in modules] if modules else None
         client, effective, warnings = self._client(
             target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
@@ -1426,9 +1608,7 @@ class BrainService:
         Returns:
             dict[str, Any]: The tags, or an explanation when the registry does not offer a listing.
         """
-        from vitruvio.runtime.distribution import require_reference
-
-        target = require_reference(self.config.project.registry.reference, reference)
+        target = self.reference_for(reference)
         client, effective, warnings = self._client(
             target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
         )

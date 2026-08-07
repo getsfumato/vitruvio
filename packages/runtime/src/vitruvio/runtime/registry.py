@@ -391,6 +391,30 @@ def credential_for(
     return Credential(host=host, username="", token=Secret("", source="none"), source="none")
 
 
+def account_for(host: str = HUB_REGISTRY_HOST, *, allow_docker: bool = True) -> str | None:
+    """
+    Which registry account a derived repository should be published under.
+
+    This is what makes "log in once, then publish every brain in the project" work. A project that sets no
+    ``[registry].namespace`` derives one from whoever is logged in, so adding a subject to a project is adding a
+    directory rather than editing a registry reference.
+
+    Docker's own config is consulted here by default, unlike in :func:`credential_for`. The asymmetry is
+    deliberate: reading Docker's *token* silently would make "which account am I publishing as" depend on a file
+    vitruvio does not own, while reading the *username* only ever proposes a destination, which is then printed
+    before anything is pushed and can be overridden by configuration.
+
+    Args:
+        host (str): The registry host to look the account up for.
+        allow_docker (bool): Whether ``~/.docker/config.json`` may supply it.
+
+    Returns:
+        str | None: The account name, or ``None`` when nothing knows one.
+    """
+    credential = credential_for(f"{host}/probe/probe", allow_docker=allow_docker)
+    return credential.username or None
+
+
 # --- The client ---------------------------------------------------------------
 
 

@@ -168,7 +168,11 @@ def require_reference(configured: str | None, given: str | None) -> str:
     reference = given or configured
     if not reference:
         raise VitruvioError(
-            "no registry reference was given and none is configured",
-            hint='pass one, or add [registry] reference = "docker.io/you/my-brain" to vitruvio.toml',
+            "no registry reference was given and none could be derived",
+            hint=(
+                "pass one; or run `vitruvio registry login docker.io --from-docker` so every brain in the project "
+                'derives its own repository from your account; or set [registry] namespace = "docker.io/you" for '
+                'a project, or [registry] reference = "docker.io/you/my-brain" for a single brain'
+            ),
         )
     return reference
