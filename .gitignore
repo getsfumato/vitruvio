@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.import_linter_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Derived brain state. Everything vitruvio writes under a brain is rebuildable -- indices, statistics, the
+# embedding cache, the cost calibration -- and some of it is gigabytes. Committing it would also make a
+# machine-specific artifact look like a shared one: HNSW graphs and embedding vectors are not reproducible
+# byte-for-byte across machines, so two developers would fight over the diff forever.
+.vitruvio/
+
+# A brain itself is data, not source. Commit vitruvio.toml, publish the brain to a registry.
+brain/
+*.brain/
+
+# Secrets. There is no field for one in vitruvio.toml, but a .env next to it is a supported way to set the
+# environment, and it must never be committed.
+.env
+.env.*
+!.env.example
+
+# macOS
+.DS_Store

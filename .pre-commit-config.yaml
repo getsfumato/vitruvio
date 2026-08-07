@@ -1,0 +1,41 @@
+# Fast checks only. mypy, pytest and lint-imports run in CI rather than here: a commit hook that takes
+# thirty seconds is a hook people start bypassing with --no-verify, which loses the fast checks too.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        # A brain's blobs belong in a registry, not in git history, where they cannot be removed.
+        args: [--maxkb=512]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.16.5
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: no-namespace-init
+        name: no __init__.py in the shared vitruvio namespace
+        # The failure this prevents is not an error but a silence: one member wins the namespace and the
+        # other eight become importable under the wrong name.
+        entry: >-
+          bash -c 'found=$(git ls-files "*/*/src/vitruvio/__init__.py");
+          if [ -n "$found" ]; then echo "PEP 420 namespace packages must have no __init__.py: $found"; exit 1; fi'
+        language: system
+        pass_filenames: false

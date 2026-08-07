@@ -1,0 +1,69 @@
+; Architectural boundaries, enforced by `uv run lint-imports` in CI.
+;
+; Two rules carry real weight here.
+;
+; The layering contract states the dependency direction once, mechanically. Nine packages with tangled
+; imports would still install and still pass their tests -- the cost only shows up the day one of them has
+; to be replaced, which is exactly when it is most expensive to discover.
+;
+; The apps contract is the one that keeps the future MCP server and HTTP API thin. An app may reach for the
+; runtime and the kernel; it may never import `boltzmann` itself. If an app needs an SDK type, the service
+; layer is missing a method, and adding it there is what makes the same capability available to all three
+; interfaces instead of one.
+
+[importlinter]
+root_packages =
+    vitruvio.kernel
+    vitruvio.stats
+    vitruvio.embeddings
+    vitruvio.indices
+    vitruvio.planner
+    vitruvio.ingest
+    vitruvio.runtime
+    vitruvio.bench
+    vitruvio.cli
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Dependencies point downhill only
+type = layers
+layers =
+    vitruvio.cli
+    vitruvio.runtime
+    vitruvio.planner : vitruvio.ingest
+    vitruvio.indices
+    vitruvio.embeddings
+    vitruvio.stats
+    vitruvio.kernel
+; `bench` is deliberately absent: it is a development tool that reaches across everything to generate
+; corpora and measure them, and it is not published.
+exhaustive = False
+
+[importlinter:contract:apps-never-touch-the-sdk]
+name = Apps go through the service layer, never through the SDK
+type = forbidden
+source_modules =
+    vitruvio.cli
+forbidden_modules =
+    boltzmann
+; Direct imports only. The kernel and the runtime import the SDK by design, and every app import reaches
+; them, so counting indirect paths would forbid the architecture instead of protecting it. What must not
+; happen is an app naming an SDK module in its own source.
+allow_indirect_imports = True
+; No exceptions. The one that nearly existed -- --actor-kind, whose values are an SDK enum -- was removed by
+; having the CLI take a string and the kernel coerce it (vitruvio.kernel.parse_actor_kind). An exception list
+; here is a boundary that has started leaking.
+
+[importlinter:contract:kernel-is-the-floor]
+name = The kernel depends on no other vitruvio package
+type = forbidden
+source_modules =
+    vitruvio.kernel
+forbidden_modules =
+    vitruvio.stats
+    vitruvio.embeddings
+    vitruvio.indices
+    vitruvio.planner
+    vitruvio.ingest
+    vitruvio.runtime
+    vitruvio.cli
