@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vitruvio-embeddings"
+version = "0.1.0"
+description = "Pluggable text and vision embedders with a composite model tag, for vitruvio's vector index"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Alex Fiorenza", email = "alexfiorenza2012@gmail.com"}]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    "numpy>=1.26",
+    "pydantic>=2.0.0,<3.0.0",
+    "pyboltzmann>=0.3.0,<0.4.0",
+    "vitruvio-kernel",
+]
+
+[project.optional-dependencies]
+local-text = ["sentence-transformers>=3.0.0"]
+vision = ["sentence-transformers>=3.0.0", "pillow>=10.0.0", "pypdfium2>=4.30.0"]
+api = ["httpx>=0.27.0"]
+
+[tool.hatch.build.targets.wheel]
+# PEP 420: there is no src/vitruvio/__init__.py in any member, so all nine distributions install into
+# one shared `vitruvio` namespace. Adding an __init__.py here would shadow the others.
+only-include = ["src/vitruvio/embeddings"]
+# `sources` strips the src/ prefix so the wheel holds vitruvio/embeddings/, and -- the part that actually
+# matters -- an editable install puts src/ on sys.path rather than src/vitruvio/. With `packages` instead,
+# hatchling treats src/vitruvio as the source root, and `import vitruvio.embeddings` fails while `import embeddings`
+# succeeds: nine distributions each claiming to be the top level of a namespace they were meant to share.
+sources = ["src"]
