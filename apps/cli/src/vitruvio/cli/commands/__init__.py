@@ -18,6 +18,7 @@ from vitruvio.cli.commands import (
     inspect,
     query,
     registry,
+    retain,
     source,
     task,
 )
@@ -25,7 +26,7 @@ from vitruvio.cli.commands import (
 if TYPE_CHECKING:
     from cyclopts import App
 
-GROUPS = (brain, source, task, ingest, index, query, dist, registry, inspect, config)
+GROUPS = (brain, source, task, ingest, index, query, retain, dist, registry, inspect, config)
 """Every command-group module, in the order they are shown.
 
 Ordered by the order a user meets them: create a brain, put evidence in it, interpret that evidence, ask it
