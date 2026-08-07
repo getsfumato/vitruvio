@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from typing import TYPE_CHECKING
 
 import pytest
@@ -189,6 +190,40 @@ class TestCache:
         second = EmbeddingCache(tmp_path / "c.sqlite", "tag")
         assert second.count() == 1
         second.close()
+
+    def test_a_dropped_cache_releases_its_connection(self, tmp_path: Path) -> None:
+        """The leak this pins: `close()` existed and nothing ever called it, so every cache held a SQLite connection
+        open for the life of the process.
+
+        Asserted here rather than left to the interpreter, because only Python 3.13 complains -- it emits
+        ResourceWarning when an unclosed connection is deallocated, which turned into a CI failure on that one version
+        while 3.11 and 3.12 leaked silently. A test that only fails on the newest runtime is a test that finds the bug
+        last.
+        """
+        import gc
+
+        cache = EmbeddingCache(tmp_path / "c.sqlite", "tag")
+        connection = cache._connection
+        del cache
+        gc.collect()
+
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
+
+    def test_closing_twice_is_harmless(self, tmp_path: Path) -> None:
+        """`__del__` runs after an explicit close, so close has to be idempotent or teardown raises."""
+        cache = EmbeddingCache(tmp_path / "c.sqlite", "tag")
+        cache.close()
+        cache.close()
+
+    def test_the_cache_works_as_a_context_manager(self, tmp_path: Path) -> None:
+        """For a caller that does have a scope and wants the close to be deterministic rather than at collection."""
+        key = cache_key("tag", "text", "passage", "x")
+        with EmbeddingCache(tmp_path / "c.sqlite", "tag") as cache:
+            cache.put_many({key: (1.0, 0.0)}, "text")
+            connection = cache._connection
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
 
     def test_one_file_per_model_tag(self, tmp_path: Path) -> None:
         """So switching models does not invalidate the old vectors, and switching back is free."""

@@ -175,8 +175,39 @@ class EmbeddingCache:
         return removed
 
     def close(self) -> None:
+        """
+        Close the connection. Idempotent, so a ``__del__`` after an explicit close is safe.
+        """
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None  # type: ignore[assignment]
+
+    def __enter__(self) -> EmbeddingCache:
+        """Enter a scope that closes the connection on exit."""
+        return self
+
+    def __exit__(self, *exception: object) -> None:
         """Close the connection."""
-        self._connection.close()
+        self.close()
+
+    def __del__(self) -> None:
+        """
+        Release the connection when this cache is collected.
+
+        The cache's lifetime *is* the index's lifetime -- there is no earlier point at which closing would be correct,
+        because the index may embed again at any time. So this is the ownership rather than a workaround for a missing
+        teardown, and without it the connection was never closed at all: ``close()`` existed and nothing called it.
+
+        Python 3.13 is what exposed it, by emitting ``ResourceWarning`` when an unclosed connection is deallocated --
+        which ``filterwarnings = error`` turned into a test failure on that version alone. The leak was there on every
+        version; only 3.13 said so.
+
+        Guarded, because during interpreter shutdown a module global can already be ``None``.
+        """
+        import contextlib
+
+        with contextlib.suppress(Exception):  # pragma: no cover - interpreter shutdown
+            self.close()
 
 
 class MemoryCache:
