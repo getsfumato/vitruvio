@@ -89,6 +89,7 @@ def push(
             help="Use a filesystem registry of OCI layouts rooted here. No network, no credentials, same contract.",
         ),
     ] = None,
+    all_: Annotated[bool, Parameter(name=["--all"])] = False,
 ) -> ExitCode:
     """Publish the brain to a registry.
 
@@ -110,8 +111,14 @@ def push(
         Push without credentials. Docker Hub will refuse this.
     insecure
         Allow plain HTTP, for a local registry.
+    all_
+        Publish every brain in the project, each to its own derived repository. Refuses `reference`, which can
+        only name one.
     """
     console = current().console
+    if all_:
+        return _push_all(tag=tag, modules=module, force=force, insecure=insecure, local=local, reference=reference)
+
     result = (
         current()
         .service()
@@ -124,6 +131,94 @@ def push(
         f"digest      {result['digest']}",
     ]
     return console.emit("dist.push", result, lines=lines)
+
+
+def _push_all(
+    *,
+    tag: str | None,
+    modules: list[str] | None,
+    force: bool,
+    insecure: bool,
+    local: Path | None,
+    reference: str | None,
+) -> ExitCode:
+    """
+    Publish every brain in the project, each to its own repository.
+
+    Keeps going after a failure rather than stopping at the first one. Publishing five of six brains and being
+    told which one did not go is a better outcome than publishing two and stopping, because the four that would
+    have worked are still not published and nobody knows that either.
+    """
+    from vitruvio.kernel import VitruvioError
+    from vitruvio.runtime import BrainService
+
+    console = current().console
+    context = current()
+    if reference:
+        raise VitruvioError(
+            "--all publishes several brains and a reference names one repository",
+            hint="drop the reference; each brain derives its own from the project namespace",
+        )
+
+    # Resolved once. Every brain in a project shares its actor, its policy and its registry, so the only thing
+    # that varies per brain is which layout is open -- and re-reading the file per brain would let a project
+    # change underneath a half-finished publish.
+    base = context.resolve(require_brain=False)
+    project = BrainService(base).project()
+    brains = [brain for brain in project["brains"] if brain["exists"]]
+    if not brains:
+        raise VitruvioError(
+            "this project holds no brains to publish",
+            hint="add one with `vitruvio project add <name>`",
+        )
+
+    results: list[dict[str, Any]] = []
+    for brain in brains:
+        name = str(brain["name"])
+        config = base.model_copy(update={"brain": Path(str(brain["path"])), "brain_name": name})
+        service = BrainService(config)
+
+        # An empty brain is skipped, not attempted. A project where one subject has not been started yet is the
+        # ordinary state rather than an error, and letting it come back as a failed push would make `--all` exit
+        # non-zero on a perfectly healthy project until every last brain had something in it.
+        if service.state()["block_count"] == 0:
+            console.note(f"skip  {name:<18} nothing committed yet")
+            results.append({"brain": name, "ok": True, "skipped": True})
+            continue
+
+        try:
+            outcome = service.push(None, tag=tag, modules=modules, force=force, insecure=insecure, local=local)
+            _warn(outcome)
+            console.note(f"ok    {name:<18} {outcome['reference']}:{outcome['tag']}")
+            results.append({"brain": name, "ok": True, "skipped": False, **outcome})
+        except VitruvioError as error:
+            console.warn(f"{name}: {error.message}")
+            results.append({"brain": name, "ok": False, "skipped": False, "error": error.message, "code": error.code})
+
+    published = [item for item in results if item["ok"] and not item["skipped"]]
+    skipped = [item for item in results if item["skipped"]]
+    failed = [item for item in results if not item["ok"]]
+
+    lines = [f"published   {len(published)} of {len(results)} brains"]
+    if skipped:
+        lines.append(f"skipped     {len(skipped)} with nothing committed yet")
+    lines.append("")
+    for item in results:
+        state = "skip" if item["skipped"] else ("ok  " if item["ok"] else "FAIL")
+        lines.append(
+            f"  {state}  {item['brain']:<18} {item.get('reference') or item.get('error') or 'nothing committed yet'}"
+        )
+
+    if failed:
+        raise VitruvioError(
+            f"{len(failed)} of {len(results)} brains were not published",
+            hint="the failures are listed above; each brain is independent, so the rest did publish",
+        )
+    return console.emit(
+        "dist.push-all",
+        {"brains": results, "published": len(published), "skipped": len(skipped)},
+        lines=lines,
+    )
 
 
 @app.command(name="plan-pull")

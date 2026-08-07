@@ -47,7 +47,7 @@ class Context:
     console: Console = field(default_factory=Console)
     verbosity: int = 0
 
-    def service(self, *, require_layout: bool = True) -> BrainService:
+    def service(self, *, require_layout: bool = True, require_brain: bool = True) -> BrainService:
         """
         The service layer, over the resolved configuration.
 
@@ -56,15 +56,16 @@ class Context:
 
         Args:
             require_layout (bool): Whether the selected path must already be a brain.
+            require_brain (bool): Whether a brain has to be selected at all. The `project` commands say no.
 
         Returns:
             BrainService: The service.
         """
         from vitruvio.runtime import BrainService
 
-        return BrainService(self.resolve(require_layout=require_layout))
+        return BrainService(self.resolve(require_layout=require_layout, require_brain=require_brain))
 
-    def resolve(self, *, require_layout: bool = True) -> ResolvedConfig:
+    def resolve(self, *, require_layout: bool = True, require_brain: bool = True) -> ResolvedConfig:
         """
         Merge these options with the environment, the project file and saved state.
 
@@ -86,6 +87,7 @@ class Context:
             actor_id=self.actor_id,
             actor_kind=self.actor_kind,
             require_layout=require_layout,
+            require_brain=require_brain,
         )
 
 

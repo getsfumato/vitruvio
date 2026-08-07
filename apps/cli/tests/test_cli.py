@@ -67,7 +67,7 @@ class TestEnvelope:
         code, out, err = run(capsys, "--json", "brain", "list")
         payload = json.loads(out)
         assert code == ExitCode.OK
-        assert payload["warnings"] == ["no brains recorded yet"]
+        assert payload["warnings"] == ["no brains recorded yet, and this project declares none"]
         assert err == ""
 
     def test_human_mode_puts_notes_on_stderr_so_stdout_stays_pipeable(self, capsys: pytest.CaptureFixture[str]) -> None:

@@ -60,34 +60,66 @@ def use(path: Path) -> ExitCode:
 
 @app.command(name="list")
 def list_() -> ExitCode:
-    """List the brains this machine knows about, most recently used first.
+    """List this project's brains, then the ones this machine remembers.
+
+    Two different lists, kept apart because they answer different questions. The project's brains are the ones
+    `--brain <name>` selects and `dist push --all` publishes; the remembered ones are wherever you happened to
+    run `brain use`, on any project. Merging them would make a name that works here look the same as a path that
+    worked somewhere else last week.
 
     A remembered path that no longer holds a layout is reported rather than hidden: a brain that moved is
-    something to know about, and silently dropping it from the list would make the next `--brain` failure
-    look like it came from nowhere.
+    something to know about, and silently dropping it would make the next `--brain` failure look like it came
+    from nowhere.
     """
+    from vitruvio.kernel import find_config_file, load_project
+
     console = current().console
+    context = current()
+
+    project = load_project(context.config or find_config_file())
+    members = [
+        {
+            "name": name,
+            "path": str(project.brain_path(name)),
+            "present": is_layout(path) if (path := project.brain_path(name)) else False,
+            "description": project.brains[name].description,
+        }
+        for name in sorted(project.brains)
+    ]
+
     state = read_state()
     current_brain = state.get("current")
     known = [item for item in state.get("known", []) if isinstance(item, str)]
+    entries = [{"brain": item, "current": item == current_brain, "present": is_layout(Path(item))} for item in known]
 
-    entries = [
+    lines: list[str] = []
+    if members:
+        lines.append(f"project  {project.project.name or '(unnamed)'}")
+        lines += [
+            f"  {member['name']:<18} {member['description'] or ''}" + ("" if member["present"] else "   (not created)")
+            for member in members
+        ]
+        lines.append("")
+    if entries:
+        lines.append("remembered on this machine")
+        lines += [
+            f"{'*' if entry['current'] else ' '} {entry['brain']}" + ("" if entry["present"] else "   (missing)")
+            for entry in entries
+        ]
+
+    if not members and not entries:
+        console.warn("no brains recorded yet, and this project declares none")
+
+    return console.emit(
+        "brain.list",
         {
-            "brain": item,
-            "current": item == current_brain,
-            "present": is_layout(Path(item)),
-        }
-        for item in known
-    ]
-
-    if not entries:
-        console.warn("no brains recorded yet")
-
-    lines = [
-        f"{'*' if entry['current'] else ' '} {entry['brain']}" + ("" if entry["present"] else "   (missing)")
-        for entry in entries
-    ]
-    return console.emit("brain.list", {"brains": entries, "current": current_brain}, lines=lines)
+            "project": project.project.name,
+            "members": members,
+            "brains": entries,
+            "current": current_brain,
+        },
+        lines=lines,
+    )
 
 
 @app.command(name="init")
