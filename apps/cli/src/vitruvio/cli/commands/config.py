@@ -1,0 +1,265 @@
+"""``vitruvio config`` -- inspect and edit the project configuration.
+
+These commands are the reason the kernel is its own distribution. They must run in tens of milliseconds
+with pydantic as the heaviest import, so nothing here may reach for the runtime, an index engine, or an
+embedder. ``config show`` in particular has to work when the configuration is *broken*, which is exactly
+when a user needs it, so it reports what it found rather than requiring a valid brain.
+"""
+
+from __future__ import annotations
+
+import json as jsonlib
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any
+
+from cyclopts import App, Parameter
+
+from vitruvio.cli.context import current
+from vitruvio.kernel import (
+    ConfigError,
+    ExitCode,
+    Secret,
+    find_config_file,
+    load_project,
+    paths,
+    provider_key,
+    registry_credentials,
+    update_config,
+)
+
+if TYPE_CHECKING:
+    from vitruvio.kernel import ProjectConfig
+
+app = App(
+    name="config", help="Inspect and edit the project configuration.", result_action="return_value", exit_on_error=False
+)
+
+
+def _target() -> Path | None:
+    """
+    Which configuration file these commands operate on.
+
+    One function for all five, and it deliberately asks the *same* question every other command asks: `--config` if
+    given, then the walk up from the working directory, then -- and this is the part a plain walk-up misses -- the file
+    beside an explicitly named `--brain`. Without that last layer, `config set --brain elsewhere/demo` wrote a brand
+    new `vitruvio.toml` into the working directory, silently, while `config show` for the same brain read a different
+    file. Two commands disagreeing about which file is "the configuration" is worse than either being wrong.
+
+    Returns:
+        Path | None: The file, or ``None`` when no configuration exists anywhere.
+    """
+    context = current()
+    if context.config:
+        return context.config
+    if found := find_config_file():
+        return found
+    if context.brain:
+        return find_config_file(context.brain.expanduser().resolve().parent)
+    return None
+
+
+def _redact(document: dict[str, Any]) -> dict[str, Any]:
+    """
+    Replace anything that looks like a secret with a redaction.
+
+    There is no field for a secret in the schema, so in principle nothing here needs redacting. In practice
+    people put tokens in files anyway, and a ``config show`` that helpfully prints one into a terminal
+    transcript is a bad afternoon. This is a belt on top of the structural braces.
+
+    Args:
+        document (dict[str, Any]): The dumped configuration.
+
+    Returns:
+        dict[str, Any]: The same shape, with suspicious leaves masked.
+    """
+    suspicious = ("token", "password", "secret", "api_key", "apikey", "key")
+
+    def walk(value: Any, key: str = "") -> Any:
+        if isinstance(value, dict):
+            return {name: walk(item, name) for name, item in value.items()}
+        if isinstance(value, list):
+            return [walk(item, key) for item in value]
+        if isinstance(value, str) and any(word in key.lower() for word in suspicious):
+            return Secret(value, source="file").masked()
+        return value
+
+    walked: dict[str, Any] = walk(document)
+    return walked
+
+
+def _describe(project: ProjectConfig, source: Path | None) -> list[str]:
+    """
+    Render the configuration for a human.
+
+    Args:
+        project (ProjectConfig): The loaded configuration.
+        source (Path | None): Where it came from.
+
+    Returns:
+        list[str]: Lines to print.
+    """
+    actor = project.actor
+    text = project.text_embedder
+    vision = project.vision_embedder
+    username, token = registry_credentials()
+
+    lines = [
+        f"config file   {source or '(none -- using defaults)'}",
+        f"brain         {project.brain.path or '(not set)'}",
+        f"actor         {actor.id or '(not set)'} [{actor.kind.value}]",
+        (
+            f"policy        {project.policy.profile.value}"
+            f"  canonical drops: {'allowed' if project.policy.build().canonical_drop_allowed else 'refused'}"
+        ),
+        f"text embed    {text.uri}" + (f" @{text.revision}" if text.revision else ""),
+        f"vision embed  {vision.uri if vision else '(none -- images are not embedded)'}",
+        f"indices       {len(project.indices)} registered{' (defaults)' if not project.index else ''}",
+        (
+            f"registry      {project.registry.reference or '(not set)'}:{project.registry.tag}"
+            f"{'  [insecure]' if project.registry.insecure else ''}"
+        ),
+        (
+            f"credentials   {username or '(none)'} / {token.masked() if token else '(none)'}"
+            f"{f'  from {token.source}' if token else ''}"
+        ),
+        f"state file    {paths.state_file()}",
+        f"model cache   {paths.model_cache()}",
+    ]
+
+    missing = [name for name in ("openai", "voyage", "cohere", "anthropic") if provider_key(name) is None]
+    if missing:
+        lines.append(f"absent keys   {', '.join(missing)} (only needed for those providers)")
+    return lines
+
+
+@app.command(name="show")
+def show(*, effective: bool = False) -> ExitCode:
+    """Print the configuration, and where it came from.
+
+    Works even when the configuration is invalid, because that is when you need it. Secrets are always
+    masked, in both human and JSON output.
+
+    Parameters
+    ----------
+    effective
+        Include the defaults that were filled in, rather than only what the file states.
+    """
+    console = current().console
+    source = _target()
+    project = load_project(source)
+
+    if console.json_mode:
+        document = project.model_dump(mode="json", exclude_defaults=not effective)
+        payload = {
+            "config_file": str(source) if source else None,
+            "config": _redact(document),
+            "index_count": len(project.indices),
+            "indices_are_defaults": not project.index,
+            "state_file": str(paths.state_file()),
+            "model_cache": str(paths.model_cache()),
+        }
+        return console.emit("config.show", payload)
+
+    return console.emit("config.show", lines=_describe(project, source))
+
+
+@app.command(name="path")
+def path() -> ExitCode:
+    """Print the path of the configuration file that would be used."""
+    console = current().console
+    found = _target()
+    if found is None:
+        console.warn("no vitruvio.toml found; defaults are in use")
+        return console.emit("config.path", {"config_file": None}, lines=[])
+    return console.emit("config.path", {"config_file": str(found)}, lines=[str(found)])
+
+
+@app.command(name="get")
+def get(key: str) -> ExitCode:
+    """Print one value, addressed by dotted key.
+
+    Parameters
+    ----------
+    key
+        A dotted path, e.g. `actor.id` or `planner.rrf_k`.
+    """
+    console = current().console
+    source = _target()
+    project = load_project(source)
+
+    cursor: Any = project.model_dump(mode="json")
+    for part in key.split("."):
+        if not isinstance(cursor, dict) or part not in cursor:
+            raise ConfigError(
+                f"{key} is not set",
+                hint="run `vitruvio config show --effective --json` to see every key and its default",
+            )
+        cursor = cursor[part]
+
+    rendered = cursor if isinstance(cursor, str) else jsonlib.dumps(cursor, default=str)
+    return console.emit("config.get", {"key": key, "value": cursor}, lines=[rendered])
+
+
+@app.command(name="set")
+def set_(
+    key: str,
+    value: str,
+    *,
+    file: Annotated[
+        Path | None, Parameter(name=["--file"], help="Which vitruvio.toml to write. Defaults to the nearest one.")
+    ] = None,
+) -> ExitCode:
+    """Set one value, addressed by dotted key.
+
+    The file is round-tripped through a plain document, so **comments are lost**. Hand-editing stays the
+    better path for anything structural; this exists for the edits that should not need an editor.
+
+    Parameters
+    ----------
+    key
+        A dotted path, e.g. `actor.id`.
+    value
+        The new value. Parsed as JSON when it looks like JSON, so `true`, `42` and `["a","b"]` land as the
+        types they look like rather than as strings.
+    file
+        Which file to write.
+    """
+    console = current().console
+    # The brain's neighbour before the working directory's fallback: writing a new file at cwd for a brain that
+    # already has one beside it is how `config set` and `config show` came to read different files.
+    target = file or _target() or Path.cwd() / paths.CONFIG_FILE
+
+    try:
+        parsed: Any = jsonlib.loads(value)
+    except jsonlib.JSONDecodeError:
+        parsed = value
+
+    written = update_config(target, key, parsed)
+    console.warn(f"comments in {written} were not preserved")
+    return console.emit(
+        "config.set",
+        {"config_file": str(written), "key": key, "value": parsed},
+        lines=[f"set {key} in {written}"],
+    )
+
+
+@app.command(name="validate")
+def validate() -> ExitCode:
+    """Check that the configuration parses and satisfies the schema.
+
+    Exits 3 when it does not, so this is usable as a CI gate on a committed vitruvio.toml.
+    """
+    console = current().console
+    source = _target()
+    if source is None:
+        console.warn("no vitruvio.toml found; nothing to validate")
+        return console.emit("config.validate", {"config_file": None, "valid": True}, lines=["ok (defaults)"])
+
+    project = load_project(source)
+    payload = {
+        "config_file": str(source),
+        "valid": True,
+        "index_count": len(project.indices),
+        "policy_profile": project.policy.profile.value,
+    }
+    return console.emit("config.validate", payload, lines=[f"ok  {source}"])

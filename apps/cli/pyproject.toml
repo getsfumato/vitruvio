@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vitruvio"
+version = "0.1.0"
+description = "The vitruvio CLI: run a Boltzmann brain from the command line"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Alex Fiorenza", email = "alexfiorenza2012@gmail.com"}]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    "vitruvio-kernel",
+    "vitruvio-runtime",
+    "cyclopts>=4.0.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+local = ["vitruvio-embeddings[local-text]"]
+vision = ["vitruvio-embeddings[vision]", "vitruvio-ingest[vision]"]
+# One extra for both halves of "talk to a provider over HTTP": the API embedders and the API proposers. They use the
+# same client and the same key conventions, so splitting them would only make one of the two silently unavailable.
+api = ["vitruvio-embeddings[api]", "vitruvio-ingest[api]"]
+keyring = ["vitruvio-runtime[keyring]"]
+all = ["vitruvio[local]", "vitruvio[vision]", "vitruvio[api]", "vitruvio[keyring]"]
+
+[project.scripts]
+vitruvio = "vitruvio.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+# PEP 420: there is no src/vitruvio/__init__.py in any member, so all nine distributions install into
+# one shared `vitruvio` namespace. Adding an __init__.py here would shadow the others.
+only-include = ["src/vitruvio/cli"]
+# `sources` strips the src/ prefix so the wheel holds vitruvio/cli/, and -- the part that actually
+# matters -- an editable install puts src/ on sys.path rather than src/vitruvio/. With `packages` instead,
+# hatchling treats src/vitruvio as the source root, and `import vitruvio.cli` fails while `import cli`
+# succeeds: nine distributions each claiming to be the top level of a namespace they were meant to share.
+sources = ["src"]
+# The skills are package data, and shipping them inside the wheel is what ties a skill to the version of the CLI it
+# documents. `only-include` above already covers src/vitruvio/cli, but hatchling excludes non-Python files from a
+# package directory unless they are named, and a `skills install` that installs nothing is a silent failure.
+artifacts = ["src/vitruvio/cli/skills/**/*.md"]
