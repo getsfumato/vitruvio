@@ -17,6 +17,7 @@ Two models are worth telling apart:
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -30,6 +31,22 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+
+DEFAULT_REGISTRY_HOST = "docker.io"
+"""Where a derived repository lives when only an account is known.
+
+Docker Hub because that is where an account most people already have is, and because `registry login
+--from-docker` imports exactly that account. A project that publishes elsewhere sets `[registry].namespace`.
+"""
+
+REPOSITORY_SEGMENT = re.compile(r"^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$")
+"""What one path component of an OCI repository name may look like, from the distribution spec.
+
+Enforced on a project and brain name rather than discovered at push time, because the alternative is a registry
+rejecting `Álgebra II` after the artifact has already been packed -- and the error a registry returns for a
+malformed name says nothing about which of the two you got wrong.
+"""
 
 
 class Origin(StrEnum):
@@ -257,13 +274,20 @@ class PlannerConfig(BaseModel):
 
 class RegistrySpec(BaseModel):
     """
-    Where this brain publishes, and how to address it.
+    Where this project's brains publish, and how to address them.
 
     Credentials are absent by design: they come from the environment or from vitruvio's credential store,
     never from a file that gets committed.
 
+    ``reference`` addresses one repository and is what a single-brain project sets. ``namespace`` addresses a
+    whole account, and is what a project with several brains sets instead -- each brain then derives its own
+    repository under it, so adding a subject to a project does not mean editing a registry reference.
+
     Attributes:
-        reference (str | None): ``<host>/<namespace>/<repo>``, without a tag.
+        reference (str | None): ``<host>/<namespace>/<repo>``, without a tag. One repository, one brain.
+        namespace (str | None): ``<host>/<account>``, under which each brain derives a repository. Left unset,
+            it is taken from whichever Docker account you are logged in as -- which is the point of
+            ``registry login --from-docker``: log in once, and every brain in the project knows where it goes.
         tag (str): The tag to use when none is given.
         insecure (bool): Allow plain HTTP, for a local registry.
     """
@@ -271,8 +295,20 @@ class RegistrySpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     reference: str | None = None
+    namespace: str | None = None
     tag: str = "latest"
     insecure: bool = False
+
+    @field_validator("namespace")
+    @classmethod
+    def _reject_repository_shaped_namespace(cls, value: str | None) -> str | None:
+        """A namespace is a host and an account, not a repository: three segments means a repo was pasted in."""
+        if value and len(value.strip("/").split("/")) > 2:
+            raise ValueError(
+                f"namespace {value!r} looks like a repository; it should be <host>/<account>, and each brain "
+                f"derives its own repository under it. Set [registry].reference for a single-brain project"
+            )
+        return value.strip("/") if value else value
 
     @field_validator("reference")
     @classmethod
@@ -317,6 +353,65 @@ class BrainSpec(BaseModel):
     path: str | None = None
 
 
+class NamedBrainSpec(BaseModel):
+    """
+    One brain of a project that holds several.
+
+    A project is a set of brains that share an actor, a policy, an embedder and a registry account -- one per
+    subject, per client, per team. Keeping them separate rather than in one brain is what makes each publishable,
+    installable and droppable on its own: a consumer who wants one subject should not pull five.
+
+    Attributes:
+        path (str): Path to the layout, resolved relative to the configuration file.
+        reference (str | None): Where this brain publishes, when the derived repository is not what you want.
+            Usually absent -- the whole point of a project namespace is that each brain derives its own.
+        description (str | None): What this brain holds, for ``project show``. A set of six named brains is
+            unreadable without one.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    reference: str | None = None
+    description: str | None = None
+
+    @field_validator("reference")
+    @classmethod
+    def _reject_tagged_reference(cls, value: str | None) -> str | None:
+        """Same rule as the registry's: a repository and a tag are separate fields."""
+        if value and ":" in value.rsplit("/", 1)[-1]:
+            raise ValueError(f"reference {value!r} carries a tag; set [registry].tag instead")
+        return value
+
+
+class ProjectSpec(BaseModel):
+    """
+    The project a set of brains belongs to.
+
+    Attributes:
+        name (str | None): The project's name. It prefixes every derived repository, so
+            ``facultad`` + ``algebra`` publishes to ``<namespace>/facultad-algebra``. That prefix is what keeps
+            two projects with a subject of the same name from colliding in one registry account.
+        description (str | None): What the project is.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str | None = None
+    description: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str | None) -> str | None:
+        """A project name becomes part of a repository, so it lives under OCI's naming rules."""
+        if value is not None and not REPOSITORY_SEGMENT.match(value):
+            raise ValueError(
+                f"project name {value!r} cannot be part of a repository name: use lowercase letters, digits, "
+                f"and single separators (-, _, .)"
+            )
+        return value
+
+
 class ProjectConfig(BaseModel):
     """
     The parsed ``vitruvio.toml``.
@@ -325,7 +420,10 @@ class ProjectConfig(BaseModel):
     ``vitruvio brain init`` followed immediately by ``vitruvio search`` work.
 
     Attributes:
-        brain (BrainSpec): Which brain.
+        project (ProjectSpec): The project these brains belong to.
+        brain (BrainSpec): The single brain, for a project that has one.
+        brains (dict[str, NamedBrainSpec]): The named brains, for a project that has several. A subject per
+            brain, a client per brain -- whatever the unit of "someone might want only this one" is.
         actor (ActorSpec): Who writes.
         policy (PolicySpec): What may be removed.
         embedding (dict[str, EmbedderSpec]): Keyed ``text`` and ``vision``.
@@ -339,7 +437,9 @@ class ProjectConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    project: ProjectSpec = ProjectSpec()
     brain: BrainSpec = BrainSpec()
+    brains: dict[str, NamedBrainSpec] = Field(default_factory=dict)
     actor: ActorSpec = ActorSpec()
     policy: PolicySpec = PolicySpec()
     embedding: dict[str, EmbedderSpec] = Field(default_factory=dict)
@@ -348,6 +448,64 @@ class ProjectConfig(BaseModel):
     registry: RegistrySpec = RegistrySpec()
     ingest: IngestSpec = IngestSpec()
     source: Path | None = Field(default=None, exclude=True)
+
+    @field_validator("brains")
+    @classmethod
+    def _validate_brain_names(cls, value: dict[str, NamedBrainSpec]) -> dict[str, NamedBrainSpec]:
+        """A brain name becomes part of a repository, so it lives under the same rules as the project's."""
+        for name in value:
+            if not REPOSITORY_SEGMENT.match(name):
+                raise ValueError(
+                    f"brain name {name!r} cannot be part of a repository name: use lowercase letters, digits, "
+                    f"and single separators (-, _, .). `analisis-ii` rather than `Análisis II`"
+                )
+        return value
+
+    def brain_path(self, name: str) -> Path | None:
+        """
+        Where one named brain lives, resolved against the configuration file.
+
+        Args:
+            name (str): The brain's name in this project.
+
+        Returns:
+            Path | None: The layout path, or ``None`` if this project has no such brain.
+        """
+        spec = self.brains.get(name)
+        if spec is None:
+            return None
+        base = self.source.parent if self.source is not None else Path()
+        return (base / spec.path).expanduser().resolve()
+
+    def repository_for(self, name: str, *, account: str | None = None) -> str | None:
+        """
+        The repository one named brain publishes to.
+
+        Three layers, most specific first: the brain's own ``reference``, then a repository derived from the
+        project namespace, and nothing when neither is available.
+
+        The derivation is ``<namespace>/<project>-<name>``. The project prefix is not decoration: without it,
+        two projects that each have a brain called ``notes`` would publish to one repository and silently
+        overwrite each other, and the second one would only find out when a pull returned the wrong subject.
+
+        Args:
+            name (str): The brain's name.
+            account (str | None): A registry account to fall back on when no namespace is configured -- in
+                practice the Docker login, so that logging in once is enough.
+
+        Returns:
+            str | None: The repository, without a tag, or ``None`` when nothing names one.
+        """
+        spec = self.brains.get(name)
+        if spec is not None and spec.reference:
+            return spec.reference
+
+        namespace = self.registry.namespace or (f"{DEFAULT_REGISTRY_HOST}/{account}" if account else None)
+        if not namespace:
+            return None
+
+        prefix = f"{self.project.name}-" if self.project.name else ""
+        return f"{namespace}/{prefix}{name}"
 
     @property
     def text_embedder(self) -> EmbedderSpec:
@@ -372,6 +530,9 @@ class ResolvedConfig(BaseModel):
     Attributes:
         brain (Path): The selected brain's layout directory, absolute.
         brain_origin (Origin): Which layer of precedence selected it.
+        brain_name (str | None): Which of the project's named brains this is, when it is one. Carried because
+            it is what a derived repository is built from -- a path cannot tell you that ``./brains/algebra``
+            publishes to ``facultad-algebra``.
         project (ProjectConfig): The merged project configuration.
         actor_origin (Origin): Where the actor identity came from.
         config_file (Path | None): The file that was read, if any.
@@ -381,9 +542,28 @@ class ResolvedConfig(BaseModel):
 
     brain: Path
     brain_origin: Origin
+    brain_name: str | None = None
     project: ProjectConfig
     actor_origin: Origin = Origin.DEFAULT
     config_file: Path | None = None
+
+    def repository(self, account: str | None = None) -> str | None:
+        """
+        Where this brain publishes.
+
+        A named brain derives its repository from the project; an unnamed one uses ``[registry].reference``.
+
+        Args:
+            account (str | None): A registry account to fall back on when no namespace is configured.
+
+        Returns:
+            str | None: The repository, without a tag, or ``None`` when nothing names one.
+        """
+        if self.brain_name is not None:
+            derived = self.project.repository_for(self.brain_name, account=account)
+            if derived is not None:
+                return derived
+        return self.project.registry.reference
 
     @property
     def derived(self) -> Path:

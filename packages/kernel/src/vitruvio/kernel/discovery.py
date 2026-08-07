@@ -226,34 +226,61 @@ def update_config(path: Path, key: str, value: Any) -> Path:
 def _brain_from_layers(
     brain_flag: Path | None,
     project: ProjectConfig,
-) -> tuple[Path, Origin]:
+) -> tuple[Path, Origin, str | None]:
     """
     Apply the brain-selection precedence.
 
+    A project that holds several brains selects one **by name**, so ``--brain algebra`` and
+    ``--brain ./brains/algebra`` both work. The name is tried first: within a project the names are the
+    vocabulary, and a directory in the working tree that happens to share a name with a project member must not
+    shadow the member -- silently operating on the wrong brain is the failure worth spending a lookup to avoid.
+
     Args:
-        brain_flag (Path | None): The ``--brain`` value.
+        brain_flag (Path | None): The ``--brain`` value, a name or a path.
         project (ProjectConfig): The loaded project configuration.
 
     Returns:
-        tuple[Path, Origin]: The selected path and which layer chose it.
+        tuple[Path, Origin, str | None]: The selected path, which layer chose it, and its project name when it
+        has one.
 
     Raises:
         BrainNotSelectedError: If no layer named a brain.
     """
     if brain_flag is not None:
-        return brain_flag.expanduser().resolve(), Origin.FLAG
+        named = project.brain_path(str(brain_flag))
+        if named is not None:
+            return named, Origin.FLAG, str(brain_flag)
+        return brain_flag.expanduser().resolve(), Origin.FLAG, None
 
     from_env = os.environ.get(ENV_BRAIN, "").strip()
     if from_env:
-        return Path(from_env).expanduser().resolve(), Origin.ENVIRONMENT
+        named = project.brain_path(from_env)
+        if named is not None:
+            return named, Origin.ENVIRONMENT, from_env
+        return Path(from_env).expanduser().resolve(), Origin.ENVIRONMENT, None
 
     if project.brain.path and project.source is not None:
         # Relative to the file, not to cwd. This is the whole point of the walk-up.
-        return (project.source.parent / project.brain.path).expanduser().resolve(), Origin.FILE
+        return (project.source.parent / project.brain.path).expanduser().resolve(), Origin.FILE, None
+
+    if len(project.brains) == 1:
+        # A project with exactly one brain has no ambiguity to resolve, so requiring --brain would be ceremony.
+        # With two or more it is a real question, and the error below asks it by name.
+        only = next(iter(project.brains))
+        path = project.brain_path(only)
+        if path is not None:
+            return path, Origin.FILE, only
 
     current = read_state().get("current")
     if isinstance(current, str) and current:
-        return Path(current).expanduser().resolve(), Origin.STATE
+        return Path(current).expanduser().resolve(), Origin.STATE, None
+
+    if project.brains:
+        names = ", ".join(sorted(project.brains))
+        raise BrainNotSelectedError(
+            f"this project holds {len(project.brains)} brains and none was selected",
+            hint=f"pass --brain with one of: {names}",
+        )
 
     raise BrainNotSelectedError(
         "no brain is selected",
@@ -340,6 +367,7 @@ def resolve(
     actor_kind: str | ActorKind | None = None,
     start: Path | None = None,
     require_layout: bool = True,
+    require_brain: bool = True,
 ) -> ResolvedConfig:
     """
     Merge flags, environment, file and state into one answer.
@@ -352,6 +380,9 @@ def resolve(
         start (Path | None): Where the walk-up begins. Defaults to the working directory.
         require_layout (bool): Whether the selected path must already be an OCI layout. ``brain init`` is
             the one caller that passes ``False``, because it is about to create one.
+        require_brain (bool): Whether a brain must be selected at all. The ``project`` commands pass ``False``:
+            they are about the project rather than about any one brain, and a project that holds no brains yet
+            is the state ``project show`` most needs to be able to report.
 
     Returns:
         ResolvedConfig: Everything the runtime needs, with the provenance of each answer.
@@ -379,7 +410,15 @@ def resolve(
             config_path = find_config_file(brain.expanduser().resolve().parent)
 
     project = load_project(config_path)
-    selected, origin = _brain_from_layers(brain, project)
+    try:
+        selected, origin, brain_name = _brain_from_layers(brain, project)
+    except BrainNotSelectedError:
+        if require_brain:
+            raise
+        # Stands in for "no brain", and is never opened: the only callers that get here are asking about the
+        # project. A None would ripple an optional through every consumer of ResolvedConfig for one case.
+        selected, origin, brain_name = Path.cwd(), Origin.DEFAULT, None
+        require_layout = False
     actor, actor_origin = _actor_from_layers(project, actor_id, actor_kind)
 
     if require_layout and not is_layout(selected):
@@ -392,6 +431,7 @@ def resolve(
     return ResolvedConfig(
         brain=selected,
         brain_origin=origin,
+        brain_name=brain_name,
         project=project.model_copy(update={"actor": actor}),
         actor_origin=actor_origin,
         config_file=config_path,
