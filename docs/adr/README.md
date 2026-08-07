@@ -18,3 +18,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0007](0007-registry-credentials-and-endpoints.md) | Registry credentials, endpoints and the preflight |
 | [0008](0008-ingest-and-the-proposer-boundary.md) | Normalization determinism, and the proposer boundary |
 | [0009](0009-retention-and-the-five-mechanisms.md) | Retention, and why there are five mechanisms |
+| [0010](0010-projects-and-derived-repositories.md) | Projects, and where a brain publishes |

@@ -14,5 +14,6 @@ In order. Each page assumes the ones before it.
 10. [Publishing](10-publishing.md) — OCI artifacts, credentials, and the Docker traps.
 11. [Skills](11-skills.md) — making the CLI drivable by an agent.
 12. [Benchmarking](12-benchmarking.md) — measuring recall, and calibrating the cost model.
+13. [Projects](13-projects.md) — one project, many brains, and publishing each to its own repository.
 
 For the reasoning behind the design, read the [ADRs](../adr/README.md).

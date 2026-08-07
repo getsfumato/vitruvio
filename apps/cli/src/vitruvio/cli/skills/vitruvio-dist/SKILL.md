@@ -34,6 +34,22 @@ vitruvio dist pack --tag v1 --json                 # build it locally, push noth
 vitruvio dist push <REF> --tag v1 --json
 ```
 
+### A project publishes several brains at once
+
+When the repository holds a *project* — several named brains under one `vitruvio.toml` — you usually pass no
+reference at all. Each brain derives `<namespace>/<project>-<brain>`:
+
+```bash
+vitruvio project show --json                       # read `repository` before pushing: it is the destination
+vitruvio dist push --all --tag v1 --json
+```
+
+`--all` **skips** a brain with nothing committed rather than failing it — a subject nobody has started yet is the
+ordinary state of a project. Read `skipped` in the payload before concluding something went wrong. A brain that
+fails for a real reason does not stop the others, and the command exits non-zero at the end.
+
+`--all` refuses a reference, because a reference names one repository and this publishes several.
+
 `pack` first, and **read the warnings**. The one that matters: *"the vector index will not be published"*. A brain
 published without its vector layer is a brain nobody else can search semantically, because the vector index is the
 one index a consumer cannot rebuild. The usual cause is a stale index — `vitruvio index build` and pack again.

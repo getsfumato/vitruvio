@@ -63,8 +63,21 @@ both `pull` and `push`. The credentials were never the problem. Fixed upstream i
 A brain's manifest carries `artifactType = application/vnd.gaussia.boltzmann.brain.v1+json` and
 `config.mediaType = application/vnd.gaussia.boltzmann.snapshot.v1+json`. Docker Hub's documentation used to state that
 it accepted no config media type other than `application/vnd.oci.image.config.v1+json`; the current documentation no
-longer publishes that restriction and Docker now promotes OCI artifacts for AI models, so support appears to have
-broadened. That is a reading of documentation, not a verified fact.
+longer publishes that restriction and Docker now promotes OCI artifacts for AI models, so support appeared to have
+broadened. That was a reading of documentation, not a verified fact.
+
+**It is now a verified fact.** Run against Docker Hub on 2026-08-07:
+
+```
+ok   reference            docker.io/<account>/vitruvio-preflight resolves to registry-1.docker.io/...
+ok   write                accepted, filed under sha256:e5781a2d85421...
+ok   config_media_type    application/vnd.gaussia.boltzmann.snapshot.v1+json accepted
+ok   artifact_type        application/vnd.gaussia.boltzmann.brain.v1+json preserved
+```
+
+Docker Hub accepts the protocol's config media type and preserves the artifact type through a round trip, and a full
+brain published there pulls back into a fresh install, verifies against its Merkle roots, and is searchable. The
+preflight stays: what was verified is one registry on one day, and the next registry is the one that refuses.
 
 `registry check` therefore pushes a probe artifact with **exactly** the manifest shape a brain uses — same
 `artifactType`, same `config.mediaType`, one 24-byte layer — under the tag `vitruvio-preflight`, and reports four

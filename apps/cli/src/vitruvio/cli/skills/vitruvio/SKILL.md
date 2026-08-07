@@ -34,6 +34,10 @@ actually returned.
    which version, and where the brain came from. A search against a module that is not installed returns
    nothing, correctly, and looks exactly like a search that found nothing.
 
+   If the repository holds a **project**, run `vitruvio project show --json` too: it lists the named brains, and
+   `--brain <name>` then selects one. A project is several brains under one configuration — a subject per brain,
+   a client per brain — and picking the wrong one is a mistake nothing downstream will report.
+
 4. **Never invent a `block_id`.** Not in a citation, not in an `evidence` list, not to fill a gap. If you need
    one and do not have it, search for it or say you cannot cite.
 

@@ -6,6 +6,26 @@ disagrees with the parser is worse than none, because it costs a turn to discove
 Every command accepts the global options `--brain`, `--config`, `--actor`, `--actor-kind`, `--json`, `--quiet`,
 `--no-color` and `--verbose`. Pass `--json` whenever something other than a person is reading.
 
+## `vitruvio project`
+
+Manage a project and the brains it holds.
+
+### `vitruvio project init` `name` `--description` `--namespace`
+
+Create a project in the working directory.
+
+### `vitruvio project show`
+
+List the project's brains, where each lives, and where each publishes.
+
+### `vitruvio project add` `name` `--path` `--description` `--reference` `--no-create`
+
+Add a brain to the project, creating its layout.
+
+### `vitruvio project remove` `name`
+
+Unregister a brain from the project.
+
 ## `vitruvio brain`
 
 Select a brain and inspect its state.
@@ -16,7 +36,7 @@ Record a brain as the interactive default.
 
 ### `vitruvio brain list`
 
-List the brains this machine knows about, most recently used first.
+List this project's brains, then the ones this machine remembers.
 
 ### `vitruvio brain init` `[path]` `--policy` `--force`
 
@@ -178,7 +198,7 @@ Publish a brain to a registry, and install one from a registry.
 
 Build the OCI artifact locally, without pushing.
 
-### `vitruvio dist push` `[reference]` `--tag` `--module` `--force` `--anonymous` `--insecure` `--local`
+### `vitruvio dist push` `[reference]` `--tag` `--module` `--force` `--anonymous` `--insecure` `--local` `--all`
 
 Publish the brain to a registry.
 
