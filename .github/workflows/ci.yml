@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail rather than silently re-resolve if uv.lock is stale. A CI run that quietly installs different
+  # versions than a developer has is a CI run whose green is worth less than it looks.
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  types:
+    name: types (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - run: uv sync --all-packages
+      - run: uv run mypy packages apps
+
+  boundaries:
+    name: boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+      # The layering contract, and the rule that keeps the future MCP server and HTTP API thin.
+      - run: uv run lint-imports
+
+  skills:
+    name: skills (generated reference)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+      # A stale skill reference is worse than none: an agent that trusts a flag which no longer exists spends its
+      # next turn recovering from a usage error, and nothing in the output says the documentation was wrong.
+      - run: uv run python -m vitruvio.cli.reference --check
+
+  test:
+    name: test (py${{ matrix.python }} ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13"]
+        include:
+          # macOS is in the matrix because usearch and pyroaring ship compiled wheels and this project is
+          # developed on darwin. A wheel that only exists for linux is a problem worth finding in CI.
+          - os: macos-14
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - run: uv sync --all-packages
+      # No optional extras: the default configuration must be fully testable without torch.
+      - run: uv run pytest -m "not slow" -n auto
+
+  no-sources:
+    name: no-sources (PyPI pyboltzmann)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Proves the released-SDK path rather than assuming it. When [tool.uv.sources] carries a local path
+      # override for pyboltzmann, every other job silently tests against a working copy.
+      - run: uv sync --all-packages --no-sources
+      - run: uv run pytest -m "not slow" -q
+
+  heavy:
+    name: heavy (real models)
+    # Downloads model weights and runs containers, so it is opt-in: a label on the PR, or a nightly run.
+    if: github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'run-heavy')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages --extra local --extra vision
+      - run: uv run pytest -m slow
