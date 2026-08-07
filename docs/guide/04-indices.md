@@ -1,0 +1,55 @@
+# 4. Indices
+
+```bash
+vitruvio index list          # what is registered, per module
+vitruvio index build         # build them all
+vitruvio index status        # fresh, stale, empty, or model-mismatched
+vitruvio index stats         # what the planner will read
+vitruvio index verify        # headers against the composition
+vitruvio index gc            # remove index files no configuration claims
+```
+
+Six kinds, and each one is here because the planner needs a specific fact from it.
+
+| kind | engine | what it answers | what it tells the planner |
+|---|---|---|---|
+| `hash_map` | dicts | identity lookups — block id, blob, view, label, alias | **exact** cardinality |
+| `bitmap` | pyroaring | facets — subject, tags, state, producer | **exact selectivity of every value** |
+| `btree` | sorted arrays + bisect | ranges — `occurred_at`, size | equi-depth histogram, 32 buckets |
+| `inverted` | pure-Python postings | terms and phrases, BM25 | `df` per term, `avgdl`, language mix |
+| `vector` | usearch HNSW | similarity | a **measured** recall curve |
+| `graph` | CSR + transpose | relation expansion | **measured** mean reach by depth |
+
+## Five rebuild; one travels
+
+Five of them are deterministic functions of the blocks, so any client rebuilds them and gets identical bytes. The
+vector index is not — embedding vectors and HNSW structure are not reproducible byte for byte across machines, and no
+design fixes that (BLAS kernel selection, non-associative float reduction, insertion order).
+
+That is exactly *why* the protocol has a travelling index: the vector layer ships inside the artifact instead of being
+rebuilt. See [7. Embeddings and the vector index](07-embeddings-and-vectors.md).
+
+## Freshness has two levels
+
+`index status` compares two things, and both are needed:
+
+- the module **root**, which catches any change of composition;
+- a **leaf fingerprint** over the resolvable block ids, which catches what the root cannot — a redaction that
+  tombstones bytes without changing the composition.
+
+A stale index is not consulted with stale data. It makes the planner pessimistic about selectivity, raises the recall
+floor, bypasses the plan cache, and says so in `explain`.
+
+## An empty index is worse than an absent one
+
+The planner consults an empty index, gets nothing, and reports "nothing found" with confidence. So `population` is a
+hard requirement on every vitruvio index, an empty index is treated as absent and **warned about loudly**, and
+`flush()` refuses to write one to disk.
+
+## Everything derived lives in `.vitruvio/`
+
+Sibling of the SDK's `boltzmann/`, and never inside the layout. Deleting it costs a rebuild, never knowledge.
+
+## Next
+
+[5. Searching](05-searching.md)

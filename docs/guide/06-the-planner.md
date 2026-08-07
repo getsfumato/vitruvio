@@ -1,0 +1,72 @@
+# 6. The query planner
+
+```bash
+vitruvio query explain "TEXT"              # the plan, the alternatives, and why
+vitruvio query explain "TEXT" --analyze    # estimates beside measured actuals
+vitruvio calibrate                         # re-measure the cost constants here
+vitruvio calibrate --from-samples          # refit them from recorded runs
+```
+
+Vitruvio's planner selects indices **by cost**, from measured statistics. The claim is easy to check, and worth
+checking, because it runs in both directions.
+
+At 3000 blocks:
+
+```
+chosen      TermScan      13.4 ms   J=61486
+considered  SeqScan      143.0 ms   J=143089
+```
+
+At 4 blocks, same code, opposite decision:
+
+```
+chosen      SeqScan      350 µs
+considered  TermScan     183 µs   rejected: only 1 scored generator with 2 available
+```
+
+A heuristic router that maps "natural language ⇒ vector index" is simply wrong on a small brain: embedding the query
+costs about 4500 µs, and at 200 blocks that is more than reading every block in the module. A cost model notices.
+
+## Cost is in microseconds
+
+Not in abstract units. The operators span dict probes, HNSW walks, blob reads and a neural forward pass; any synthetic
+unit needs conversion factors anyway, and being honest about the unit is what lets `explain --analyze` *validate* the
+model rather than merely display it.
+
+## Recall is part of the objective
+
+Three layers, and the stratification is how pruning happens without violating the protocol:
+
+1. **A validity rule, never costed.** With two or more scoring generators available, a plan using fewer than two is
+   inadmissible. Single-authority plans are structurally inexpressible. (One exemption: a plan whose only generator is
+   an exhaustive scan is a *no*-authority plan, not a single-authority one.)
+2. **A recall floor per intent**, as feasibility rather than as a price — 1.00 exact, 0.95 lexical, 0.85 semantic,
+   0.80 associative. Capped at the best recall any valid indexed plan actually achieves, and the capping is reported
+   as a degradation: an unreachable floor forced a 5.3-second scan over a 600-microsecond probe at 100k blocks.
+3. `J = cost + λ·(1 − recall)·C_miss`, to choose among plans that are already correct.
+
+## Reading `explain`
+
+Four fields answer most questions:
+
+- **`indices_available` vs `indices_consulted`.** "Why did it not use the vector index" has exactly four possible
+  answers — absent, stale, model tag mismatched, or cost — and all four are visible here.
+- **`considered`** — every rejected plan with its reason. `only 1 scored generator with 3 available` is the
+  single-authority rule refusing a plan.
+- **`statistics`** — per module: fresh or stale, and the fingerprint.
+- **`prelude_us`** — the provenance ledger, cached per root. It once charged 136 ms to a query that did not cause it.
+
+`--analyze` writes `(op, params, est, act, wall)` to `.vitruvio/estimation.jsonl`, and `calibrate --from-samples`
+refits the constants by least squares. The model improves on each brain it runs against instead of staying frozen at
+whatever the author's laptop measured.
+
+## Enumeration is exhaustive
+
+There is no memo structure, because the combinatorial explosion that justifies one comes from join reordering and
+there are no joins here. Exhaustive search over a few hundred plans per scope buys a property worth more than the
+saved microseconds: **adding an index can never worsen the chosen plan**, because the new space is a strict superset
+and both are searched completely. It is asserted as a property test.
+
+## Next
+
+[7. Embeddings and the vector index](07-embeddings-and-vectors.md)
