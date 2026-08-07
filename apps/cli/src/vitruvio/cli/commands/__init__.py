@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from vitruvio.cli.commands import (
     brain,
+    completion,
     config,
     dist,
     index,
@@ -19,6 +20,7 @@ from vitruvio.cli.commands import (
     query,
     registry,
     retain,
+    skills,
     source,
     task,
 )
@@ -26,7 +28,7 @@ from vitruvio.cli.commands import (
 if TYPE_CHECKING:
     from cyclopts import App
 
-GROUPS = (brain, source, task, ingest, index, query, retain, dist, registry, inspect, config)
+GROUPS = (brain, source, task, ingest, index, query, retain, dist, registry, inspect, config, skills, completion)
 """Every command-group module, in the order they are shown.
 
 Ordered by the order a user meets them: create a brain, put evidence in it, interpret that evidence, ask it
