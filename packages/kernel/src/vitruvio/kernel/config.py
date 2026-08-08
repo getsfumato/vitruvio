@@ -163,9 +163,19 @@ class EmbedderSpec(BaseModel):
         model (str): The model within that provider.
         revision (str | None): A commit sha or vendor version. Pinning it is what stops a rebuild from
             silently landing vectors in a different space than the ones already indexed.
-        dims (int | None): Expected dimensionality, checked against the loaded model.
+        dims (int | None): Expected dimensionality, checked against the loaded model. For a remote provider this
+            is not a hint: the model tag carries it, the tag is what a consumer matches on, and a tag whose width
+            came from whatever the network answered that day would not be a reproducible artifact. vitruvio knows
+            the common models' widths already; ``config embedder test`` reports the width of one it does not.
         batch (int | None): Maximum batch size handed to the model at once.
         device (str | None): ``cpu``, ``cuda``, ``mps``. Left unset, the provider decides.
+        base_url (str | None): Override the provider's endpoint. What points Ollama at another host, or an
+            OpenAI-compatible gateway at itself. Not part of the model tag -- *where* a request went does not
+            change where the vector lands, and putting it in the tag would make a brain unpublishable across two
+            machines that reach the same model by different routes.
+        options (dict[str, Any]): Provider-specific request fields, merged into the request body. OpenRouter's
+            ``provider`` routing object lives here. Deliberately untyped: this is the escape hatch for a vendor
+            feature vitruvio has no opinion about, and typing it would mean a schema change per vendor.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -176,6 +186,8 @@ class EmbedderSpec(BaseModel):
     dims: int | None = Field(default=None, ge=1)
     batch: int | None = Field(default=None, ge=1)
     device: str | None = None
+    base_url: str | None = None
+    options: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def uri(self) -> str:

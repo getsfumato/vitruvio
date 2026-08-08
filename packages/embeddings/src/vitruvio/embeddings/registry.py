@@ -25,6 +25,8 @@ EXTRAS = {
     "local-st": "vitruvio[local]",
     "local-siglip": "vitruvio[vision]",
     "openai": "vitruvio[api]",
+    "openrouter": "vitruvio[api]",
+    "ollama": "vitruvio[api]",
     "voyage": "vitruvio[api]",
     "cohere": "vitruvio[api]",
 }
@@ -34,6 +36,8 @@ MODULES = {
     "local-st": "sentence_transformers",
     "local-siglip": "sentence_transformers",
     "openai": "httpx",
+    "openrouter": "httpx",
+    "ollama": "httpx",
     "voyage": "httpx",
     "cohere": "httpx",
 }
@@ -50,7 +54,26 @@ def _fake(spec: EmbedderSpec) -> Embedder:
     return FakeEmbedder(dimensions=spec.dims or 32)
 
 
-_REGISTRY: dict[str, Factory] = {"hashing": _hashing, "fake": _fake}
+def _openrouter(spec: EmbedderSpec) -> Embedder:
+    """Embeddings through OpenRouter's OpenAI-shaped endpoint."""
+    from vitruvio.embeddings.openai_api import OpenRouterEmbedder
+
+    return OpenRouterEmbedder(spec)
+
+
+def _ollama(spec: EmbedderSpec) -> Embedder:
+    """Embeddings from a local Ollama, through its OpenAI-compatible endpoint."""
+    from vitruvio.embeddings.openai_api import OllamaEmbedder
+
+    return OllamaEmbedder(spec)
+
+
+_REGISTRY: dict[str, Factory] = {
+    "hashing": _hashing,
+    "fake": _fake,
+    "openrouter": _openrouter,
+    "ollama": _ollama,
+}
 """Providers this build can construct. A real model registers itself when its extra is installed."""
 
 

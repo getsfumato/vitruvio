@@ -21,13 +21,26 @@ from vitruvio.embeddings.base import (
     Vector,
 )
 from vitruvio.embeddings.cache import EmbeddingCache, MemoryCache, cache_key
+from vitruvio.embeddings.openai_api import (
+    KNOWN_DIMENSIONS,
+    OllamaEmbedder,
+    OpenAICompatibleEmbedder,
+    OpenRouterEmbedder,
+    RemoteEmbedderError,
+    known_dimensions,
+)
 from vitruvio.embeddings.registry import available, register, resolve
 from vitruvio.embeddings.tag import ModelTag, explain_mismatch
 
 __all__ = [
     "Embedder",
     "EmbedderUnavailableError",
+    "KNOWN_DIMENSIONS",
     "EmbeddingCache",
+    "OllamaEmbedder",
+    "OpenAICompatibleEmbedder",
+    "OpenRouterEmbedder",
+    "RemoteEmbedderError",
     "FakeEmbedder",
     "HashingEmbedder",
     "ImageInput",
@@ -38,6 +51,7 @@ __all__ = [
     "Vector",
     "available",
     "cache_key",
+    "known_dimensions",
     "explain_mismatch",
     "register",
     "resolve",

@@ -29,6 +29,9 @@ TOKEN_URL = "Docker Hub -> Account settings -> Personal access tokens"
 # an existing environment -- a CI job, a direnv, a `docker login` shell -- just works.
 PROVIDER_VARIABLES: dict[str, tuple[str, ...]] = {
     "openai": ("VITRUVIO_OPENAI_API_KEY", "OPENAI_API_KEY"),
+    "openrouter": ("VITRUVIO_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"),
+    # Ollama is deliberately absent rather than mapped to nothing: it runs locally and authenticates nobody, and
+    # a key variable for it would suggest otherwise.
     "voyage": ("VITRUVIO_VOYAGE_API_KEY", "VOYAGE_API_KEY"),
     "cohere": ("VITRUVIO_COHERE_API_KEY", "COHERE_API_KEY"),
     "anthropic": ("VITRUVIO_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
