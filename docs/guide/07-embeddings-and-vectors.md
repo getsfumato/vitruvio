@@ -10,9 +10,65 @@ vitruvio config set embedding.text.uri "local-st:intfloat/multilingual-e5-base"
 |---|---|---|---|
 | `hashing` | `hashing:bow` | — | text — **the default**, and its tag says `hashing/bow` so nobody mistakes it for semantics |
 | `fake` | `fake:deterministic` | — | text, image — sha256-derived, bit-exact, for tests |
+| `ollama` | `ollama:nomic-embed-text` | `[api]` | text — a model already running on your machine |
+| `openrouter` | `openrouter:openai/text-embedding-3-large` | `[api]` | text — one key across several vendors |
 | `local-st` | `local-st:intfloat/multilingual-e5-base` | `[local]` | text — multilingual, because ES and EN belong in one space |
 | `local-siglip` | `local-siglip:google/siglip-base-patch16-224` | `[vision]` | text, image |
 | `openai` / `voyage` / `cohere` | `openai:text-embedding-3-large` | `[api]` | text |
+
+## The OpenAI-shaped providers
+
+`ollama` and `openrouter` both answer OpenAI's `/embeddings` request, so they share one base class and differ only
+where they genuinely differ.
+
+```toml
+[embedding.text]
+provider = "ollama"
+model = "nomic-embed-text"
+# base_url = "http://gpu-box:11434/v1"   # another machine, if it is not this one
+```
+
+```toml
+[embedding.text]
+provider = "openrouter"
+model = "openai/text-embedding-3-large"
+options = { provider = { order = ["openai"], allow_fallbacks = false, data_collection = "deny" } }
+```
+
+`OPENROUTER_API_KEY` (or `VITRUVIO_OPENROUTER_API_KEY`) authenticates the second. Ollama authenticates nobody.
+
+Three things the base gets right, and each one fails *silently* if it does not:
+
+- **Order.** The response carries an `index` per item and is not promised to arrive sorted. Zipping it against the
+  request pairs text with the wrong vector, and an index built that way looks completely healthy.
+- **Width.** Every response is checked against the width the model tag claims. A tag that says 768 over 1024-wide
+  vectors is the exact failure the tag exists to prevent.
+- **Truncation.** Bounded before the request, and the bound is named in the tag, because a truncation policy changes
+  which string got embedded.
+
+### The width has to be in configuration
+
+The model tag carries the dimensionality, and vitruvio refuses to guess it: a tag whose width came from whatever the
+network answered that day is not a reproducible artifact. Common models are already known, and for anything else:
+
+```console
+vitruvio config embedder test
+```
+
+It embeds one phrase and reports the width to write into `dims`, the elapsed time, and whether the vectors come back
+normalized. `vitruvio config embedder list` shows every provider and — the column to read — whether each is
+*semantic* or hashed.
+
+### `base_url` is not in the tag
+
+Which host answered does not change where the vector lands. In the tag, it would make a brain unpublishable between
+two machines that reach the same model by different routes — one through a local Ollama, one through a gateway.
+
+### Choose a model that speaks your language
+
+Measured on Spanish text, `nomic-embed-text` puts a genuine paraphrase at 0.579 cosine and an unrelated sentence at
+0.512 — it sees the relationship that hashing cannot see at all (`0.000`), but the margin is thin. It is an
+English-centric model. For Spanish, prefer `bge-m3` locally or a multilingual model through OpenRouter.
 
 ## Two spaces, one index
 

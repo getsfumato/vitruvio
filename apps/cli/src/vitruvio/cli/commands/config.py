@@ -263,3 +263,83 @@ def validate() -> ExitCode:
         "policy_profile": project.policy.profile.value,
     }
     return console.emit("config.validate", payload, lines=[f"ok  {source}"])
+
+
+embedder_app = App(
+    name="embedder",
+    help="Inspect and test the configured embedding providers.",
+    result_action="return_value",
+    exit_on_error=False,
+)
+app.command(embedder_app)
+
+
+@embedder_app.command(name="list")
+def embedder_list() -> ExitCode:
+    """List the embedding providers this build knows, and whether each can run.
+
+    Read the `semantic` column. Hashed features rank, and rank plausibly — a brain built with the zero-dependency
+    default looks exactly like one built with a real model right up until you notice it never finds a synonym.
+    """
+    console = current().console
+    result = current().service(require_brain=False).embedders()
+
+    text = result["text"]
+    vision = result["vision"]
+    configured = f"{vision['provider']}:{vision['model']}" if vision else "(none)"
+    lines = [
+        f"text     {text['provider']}:{text['model']}"
+        + ("" if result["semantic"] else "   (hashed features, not semantics)"),
+        f"vision   {configured}",
+        "",
+    ]
+    for row in result["providers"]:
+        state = "ok " if row["installed"] else "---"
+        detail = "" if row["installed"] else f"   install {row['extra']}"
+        meaning = "semantic" if row["semantic"] else "hashed"
+        lines.append(f"{state}  {row['provider']:<16} {meaning:<9}{detail}")
+
+    return console.emit("config.embedder.list", result, lines=lines)
+
+
+@embedder_app.command(name="test")
+def embedder_test(
+    *,
+    which: str = "text",
+    text: str | None = None,
+) -> ExitCode:
+    """Embed one phrase and report what came back.
+
+    The number to read is the **width**. A remote model's dimensionality is what the model tag carries, and vitruvio
+    refuses to guess it — so for a model it does not already know, this is how you find the value to put in
+    `dims` under `[embedding.text]`.
+
+    Parameters
+    ----------
+    which
+        `text` or `vision`.
+    text
+        What to embed. Defaults to a Spanish phrase, so a model that only handles English shows up as a plausible
+        vector rather than as an error.
+    """
+    console = current().console
+    result = current().service(require_brain=False).test_embedder(which=which, text=text)
+
+    lines = [
+        f"provider    {result['provider']}:{result['model']}",
+        f"width       {result['measured_dimensions']}",
+        f"normalized  {'yes' if result['normalized'] else 'no'}",
+        f"elapsed     {result['elapsed_ms']} ms",
+        f"tag         {result['tag']}",
+    ]
+    if not result["semantic"]:
+        console.warn(
+            "this embedder hashes features rather than modelling meaning: it will match a plural to its singular "
+            "through the shared analyzer, and will never find a synonym"
+        )
+    if result["measured_dimensions"] != result["declared_dimensions"]:
+        console.warn(
+            f"the model returned {result['measured_dimensions']} dimensions and the tag claims "
+            f"{result['declared_dimensions']}; set dims = {result['measured_dimensions']}"
+        )
+    return console.emit("config.embedder.test", result, lines=lines)

@@ -120,6 +120,41 @@ def _function(target: Any) -> Any:
     return getattr(function, "__wrapped__", function)
 
 
+def _section(target: Any, path: list[str], depth: int) -> list[str]:
+    """
+    One command or one group, and everything under it.
+
+    Recursive, because groups nest: ``config embedder list`` is three levels, and a generator that assumed two
+    documented the *middle* level as though it were a command -- which meant emitting cyclopts' own constructor
+    (``--console``, ``--error-formatter``) as if those were flags of vitruvio's.
+
+    Args:
+        target (Any): The registered command or group.
+        path (list[str]): The command words leading here.
+        depth (int): Heading depth, capped so a deep tree does not emit ``#######``.
+
+    Returns:
+        list[str]: Markdown lines.
+    """
+    heading = "#" * min(depth, 6)
+    children = _commands(target) if getattr(target, "_commands", None) else []
+
+    if not children:
+        function = _function(target)
+        parameters = " ".join(_parameters(function))
+        return [
+            f"{heading} `vitruvio {' '.join(path)}` {parameters}".rstrip(),
+            "",
+            _first_line(getattr(function, "__doc__", "")),
+            "",
+        ]
+
+    lines = [f"{heading} `vitruvio {' '.join(path)}`", "", _first_line(getattr(target, "help", "")), ""]
+    for name, child in children:
+        lines += _section(child, [*path, name], depth + 1)
+    return lines
+
+
 def render() -> str:
     """
     The whole reference, as Markdown.
@@ -129,28 +164,7 @@ def render() -> str:
     """
     lines = [HEADER]
     for name, group in _commands(app):
-        if not getattr(group, "_commands", None):
-            # A bare function attached to the root, like the `search` alias.
-            function = _function(group)
-            parameters = " ".join(_parameters(function))
-            lines += [
-                f"## `vitruvio {name}` {parameters}".rstrip(),
-                "",
-                _first_line(getattr(function, "__doc__", "")),
-                "",
-            ]
-            continue
-
-        lines += [f"## `vitruvio {name}`", "", _first_line(getattr(group, "help", "")), ""]
-        for sub_name, target in _commands(group):
-            function = _function(target)
-            parameters = " ".join(_parameters(function))
-            lines += [
-                f"### `vitruvio {name} {sub_name}` {parameters}".rstrip(),
-                "",
-                _first_line(getattr(function, "__doc__", "")),
-                "",
-            ]
+        lines += _section(group, [name], 2)
     return "\n".join(lines).rstrip() + "\n"
 
 

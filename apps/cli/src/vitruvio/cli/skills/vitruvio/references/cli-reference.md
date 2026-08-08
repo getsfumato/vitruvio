@@ -290,6 +290,18 @@ Set one value, addressed by dotted key.
 
 Check that the configuration parses and satisfies the schema.
 
+### `vitruvio config embedder`
+
+Inspect and test the configured embedding providers.
+
+#### `vitruvio config embedder list`
+
+List the embedding providers this build knows, and whether each can run.
+
+#### `vitruvio config embedder test` `--which` `--text`
+
+Embed one phrase and report what came back.
+
 ## `vitruvio skills`
 
 Install the agent-facing skills into a repository.
@@ -302,10 +314,10 @@ List the skills this build ships, and what each one covers.
 
 Copy the skills into a repository so an agent can read them.
 
-## `vitruvio completion`
+## `vitruvio completion` `shell`
 
-Print a shell completion script.
+Print a completion script for bash, zsh or fish.
 
-## `vitruvio search`
+## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
