@@ -197,7 +197,12 @@ def generate(
             label = getattr(block, "label", "")
             if all(term in label for term in (primary, secondary)):
                 relevant.add(rendered)
-        judgements.append(Judgement(query=query, relevant=frozenset(relevant), subject=subject))
+        if relevant:
+            judgements.append(Judgement(query=query, relevant=frozenset(relevant), subject=subject))
+        # A judgement with no relevant block is dropped rather than kept. `recall_at` returns 1.0 for an empty
+        # answer set -- correctly, since nothing was missed -- so keeping one would score a perfect result for a
+        # query that measures nothing, and inflate the mean by exactly the fraction of them. On a small corpus,
+        # where a two-term query often matches no label at all, that was most of them.
 
     return Corpus(brain=brain, judgements=judgements, blocks=written)
 

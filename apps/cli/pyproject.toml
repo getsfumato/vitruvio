@@ -35,7 +35,11 @@ vision = ["vitruvio-embeddings[vision]", "vitruvio-ingest[vision]"]
 # same client and the same key conventions, so splitting them would only make one of the two silently unavailable.
 api = ["vitruvio-embeddings[api]", "vitruvio-ingest[api]"]
 keyring = ["vitruvio-runtime[keyring]"]
-all = ["vitruvio[local]", "vitruvio[vision]", "vitruvio[api]", "vitruvio[keyring]"]
+# The benchmark harness and its corpus generator. An extra rather than a dependency because it is a development
+# tool: it generates brains, measures them, and nothing in a published install needs it. `vitruvio bench` reports
+# this extra by name when it is absent, rather than failing on an import nobody asked for.
+bench = ["vitruvio-bench"]
+all = ["vitruvio[local]", "vitruvio[vision]", "vitruvio[api]", "vitruvio[keyring]", "vitruvio[bench]"]
 
 [project.scripts]
 vitruvio = "vitruvio.cli.main:main"

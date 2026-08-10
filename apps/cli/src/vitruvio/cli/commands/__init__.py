@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from vitruvio.cli.commands import (
+    bench,
     brain,
     completion,
     config,
@@ -44,6 +45,7 @@ GROUPS = (
     config,
     skills,
     completion,
+    bench,
 )
 """Every command-group module, in the order they are shown.
 
