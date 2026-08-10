@@ -11,7 +11,6 @@ There is no in-place edit of evidence. A newer edition is a new block plus a sup
 
 from __future__ import annotations
 
-import mimetypes
 from pathlib import Path
 from typing import Annotated
 
@@ -19,55 +18,18 @@ from cyclopts import App, Parameter
 
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
+from vitruvio.ingest.media import EXTRA_MEDIA_TYPES, FALLBACK_MEDIA_TYPE, media_type_for
 from vitruvio.kernel import ExitCode, VitruvioError
 
 app = App(name="source", help="Register canonical evidence.", result_action="return_value", exit_on_error=False)
 
-FALLBACK_MEDIA_TYPE = "application/octet-stream"
-"""What an unguessable file is. Honest, and it still round-trips: the bytes are what matter."""
+__all__ = ["EXTRA_MEDIA_TYPES", "FALLBACK_MEDIA_TYPE", "app", "media_type_for"]
+"""The three media-type names are re-exports.
 
-EXTRA_MEDIA_TYPES = {
-    ".md": "text/markdown",
-    ".markdown": "text/markdown",
-    ".rst": "text/x-rst",
-    ".org": "text/org",
-    ".tex": "text/x-tex",
-    ".jsonl": "application/x-ndjson",
-    ".yaml": "application/yaml",
-    ".yml": "application/yaml",
-    ".toml": "application/toml",
-    ".webp": "image/webp",
-    ".avif": "image/avif",
-}
-"""Extensions `mimetypes` does not know but a knowledge brain meets constantly.
-
-Not cosmetic. The media type is recorded in the canonical block, it travels with the artifact, and it is what a
-normalization pipeline dispatches on -- so a Markdown file filed as `application/octet-stream` is a file no text
-pipeline will offer to normalise.
+They lived here first and moved to ``vitruvio.ingest.media`` once a ``Source`` needed them: a source runs inside
+``ingest``, which sits below ``apps/cli``, and importing uphill is what ``lint-imports`` refuses. Re-exported rather
+than relocated silently so that every reference to them keeps resolving where it was written.
 """
-
-
-def media_type_for(path: Path, declared: str | None) -> str:
-    """
-    The media type to record, guessing only when one was not declared.
-
-    A guess is recorded in the block and travels with it, so it is worth being explicit about where it came
-    from: `mimetypes` reads the extension and nothing else, and an extension is a claim rather than evidence.
-    Declaring `--media-type` is always better.
-
-    Args:
-        path (Path): The file.
-        declared (str | None): What the caller said, if anything.
-
-    Returns:
-        str: The media type.
-    """
-    if declared:
-        return declared
-    if extra := EXTRA_MEDIA_TYPES.get(path.suffix.lower()):
-        return extra
-    guessed, _ = mimetypes.guess_type(path.name)
-    return guessed or FALLBACK_MEDIA_TYPE
 
 
 def _require_file(path: Path) -> Path:
