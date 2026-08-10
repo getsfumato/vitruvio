@@ -2,8 +2,8 @@
 
 ```bash
 vitruvio bench --tier 1000
-vitruvio calibrate
-vitruvio calibrate --from-samples
+vitruvio bench --tier 1000 --gate      # exits non-zero if the planner loses either gate
+vitruvio bench corpus --into ./corpus  # keep the generated brain to look at
 vitruvio inspect doctor
 ```
 
@@ -33,15 +33,14 @@ CI gates the N=10³ tier on two conditions:
 The second is deliberately loose. A real planner **is allowed** to be slower on a tiny brain, and pretending otherwise
 is what pushes it toward bad plans at the sizes that matter.
 
-## Calibration
+## Calibration, and what is not built
 
-The cost model's constants are measured defaults, and `vitruvio calibrate` re-measures them on the machine in front of
-you. `calibrate --from-samples` refits them by least squares from `.vitruvio/estimation.jsonl`, which
-`query explain --analyze` appends to.
+The cost model's constants are measured defaults, overridable through `[planner]` in `vitruvio.toml`.
 
-So the model improves on each brain it runs against rather than staying frozen at whatever the author's laptop
-measured. A large estimate/actual divergence on one operator in `--analyze` is the honest way to find out the model is
-wrong about *this* brain.
+`query explain --analyze` reports the estimate beside the actual per node, and `estimation_error` summarises the gap —
+which is the honest way to find out the model is wrong about *this* brain. **Refitting the constants automatically is
+not implemented**: nothing persists the samples and there is no `calibrate` command. Correcting the model on a given
+machine is a hand edit for now.
 
 ## `inspect doctor`
 

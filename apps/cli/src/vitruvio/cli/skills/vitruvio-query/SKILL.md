@@ -54,9 +54,10 @@ Run `vitruvio query explain "TEXT" --json` and read three fields:
 - `considered` — every rejected plan with its reason. "only 1 scored generator with 3 available" is the
   single-authority rule refusing a plan, not a bug.
 
-`explain --analyze` adds measured rows per node beside the estimates. A large est/act divergence on one operator
-is the honest way to find out the cost model is wrong about *this* brain; `vitruvio calibrate --from-samples`
-refits it.
+`explain --analyze` adds measured rows per node beside the estimates, and `estimation_error` summarises the gap. A
+large divergence on one operator is the honest way to find out the cost model is wrong about *this* brain. There is
+no command that refits it: the constants are measured defaults, and `[planner]` in `vitruvio.toml` overrides them by
+hand.
 
 ## A small brain legitimately scans
 

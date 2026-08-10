@@ -86,6 +86,20 @@ jobs:
       # No optional extras: the default configuration must be fully testable without torch.
       - run: uv run pytest -m "not slow" -n auto
 
+  bench:
+    name: bench (recall and latency gates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+      # The claim the planner rests on, checked rather than asserted: recall@10 at least the scan's, and p95 within
+      # 3x of it. The tier is above the few hundred blocks at which an exhaustive scan legitimately wins -- below
+      # that this would measure the scan and pass for the wrong reason.
+      - run: uv run vitruvio bench --tier 800 --queries 12 --gate
+
   no-sources:
     name: no-sources (PyPI pyboltzmann)
     runs-on: ubuntu-latest

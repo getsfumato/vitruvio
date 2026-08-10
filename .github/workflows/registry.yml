@@ -1,0 +1,40 @@
+name: registry
+
+# Manual only, and deliberately. Publishing on every push pollutes a public registry with a test artifact per commit
+# and burns rate limit on an account that has better uses for it. What this job answers is a question no local test
+# can: does *this* registry accept the manifest shape the protocol fixes -- a custom `artifactType` and a custom
+# `config.mediaType` -- and does it preserve them through a round trip.
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: Registry host to probe (docker.io or ghcr.io)
+        required: true
+        default: docker.io
+      repository:
+        description: "<account>/<repo> to push the probe artifact to"
+        required: true
+
+jobs:
+  preflight:
+    name: preflight (${{ inputs.host }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages
+
+      # A throwaway brain, because the preflight needs a store to put its probe blobs in and must not need a real one.
+      - run: uv run vitruvio brain init ./probe --actor ci@vitruvio
+
+      # The four questions, answered by doing rather than by reading documentation: is /v2/ reachable, do the
+      # credentials carry write scope, is the custom config media type accepted, and does artifactType survive.
+      - name: check the registry accepts a brain-shaped artifact
+        env:
+          VITRUVIO_REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          VITRUVIO_REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          uv run vitruvio --brain ./probe registry check \
+            "${{ inputs.host }}/${{ inputs.repository }}" --json

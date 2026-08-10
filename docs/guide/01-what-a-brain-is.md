@@ -6,9 +6,9 @@ A **Boltzmann brain** is a directory that is also an OCI image layout. Inside it
 demo/
 ├── oci-layout  index.json  blobs/sha256/...   # the layout: the SDK's, and portable
 ├── boltzmann/                                 # compositions, snapshots, the head pointer
-└── .vitruvio/                                 # everything vitruvio derives. Deleting it costs time, never knowledge.
+└── .vitruvio/                                 # derived state. Deleting it costs time, never knowledge.
     ├── indices/  stats/  embeddings/
-    └── calibration.json  estimation.jsonl
+    └── calibration.json          # only if you wrote one; nothing generates it yet
 vitruvio.toml                                  # beside the brain, and committed
 ```
 

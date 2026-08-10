@@ -106,8 +106,10 @@ failure in a `DistributionError` carrying the same message, attributed and in co
   exits 0 with the daemon stopped — and trusting the exit status is how these tests came to be attempted against a
   dead daemon, where `docker run` hangs instead of failing. Every docker call in the fixture is bounded by a timeout
   for the same reason.
-- **Docker Hub and ghcr.io run in a manual `workflow_dispatch` job**, never per PR: publishing on every push pollutes
-  a public registry and burns rate limit.
+- **Docker Hub and ghcr.io run in a manual `workflow_dispatch` job** (`.github/workflows/registry.yml`), never per
+  PR: publishing on every push pollutes a public registry with a test artifact per commit and burns rate limit. It
+  takes the host and repository as inputs and needs `REGISTRY_USERNAME` / `REGISTRY_TOKEN` in the repository's
+  secrets.
 - **A test asserts `auth._auth_config` still exists** in the pinned `oras`. It is a private attribute and this is
   deliberately fragile — but the alternative failure mode is a push that hangs with no output, so the fragility is
   arranged to break a build rather than someone's afternoon.

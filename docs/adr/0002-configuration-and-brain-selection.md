@@ -24,7 +24,7 @@ Four constraints:
 ### One sibling file, one sibling directory
 
 `vitruvio.toml` sits *beside* the brain and is committed. `<brain>/.vitruvio/` holds everything derived:
-`stats/`, `indices/`, `embeddings/`, `calibration.json`, `estimation.jsonl`. Nothing vitruvio writes goes
+`stats/`, `indices/` and `embeddings/`. Nothing vitruvio writes goes
 inside `blobs/` or inside the SDK's `boltzmann/`.
 
 Deleting `.vitruvio/` costs time and never knowledge. Writing into another component's sidecar works until

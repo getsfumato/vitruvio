@@ -3,8 +3,6 @@
 ```bash
 vitruvio query explain "TEXT"              # the plan, the alternatives, and why
 vitruvio query explain "TEXT" --analyze    # estimates beside measured actuals
-vitruvio calibrate                         # re-measure the cost constants here
-vitruvio calibrate --from-samples          # refit them from recorded runs
 ```
 
 Vitruvio's planner selects indices **by cost**, from measured statistics. The claim is easy to check, and worth
@@ -56,9 +54,10 @@ Four fields answer most questions:
 - **`statistics`** — per module: fresh or stale, and the fingerprint.
 - **`prelude_us`** — the provenance ledger, cached per root. It once charged 136 ms to a query that did not cause it.
 
-`--analyze` writes `(op, params, est, act, wall)` to `.vitruvio/estimation.jsonl`, and `calibrate --from-samples`
-refits the constants by least squares. The model improves on each brain it runs against instead of staying frozen at
-whatever the author's laptop measured.
+`--analyze` reports the estimate beside the actual per node, and `estimation_error` summarises the gap. **Refitting
+the constants automatically is not built.** They are measured defaults, and `[planner]` in `vitruvio.toml` overrides
+them by hand -- which is enough to correct a machine whose disk or CPU disagrees with the ones they were measured on,
+and honest about the fact that nothing refits itself yet.
 
 ## Enumeration is exhaustive
 

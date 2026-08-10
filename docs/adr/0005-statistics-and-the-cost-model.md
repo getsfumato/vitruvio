@@ -18,9 +18,13 @@ A cost model without statistics is a heuristic with more code, so statistics cam
 
 Not in abstract units. The operators span dict probes, HNSW walks, blob reads and a neural forward pass; any synthetic
 unit needs conversion factors anyway, and being honest about the unit is what lets `EXPLAIN ANALYZE` **validate** the
-model instead of just displaying it. `Calibration` is a frozen dataclass of measured defaults, re-measurable with
-`vitruvio calibrate`, and `calibrate --from-samples` refits from `.vitruvio/estimation.jsonl` by least squares — so the
-model improves on each brain it runs against rather than staying frozen at whatever the author's laptop measured.
+model instead of just displaying it. `Calibration` is a frozen dataclass of measured defaults, overridable through `[planner]` in `vitruvio.toml`.
+
+**A correction to an earlier version of this record**, which described a "calibrate" command and a least-squares
+refit from a samples file as though they existed. They do not: `--analyze` reports actuals
+beside estimates within one `Explanation` and persists nothing. The design is still the right one and the samples file
+is still where it should go, but until it is built, correcting the model on a given machine is a hand edit -- and this
+record describing otherwise was the more expensive error, because a reader trusts an ADR to say what shipped.
 
 The constant that decides the most is `c_embed_text = 4500 µs`.
 

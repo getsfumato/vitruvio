@@ -318,6 +318,14 @@ Copy the skills into a repository so an agent can read them.
 
 Print a completion script for bash, zsh or fish.
 
+## `vitruvio bench`
+
+Measure recall and latency against a corpus with known answers.
+
+### `vitruvio bench corpus` `path` `--tier` `--seed` `--queries`
+
+Write a generated corpus to disk and keep it.
+
 ## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
