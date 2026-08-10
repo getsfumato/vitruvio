@@ -214,3 +214,42 @@ class TestDefaults:
         project = ProjectConfig()
         assert project.project.name is None
         assert project.brains == {}
+
+
+class TestPublishProhibition:
+    """`publish = false` on a brain, which exists to stop one specific silent mistake.
+
+    A pulled brain is a working copy like any other -- nothing in the protocol distinguishes a brain you authored
+    from one you installed -- so a stray `dist push` publishes a fork of somebody else's brain under whichever
+    repository this project derives, and the two lineages diverge with nobody told.
+    """
+
+    def test_a_brain_is_publishable_unless_it_says_otherwise(self, tmp_path: Path) -> None:
+        config = load_project(write(tmp_path, PROJECT))
+        assert config.brains["algebra"].publish is True
+
+    def test_a_brain_can_declare_itself_unpublishable(self, tmp_path: Path) -> None:
+        body = PROJECT.replace("[brains.algebra]", "[brains.algebra]\npublish = false")
+        config = load_project(write(tmp_path, body))
+        assert config.brains["algebra"].publish is False
+
+    def test_the_resolved_config_answers_for_the_selected_brain(self, tmp_path: Path) -> None:
+        """Read through `publish_allowed`, because that is what the service consults -- asserting on the spec alone
+        would leave the wiring between them untested."""
+        make_brain(tmp_path, "brains/algebra")
+        make_brain(tmp_path, "brains/analisis-ii")
+        body = PROJECT.replace("[brains.algebra]", "[brains.algebra]\npublish = false")
+        config_file = write(tmp_path, body)
+
+        algebra = resolve(brain=Path("algebra"), config=config_file)
+        assert algebra.publish_allowed is False
+
+        other = resolve(brain=Path("analisis-ii"), config=config_file)
+        assert other.publish_allowed is True
+
+    def test_a_single_brain_project_can_say_it_too(self, tmp_path: Path) -> None:
+        """Otherwise whether you can protect a brain would depend on whether the project happens to have a second
+        one, which is not a distinction anybody would predict."""
+        make_brain(tmp_path, "brain")
+        config_file = write(tmp_path, '[actor]\nid = "t@e.c"\n\n[brain]\npath = "./brain"\npublish = false\n')
+        assert resolve(config=config_file).publish_allowed is False

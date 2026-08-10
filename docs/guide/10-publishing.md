@@ -81,3 +81,11 @@ protocol decision rather than a runtime one.
 ## Next
 
 [11. Skills](11-skills.md)
+
+## Refusing to publish at all
+
+A brain declaring `publish = false` is refused by `dist push` with exit 6, before it packs anything or reads a
+credential — a refusal that happens after a credential lookup has already told a keyring what you were about to do.
+`dist push --all` skips it. See [Projects](13-projects.md#a-brain-you-did-not-author) for why an installed brain
+wants this.
+

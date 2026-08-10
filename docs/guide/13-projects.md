@@ -107,3 +107,33 @@ vitruvio project remove analisis-ii
 
 Unregisters it and prints where the layout still is. It never deletes: "remove it from this project" and "destroy it"
 are different requests, and a brain may be the only copy of what it holds.
+
+## A brain you did not author
+
+Pulling a brain gives you a local working copy that is writable like any other — nothing in the protocol
+distinguishes "a brain I authored" from "a brain I installed". So a stray `dist push` publishes a *fork* of a shared
+brain under whichever repository this project derives, and the two lineages diverge with nobody informed.
+
+Declare it instead of remembering it:
+
+```toml
+[brains.common]
+path = "./brains/common"
+reference = "ghcr.io/ethicompass/ethicompass-brain"   # where it really lives
+publish = false                                        # `dist push` refuses this brain
+```
+
+```console
+vitruvio project add common --no-publish --reference ghcr.io/ethicompass/ethicompass-brain
+vitruvio --brain common dist push          # exit 6, before anything is packed
+vitruvio dist push --all                   # skips it, and says so
+```
+
+`project show` prints `(publish = false)` beside it, because a prohibition nobody can see is one somebody works
+around by accident — the repository column otherwise reads as a statement that a push goes there.
+
+Two things it deliberately is not. It is **not a permission**: anyone who can edit `vitruvio.toml` can flip it, which
+is the right amount of friction for a declaration whose only job is to make a deliberate act look deliberate. And it
+is **not read-only**: `source pull`, `ingest run` and `index build` all still work on that brain. What is forbidden
+is republishing it, not updating your copy.
+

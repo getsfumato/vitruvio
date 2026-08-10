@@ -1965,6 +1965,7 @@ class BrainService:
                     "exists": bool(path and is_layout(path)),
                     "repository": document.repository_for(name, account=account),
                     "explicit_reference": spec.reference,
+                    "publish": spec.publish,
                     "selected": path == self.config.brain,
                 }
             )
@@ -1987,6 +1988,7 @@ class BrainService:
         description: str | None = None,
         reference: str | None = None,
         create: bool = True,
+        publish: bool = True,
     ) -> dict[str, Any]:
         """
         Register a brain in the project, creating its layout when it does not exist yet.
@@ -1998,6 +2000,7 @@ class BrainService:
             description (str | None): What it holds, for ``project show``.
             reference (str | None): An explicit repository, when the derived one is not wanted.
             create (bool): Create the layout if it is absent.
+            publish (bool): Whether ``dist push`` may publish it. ``False`` for somebody else's upstream.
 
         Returns:
             dict[str, Any]: The registered brain.
@@ -2020,7 +2023,9 @@ class BrainService:
             )
 
         # Validated before anything is written, so a rejected name does not leave a half-registered project.
-        spec = NamedBrainSpec(path=path or f"./brains/{name}", description=description, reference=reference)
+        spec = NamedBrainSpec(
+            path=path or f"./brains/{name}", description=description, reference=reference, publish=publish
+        )
         NamedBrainSpec.model_validate(spec.model_dump())
         from vitruvio.kernel import ProjectConfig
 
@@ -2041,12 +2046,15 @@ class BrainService:
             update_config(config_path, f"brains.{name}.description", description)
         if reference:
             update_config(config_path, f"brains.{name}.reference", reference)
+        if not publish:
+            update_config(config_path, f"brains.{name}.publish", False)
 
         return {
             "name": name,
             "path": str(target),
             "created": created,
             "description": description,
+            "publish": publish,
             "config_file": str(config_path),
         }
 
@@ -2232,11 +2240,17 @@ class BrainService:
 
         Returns:
             dict[str, Any]: The digest the registry filed the manifest under.
+
+        Raises:
+            PublishForbiddenError: If the brain declares ``publish = false``. Checked first, before the reference is
+                resolved and before a credential is read, because a refusal that happens after a credential lookup
+                has already told a keyring what you were about to do.
         """
         import asyncio
 
         from vitruvio.runtime.vouch import vouch_travelling
 
+        self._require_publishable()
         target = self.reference_for(reference)
         chosen = [_memory_type(item) for item in modules] if modules else None
         client, effective, warnings = self._client(
@@ -2263,6 +2277,31 @@ class BrainService:
             "vouched": vouched,
             "warnings": warnings,
         }
+
+    def _require_publishable(self) -> None:
+        """
+        Refuse a push the project declared off-limits.
+
+        The mistake this prevents is one command long and made by someone who does not expect to make it. A pulled
+        brain is a working copy like any other -- nothing in the protocol distinguishes a brain you authored from one
+        you installed -- so a stray ``dist push`` publishes a fork of somebody else's brain under whichever
+        repository this project derives, and the two lineages diverge with nobody informed.
+
+        Raises:
+            PublishForbiddenError: If the selected brain declares ``publish = false``.
+        """
+        from vitruvio.kernel import PublishForbiddenError
+
+        if self.config.publish_allowed:
+            return
+        name = self.config.brain_name or str(self.config.brain)
+        raise PublishForbiddenError(
+            f"brain {name!r} declares publish = false, so it is not published from here",
+            hint=(
+                "this is usually somebody else's upstream. If you really mean to publish a fork, set "
+                f"publish = true under [brains.{name}] and give it its own `reference` first"
+            ),
+        )
 
     def plan_pull(
         self,

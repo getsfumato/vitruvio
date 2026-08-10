@@ -153,6 +153,10 @@ def show() -> ExitCode:
     for brain in result["brains"]:
         marker = "*" if brain["selected"] else " "
         state = "" if brain["exists"] else "   (not created)"
+        # Shown, because a prohibition nobody can see is one somebody works around by accident: the reader would
+        # otherwise take the repository column as a statement that a push goes there.
+        if not brain["publish"]:
+            state = "   (publish = false)" + state
         lines.append(f"{marker} {brain['name']:<18} {brain['repository'] or '(no repository)'}{state}")
         if brain["description"]:
             lines.append(f"    {brain['description']}")
@@ -173,6 +177,7 @@ def add(
     description: str | None = None,
     reference: str | None = None,
     no_create: Annotated[bool, Parameter(name=["--no-create"])] = False,
+    no_publish: Annotated[bool, Parameter(name=["--no-publish"])] = False,
 ) -> ExitCode:
     """Add a brain to the project, creating its layout.
 
@@ -191,16 +196,28 @@ def add(
         An explicit repository, when the derived one is not what you want.
     no_create
         Register the name without creating a layout, for a brain that already exists elsewhere.
+    no_publish
+        Refuse `dist push` for this brain. For somebody else's upstream: a pulled brain is a writable working copy
+        like any other, so a stray push publishes a fork of it under this project's repository and the two lineages
+        diverge with nobody informed. Stops an accident, not an intent.
     """
     console = current().console
     result = (
         current()
         .service(require_brain=False)
-        .add_brain(name, path=path, description=description, reference=reference, create=not no_create)
+        .add_brain(
+            name,
+            path=path,
+            description=description,
+            reference=reference,
+            create=not no_create,
+            publish=not no_publish,
+        )
     )
     lines = [
         f"added       {result['name']}",
         f"path        {result['path']}{'  (created)' if result['created'] else ''}",
+        *([] if result["publish"] else ["publish     false -- `dist push` will refuse this brain"]),
         "",
         f"use it with `vitruvio --brain {result['name']} ...`",
     ]

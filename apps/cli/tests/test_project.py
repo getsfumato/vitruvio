@@ -203,3 +203,83 @@ class TestSingleBrainStillWorks:
         code, payload = envelope(capsys, "brain", "state")
         assert code == ExitCode.OK
         assert payload["data"]["brain"] == str(tmp_path / "solo")
+
+
+class TestPublishProhibition:
+    """`publish = false`, which exists to stop one silent mistake rather than to be a permission.
+
+    Pulling a brain gives you a writable working copy -- nothing in the protocol distinguishes a brain you authored
+    from one you installed -- so a stray `dist push` publishes a fork of somebody else's brain under this project's
+    repository, and the two lineages then diverge with nobody informed.
+    """
+
+    def test_a_push_is_refused_with_the_policy_exit_code(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        """Exit 6, not 2 or 3: the request was well formed and the configuration is valid, and retrying it unchanged
+        cannot ever work. That is what a 6 tells a caller."""
+        assert envelope(capsys, "config", "set", "brains.algebra.publish", "false")[0] == ExitCode.OK
+
+        code = main(["--json", "--brain", "algebra", "dist", "push", "--local", str(project / "registry")])
+        payload = json.loads(capsys.readouterr().out)
+        assert code == ExitCode.POLICY
+        assert payload["error"]["code"] == "PUBLISH_FORBIDDEN"
+
+    def test_nothing_is_written_to_the_registry(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        """Refused before it packs, so the refusal leaves no half-published artifact and no evidence of the attempt
+        in a registry somebody else reads."""
+        envelope(capsys, "config", "set", "brains.algebra.publish", "false")
+        registry = project / "registry"
+
+        main(["--json", "--brain", "algebra", "dist", "push", "--local", str(registry)])
+        capsys.readouterr()
+        assert not registry.exists() or not any(registry.iterdir())
+
+    def test_push_all_skips_it_instead_of_failing_the_whole_run(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        """A project holding one upstream brain is the normal shape for a team, and `--all` must not exit non-zero
+        on it forever."""
+        envelope(capsys, "config", "set", "brains.algebra.publish", "false")
+
+        code, payload = envelope(capsys, "dist", "push", "--all", "--local", str(project / "registry"))
+        assert code == ExitCode.OK
+        skipped = [item["brain"] for item in payload["data"]["brains"] if item["skipped"]]
+        assert sorted(skipped) == ["algebra", "analisis-ii"]
+        assert payload["data"]["published"] == 0
+
+    def test_project_show_says_so(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        """A prohibition nobody can see is one somebody works around by accident: without this, the repository
+        column reads as a statement that a push goes there."""
+        envelope(capsys, "config", "set", "brains.algebra.publish", "false")
+        code, payload = envelope(capsys, "project", "show")
+        assert code == ExitCode.OK
+        rows = {item["name"]: item["publish"] for item in payload["data"]["brains"]}
+        assert rows == {"algebra": False, "analisis-ii": True}
+
+    def test_add_can_declare_it_up_front(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        code, payload = envelope(capsys, "project", "add", "compartido", "--no-publish")
+        assert code == ExitCode.OK
+        assert payload["data"]["publish"] is False
+
+        from vitruvio.kernel import load_project
+
+        assert load_project(project / "vitruvio.toml").brains["compartido"].publish is False
+
+    def test_pulling_into_it_still_works(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        """The prohibition is on publishing, not on the brain. An upstream brain that could not be *updated* would
+        be useless, which is the failure mode of getting this too broad."""
+        envelope(capsys, "dist", "push", "--all", "--local", str(project / "registry"))
+        envelope(capsys, "config", "set", "brains.algebra.publish", "false")
+
+        code, _ = envelope(
+            capsys,
+            "--brain",
+            "algebra",
+            "dist",
+            "plan-pull",
+            "docker.io/alex/facultad-algebra",
+            "--local",
+            str(project / "registry"),
+        )
+        assert code == ExitCode.OK

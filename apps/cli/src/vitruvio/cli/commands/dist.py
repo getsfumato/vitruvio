@@ -178,12 +178,20 @@ def _push_all(
         config = base.model_copy(update={"brain": Path(str(brain["path"])), "brain_name": name})
         service = BrainService(config)
 
+        # A brain declared unpublishable is skipped rather than attempted, for the same reason an empty one is: it
+        # is the project working as configured, and reporting it as a failure would make `--all` exit non-zero on a
+        # project that holds one upstream brain -- which is the normal shape for a team.
+        if not config.publish_allowed:
+            console.note(f"skip  {name:<18} publish = false")
+            results.append({"brain": name, "ok": True, "skipped": True, "reason": "publish = false"})
+            continue
+
         # An empty brain is skipped, not attempted. A project where one subject has not been started yet is the
         # ordinary state rather than an error, and letting it come back as a failed push would make `--all` exit
         # non-zero on a perfectly healthy project until every last brain had something in it.
         if service.state()["block_count"] == 0:
             console.note(f"skip  {name:<18} nothing committed yet")
-            results.append({"brain": name, "ok": True, "skipped": True})
+            results.append({"brain": name, "ok": True, "skipped": True, "reason": "nothing committed yet"})
             continue
 
         try:
@@ -201,13 +209,19 @@ def _push_all(
 
     lines = [f"published   {len(published)} of {len(results)} brains"]
     if skipped:
-        lines.append(f"skipped     {len(skipped)} with nothing committed yet")
+        # Counted by reason rather than lumped together. "skipped 1 with nothing committed yet" was printed for a
+        # brain holding 326 blocks the moment a second reason to skip existed, and a summary that states something
+        # false about the thing it just skipped is worse than one that states nothing.
+        tally: dict[str, int] = {}
+        for item in skipped:
+            reason = str(item.get("reason") or "skipped")
+            tally[reason] = tally.get(reason, 0) + 1
+        lines.append("skipped     " + ", ".join(f"{count} {reason}" for reason, count in sorted(tally.items())))
     lines.append("")
     for item in results:
         state = "skip" if item["skipped"] else ("ok  " if item["ok"] else "FAIL")
-        lines.append(
-            f"  {state}  {item['brain']:<18} {item.get('reference') or item.get('error') or 'nothing committed yet'}"
-        )
+        detail = item.get("reference") or item.get("error") or item.get("reason") or ""
+        lines.append(f"  {state}  {item['brain']:<18} {detail}")
 
     if failed:
         raise VitruvioError(

@@ -18,7 +18,7 @@ Create a project in the working directory.
 
 List the project's brains, where each lives, and where each publishes.
 
-### `vitruvio project add` `name` `--path` `--description` `--reference` `--no-create`
+### `vitruvio project add` `name` `--path` `--description` `--reference` `--no-create` `--no-publish`
 
 Add a brain to the project, creating its layout.
 

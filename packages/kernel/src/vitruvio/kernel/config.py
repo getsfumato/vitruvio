@@ -427,11 +427,13 @@ class BrainSpec(BaseModel):
         path (str | None): Path to the layout, resolved *relative to the configuration file* rather than to
             the working directory. A project config that means something different depending on which
             subdirectory you ran the command from would not be a reproducibility artifact.
+        publish (bool): Whether this brain may be published at all. See :attr:`NamedBrainSpec.publish`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     path: str | None = None
+    publish: bool = True
 
 
 class NamedBrainSpec(BaseModel):
@@ -448,6 +450,19 @@ class NamedBrainSpec(BaseModel):
             Usually absent -- the whole point of a project namespace is that each brain derives its own.
         description (str | None): What this brain holds, for ``project show``. A set of six named brains is
             unreadable without one.
+        publish (bool): Whether this brain may be published. ``False`` makes ``dist push`` refuse before it packs
+            anything, and ``dist push --all`` skip it.
+
+            For a brain that is somebody else's upstream. Pulling one gives you a local working copy that is
+            writable like any other -- nothing in the protocol distinguishes "a brain I authored" from "a brain I
+            installed" -- so an absent-minded ``dist push`` publishes a *fork* of a shared brain under whichever
+            repository this project derives, and the two lineages then diverge with nobody informed. Declaring it
+            here is cheaper than remembering it, which is the whole argument: the mistake is silent, one command
+            long, and made by the person who least expects to make it.
+
+            Not a permission and not a security boundary. It stops an accident, not an intent: anyone who edits
+            this file can flip it, which is the correct amount of friction for a declaration whose purpose is to
+            make a deliberate act look deliberate.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -455,6 +470,7 @@ class NamedBrainSpec(BaseModel):
     path: str
     reference: str | None = None
     description: str | None = None
+    publish: bool = True
 
     @field_validator("reference")
     @classmethod
@@ -724,6 +740,19 @@ class ResolvedConfig(BaseModel):
             if derived is not None:
                 return derived
         return self.project.registry.reference
+
+    @property
+    def publish_allowed(self) -> bool:
+        """
+        Whether the selected brain may be published.
+
+        Read from the named brain's declaration when this is one, and from ``[brain]`` otherwise -- a single-brain
+        project must be able to say the same thing, or the answer to "can I protect this one?" would depend on
+        whether the project happens to have a second brain.
+        """
+        if self.brain_name is not None and self.brain_name in self.project.brains:
+            return self.project.brains[self.brain_name].publish
+        return self.project.brain.publish
 
     @property
     def derived(self) -> Path:

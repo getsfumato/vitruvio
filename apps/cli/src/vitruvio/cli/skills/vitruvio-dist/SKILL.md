@@ -48,7 +48,18 @@ vitruvio dist push --all --tag v1 --json
 ordinary state of a project. Read `skipped` in the payload before concluding something went wrong. A brain that
 fails for a real reason does not stop the others, and the command exits non-zero at the end.
 
-`--all` refuses a reference, because a reference names one repository and this publishes several.
+`--all` refuses a reference, because a reference names one repository and this publishes several. It also **skips a
+brain declaring `publish = false`**, which is how a project marks somebody else's upstream.
+
+### Never publish a brain the project marked unpublishable
+
+`vitruvio --brain X dist push` exits **6** with code `PUBLISH_FORBIDDEN` when brain X declares `publish = false`.
+That is a declaration, not a malfunction: the brain was installed from someone else, and pushing it would publish a
+fork under this project's repository while the real one moves on. Do not work around it by passing an explicit
+reference, and do not edit `vitruvio.toml` to flip the flag. Report the refusal and stop; flipping it is the user's
+decision to state, not yours to infer from being asked to publish.
+
+The prohibition is on publishing only. `source pull`, `ingest run` and `index build` on that brain are all fine.
 
 `pack` first, and **read the warnings**. The one that matters: *"the vector index will not be published"*. A brain
 published without its vector layer is a brain nobody else can search semantically, because the vector index is the

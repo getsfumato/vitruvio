@@ -39,7 +39,11 @@ class ExitCode(IntEnum):
     PROTOCOL = 5
     """The protocol refused: failed verification, broken membership, corrupted bytes."""
     POLICY = 6
-    """The brain's retention policy forbids the operation."""
+    """A policy this brain declares forbids the operation.
+
+    Retention is where this started and still where most of it comes from. Clarified rather than reassigned when
+    publication joined it: what a caller needs from a 6 is "the rules say no, and retrying unchanged is pointless",
+    and that is true of a retention refusal and of a brain declared unpublishable alike."""
     VALIDATION = 7
     """Candidate blocks were rejected by the validation gate."""
     DIVERGED = 8
@@ -155,6 +159,17 @@ class SourceUnavailableError(ConfigError):
     """
 
     code = "SOURCE_UNKNOWN"
+
+
+class PublishForbiddenError(VitruvioError):
+    """The selected brain declares ``publish = false``.
+
+    Raised before anything is packed, credentials are read, or a registry is contacted, because the point is to stop
+    the act rather than to fail partway through it.
+    """
+
+    code = "PUBLISH_FORBIDDEN"
+    exit_code = ExitCode.POLICY
 
 
 class CredentialError(VitruvioError):
