@@ -85,7 +85,7 @@ class TestBrainCrossCheck:
             load_project(write(tmp_path, body))
 
     def test_the_error_names_the_brains_that_do_exist(self, tmp_path: Path) -> None:
-        """"unknown brain" without the list costs a turn to discover; with it, the typo is visible."""
+        """ "unknown brain" without the list costs a turn to discover; with it, the typo is visible."""
         body = PROJECT.replace('brain = "algebra"', 'brain = "algbera"')
         with pytest.raises(Exception, match="algebra, fisica"):
             load_project(write(tmp_path, body))

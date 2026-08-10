@@ -34,8 +34,15 @@ if TYPE_CHECKING:
     from boltzmann.blocks.base import Block
     from boltzmann.indices.base import ContentReader
 
-PROJECTION_ID = "vitruvio-projection/1"
-"""Bumped whenever what gets extracted, or how it is weighted, changes."""
+PROJECTION_ID = "vitruvio-projection/2"
+"""Bumped whenever what gets extracted, or how it is weighted, changes.
+
+``/2`` added :attr:`IdentityKey.ORIGIN`. A bump is not free -- the identifier is in every index header and inside
+every vector index's model tag, so every existing brain needs ``index build`` again and every published brain a
+re-push -- and it is honest rather than avoidable: an index built under ``/1`` has no origin table, and letting it
+answer "have I ingested this?" would return "no" for everything and re-fetch a whole brain's worth of material.
+The cost only grows with the number of brains in the world, which is the argument for paying it early.
+"""
 
 
 class Facet(StrEnum):
@@ -78,6 +85,19 @@ class IdentityKey(StrEnum):
     LABEL = "label"
     ALIAS = "alias"
     RECORD_SUBJECT = "record_subject"
+    ORIGIN = "origin"
+    """Where a registered block came from: a URL, ``arxiv:2401.12345``, ``aula://77/4821``.
+
+    Identity-shaped and not a facet: an origin names one acquisition, and the question asked of it is "have I
+    already ingested this?" -- an exact lookup, not a filter. Projecting it is what lets ``source pull`` answer
+    that in O(1) against an index vitruvio already builds, instead of persisting a cursor. The index is derived and
+    rebuildable, so nothing new is stored under ``.vitruvio/`` that is not.
+
+    Two caveats a caller has to know. :func:`fold` case-folds it, so two origins differing only in case collide --
+    worst case a spurious skip. And an origin carrying a session token or a rotating query parameter is not stable
+    across fetches; canonicalising it is the *source's* job, because only the source knows which parts are
+    incidental.
+    """
 
 
 class EdgeKind(StrEnum):
@@ -387,6 +407,10 @@ def _provenance(block: ProvenanceBlock) -> Projection:
     embedding, and letting its wording compete in a similarity ranking is pure noise. What it *does* carry is the
     edges -- ``derived_from`` and ``supersedes`` exist nowhere else -- and the identity of what it talks about,
     because a provenance block is addressed by its subject rather than by itself.
+
+    Plus ``origin``, which for most of this project's life was written by the runtime and read by nothing. It is
+    projected as an identity so that "have I acquired this already?" is a hash-map lookup rather than a scan of
+    every provenance record, which is what makes a repeated ``source pull`` cheap.
     """
     record: Any = block.record
     record_type = getattr(record, "record_type", "unknown")
@@ -415,12 +439,17 @@ def _provenance(block: ProvenanceBlock) -> Projection:
     if recorded := getattr(record, "at", None):
         keys[OrderedKey.RECORDED_AT] = str(recorded)
 
+    identities: dict[IdentityKey, tuple[str, ...]] = {IdentityKey.RECORD_SUBJECT: tuple(subjects)}
+    origin = getattr(record, "origin", None)
+    if origin and str(origin).strip():
+        identities[IdentityKey.ORIGIN] = (fold(str(origin)),)
+
     return Projection(
         block_id=str(block.block_id),
         memory_type=MemoryType.PROVENANCE,
         facets=facets,
         keys=keys,
-        identities={IdentityKey.RECORD_SUBJECT: tuple(subjects)},
+        identities=identities,
         edges=tuple(edges),
     )
 

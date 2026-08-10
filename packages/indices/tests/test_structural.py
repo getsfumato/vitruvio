@@ -146,6 +146,42 @@ class TestProjection:
         assert projection.fields == ()
         assert projection.embed_text is None
 
+    def test_a_registration_record_projects_its_origin(self, provenance_block: ProvenanceBlock) -> None:
+        """For most of this project's life `origin` was written by the runtime and read by nothing. Projecting it
+        is what turns "have I already acquired this?" into a hash-map lookup instead of a scan of every record."""
+        projection = project(provenance_block)
+        assert projection.identities[IdentityKey.ORIGIN] == ("fourier.pdf",)
+
+    def test_an_origin_is_folded_like_every_other_identity_key(self, semantic_blocks: list[SemanticBlock]) -> None:
+        """Documented rather than incidental: two origins differing only in case collide, worst case a spurious
+        skip. A source that cares about the distinction has to canonicalise before it hands one over."""
+        from boltzmann.blocks.provenance import Actor, ActorKind, ProvenanceBlock, RegistrationRecord
+
+        from vitruvio.indices import fold
+
+        block = ProvenanceBlock(
+            record=RegistrationRecord(
+                block=semantic_blocks[0].block_id,
+                actor=Actor(id="tester@example.com", kind=ActorKind.HUMAN),
+                at="2026-05-14T14:00:00Z",
+                origin="HTTPS://Example.COM/Paper.PDF",
+            )
+        )
+        assert project(block).identities[IdentityKey.ORIGIN] == (fold("HTTPS://Example.COM/Paper.PDF"),)
+
+    def test_a_record_without_an_origin_projects_no_origin_key(self, semantic_blocks: list[SemanticBlock]) -> None:
+        """An empty tuple under the key would make the index answer a lookup for "" with every such block."""
+        from boltzmann.blocks.provenance import Actor, ActorKind, ProvenanceBlock, RegistrationRecord
+
+        block = ProvenanceBlock(
+            record=RegistrationRecord(
+                block=semantic_blocks[0].block_id,
+                actor=Actor(id="tester@example.com", kind=ActorKind.HUMAN),
+                at="2026-05-14T14:00:00Z",
+            )
+        )
+        assert IdentityKey.ORIGIN not in project(block).identities
+
     def test_keys_are_folded_but_the_block_is_not(self, semantic_blocks: list[SemanticBlock]) -> None:
         from vitruvio.indices import fold
 
@@ -167,6 +203,17 @@ class TestHashMapIndex:
     def test_an_alias_resolves_too(self, index: HashMapIndex, semantic_blocks: list[SemanticBlock]) -> None:
         results = index.lookup(IdQuery(keys=((IdentityKey.ALIAS, "Fourier series"),)))
         assert results.identities() == (str(semantic_blocks[0].block_id),)
+
+    def test_an_origin_resolves_to_the_record_that_acquired_it(
+        self, provenance_block: ProvenanceBlock, content: MemoryContent
+    ) -> None:
+        """The lookup `source pull` performs instead of persisting a cursor: one hash-map probe against an index
+        that is already built, on derived state that a rebuild regenerates."""
+        built = HashMapIndex(MemoryType.PROVENANCE)
+        built.build([provenance_block], content)
+        results = built.lookup(IdQuery(keys=((IdentityKey.ORIGIN, "fourier.pdf"),)))
+        assert results.identities() == (str(provenance_block.block_id),)
+        assert not built.lookup(IdQuery(keys=((IdentityKey.ORIGIN, "never-fetched.pdf"),))).hits
 
     def test_lookup_is_case_and_form_insensitive(self, index: HashMapIndex) -> None:
         assert index.lookup(IdQuery(keys=((IdentityKey.LABEL, "SERIE DE FOURIER"),))).hits
