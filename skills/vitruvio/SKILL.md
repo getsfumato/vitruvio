@@ -78,6 +78,7 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 
 ## Where to go next
 
+- `vitruvio-cli` — the command surface: which group owns a task, and which flag decides the outcome.
 - `vitruvio-query` — searching, and how to read an evidence bundle without over-claiming.
 - `vitruvio-ingest` — the loop where you propose knowledge and the protocol validates it, plus pulling from declared sources. The highest-value one.
 - `vitruvio-retention` — removing things, and why there are five different ways.

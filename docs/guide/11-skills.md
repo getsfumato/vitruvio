@@ -11,11 +11,12 @@ The paper treats a **skill** as one of a brain's access contracts, alongside the
 that real: any repository holding a brain obtains the skills without cloning vitruvio, so the knowledge of *how to
 drive this* travels with the brain.
 
-Five skills ship, and they are layered rather than exhaustive:
+Six skills ship, and they are layered rather than exhaustive:
 
 | skill | covers |
 |---|---|
 | `vitruvio` | the entry point: what a brain is, the envelope, the exit codes, the five modules |
+| `vitruvio-cli` | the command surface: every group, every command, the flag that decides the outcome |
 | `vitruvio-query` | searching, and reading a bundle without over-claiming |
 | `vitruvio-ingest` | the propose → validate → commit loop. The highest-value one |
 | `vitruvio-retention` | the five removal mechanisms and the discipline each needs |
@@ -32,11 +33,19 @@ The entry skill carries four references: `json-envelope.md`, `exit-codes.md`, `e
 A stale reference is worse than no reference: an agent that trusts a flag which no longer exists spends its next turn
 recovering from a usage error, and nothing in the output tells it the documentation was wrong.
 
-## They ship in the wheel on purpose
+## Authored at the root, shipped in the wheel
 
-The canonical copies are package data under `vitruvio/cli/skills/`. That is what ties a skill to the version of the CLI
-it documents — a skill installed from a different release than the binary it drives is precisely the failure this
-arrangement prevents.
+The files live at [`skills/`](../../skills/README.md) in the repository root, and `vitruvio/cli/skills` inside the
+package is a symlink to them. One copy under version control, two addresses.
+
+Both halves are needed. Shipping them inside the wheel is what ties a skill to the version of the CLI it documents —
+a skill installed from a different release than the binary it drives is precisely the failure this arrangement
+prevents. Keeping the authored copy at the root is what lets a tool install skills without pip, and what makes them
+reviewable in a diff rather than buried under `apps/cli/src/`.
+
+`vitruvio skills list` reports which of the two it is reading, and prefers the packaged copy: in an installed wheel
+it is the only one that exists, and preferring the working copy would make the command depend on which directory you
+were standing in.
 
 An existing skill directory is left alone unless `--force`, because a consumer may have edited one and silently
 overwriting local edits is not something a copy command should do.

@@ -44,7 +44,13 @@ def test_no_member_ships_a_namespace_init() -> None:
 
 
 def test_the_namespace_spans_every_member() -> None:
-    """``vitruvio.__path__`` carries one entry per installed member."""
+    """``vitruvio.__path__`` carries one entry per installed member.
+
+    A count rather than a set of names, and it is load-bearing in a way worth recording: a tenth portion appears the
+    moment a member's package data cannot be expressed as a path pointer, because hatchling's editable build then
+    copies that data into ``site-packages/vitruvio/``. Which is how the CLI's ``skills/`` came to be a symlink into
+    the repository root rather than a ``force-include`` from it -- this test is what noticed.
+    """
     import vitruvio
 
     assert len(vitruvio.__path__) == len(MEMBERS), (

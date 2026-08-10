@@ -19,7 +19,23 @@ from vitruvio.cli.main import app
 if TYPE_CHECKING:
     from cyclopts import App
 
-REFERENCE = Path(__file__).parent / "skills" / "vitruvio" / "references" / "cli-reference.md"
+
+def _reference() -> Path:
+    """
+    Where the generated reference is written.
+
+    The authored copy at ``skills/`` in the repository root, which is the one under version control and the one the
+    package's own ``skills`` symlink points at. Falls back to the packaged path so ``--check`` still answers inside an
+    installed environment, where there is no repository to write into.
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "skills" / "vitruvio" / "references" / "cli-reference.md"
+        if candidate.parent.is_dir() and (parent / "pyproject.toml").is_file():
+            return candidate
+    return Path(__file__).parent / "skills" / "vitruvio" / "references" / "cli-reference.md"
+
+
+REFERENCE = _reference()
 """Where the generated file lives, inside the skill that ships it."""
 
 HEADER = """# CLI reference

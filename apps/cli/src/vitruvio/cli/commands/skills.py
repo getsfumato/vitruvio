@@ -4,10 +4,18 @@ The paper describes a **skill** as one of a brain's access contracts, alongside 
 makes that real: any repository holding a brain can obtain the skills without cloning vitruvio, so the knowledge of
 *how to drive this* travels with the brain rather than living in vitruvio's own docs.
 
-The canonical copies are package data under ``vitruvio/cli/skills/``. That location is not incidental -- shipping
-them inside the wheel is what ties a skill to the version of the CLI it documents. A skill installed from a
-different release than the binary it drives is the failure this arrangement exists to prevent, which is also why
-`cli-reference.md` is generated from the command declarations rather than written by hand.
+The skills are **authored** at ``skills/`` in the repository root, and ``src/vitruvio/cli/skills`` is a symlink to
+it. One copy under version control, two addresses: the root is where a human edits them and where a tool that
+installs skills without pip finds them, and the packaged path is what puts them in the wheel -- which is what ties a
+skill to the version of the CLI it documents. A skill installed from a different release than the binary it drives is
+the failure that arrangement exists to prevent, and it is also why ``cli-reference.md`` is generated from the command
+declarations rather than written by hand.
+
+A symlink rather than hatchling's ``force-include``, and the difference is not stylistic. A force-include reaching
+outside the project directory cannot be represented in an **sdist**, so building the wheel from one failed with
+"Forced include not found" -- which is to say ``pip install vitruvio`` would break for anyone whose installer
+preferred the sdist. Building the wheel directly worked, which is exactly why that went unnoticed until an install
+from the sdist was actually attempted.
 """
 
 from __future__ import annotations
@@ -28,8 +36,41 @@ app = App(
     exit_on_error=False,
 )
 
-SOURCE = Path(__file__).parent.parent / "skills"
-"""Where the shipped copies live, inside the installed package."""
+PACKAGED = Path(__file__).parent.parent / "skills"
+"""Where the shipped copies live inside an installed wheel."""
+
+
+def _authored() -> Path | None:
+    """
+    The repository's own ``skills/``, when this is running from a working copy rather than a wheel.
+
+    Walks up looking for a directory that holds both ``skills`` and ``pyproject.toml``, so a stray ``skills``
+    directory somewhere above an installed environment cannot be mistaken for vitruvio's.
+
+    Returns:
+        Path | None: The authored directory, or ``None`` when there is none above this file.
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "skills"
+        if candidate.is_dir() and (parent / "pyproject.toml").is_file():
+            return candidate
+    return None
+
+
+def _source() -> Path:
+    """
+    Where to copy skills from: the authored directory when there is one, else the packaged copy.
+
+    Authored first. In an installed wheel :func:`_authored` returns ``None`` anyway -- it requires a
+    ``pyproject.toml`` beside the ``skills`` directory, and an installed environment has neither -- so the order
+    costs nothing there, and in a working copy it guarantees that ``skills install`` copies the file a human just
+    edited rather than any copy made at install time.
+    """
+    return _authored() or PACKAGED
+
+
+SOURCE = _source()
+"""Resolved once at import, because it cannot change within a process."""
 
 DEFAULT_TARGET = Path(".claude") / "skills"
 """Where Claude Code looks. Overridable, because it is not the only agent runtime."""

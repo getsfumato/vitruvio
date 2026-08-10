@@ -20,7 +20,14 @@ from vitruvio.cli.commands import skills as skills_command
 from vitruvio.cli.main import main
 from vitruvio.kernel import ExitCode
 
-EXPECTED = {"vitruvio", "vitruvio-query", "vitruvio-ingest", "vitruvio-retention", "vitruvio-dist"}
+EXPECTED = {
+    "vitruvio",
+    "vitruvio-cli",
+    "vitruvio-query",
+    "vitruvio-ingest",
+    "vitruvio-retention",
+    "vitruvio-dist",
+}
 
 
 def envelope(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[str, Any]]:
@@ -157,3 +164,44 @@ def shutil_which(name: str) -> str | None:
     import shutil
 
     return shutil.which(name)
+
+
+class TestThePackagingOfSkills:
+    """The arrangement that keeps one authored copy while still shipping it, and the trap it replaced.
+
+    `apps/cli/src/vitruvio/cli/skills` is a symlink to `skills/` at the repository root. The obvious alternative --
+    hatchling's `force-include` from `../../skills` -- builds a correct *wheel* and an **unbuildable sdist**: a
+    force-include cannot reach outside the project directory, so `pip install vitruvio` failed with "Forced include
+    not found" for anyone whose installer preferred the sdist. Building the wheel directly worked, which is precisely
+    why it went unnoticed until an install from the sdist was attempted.
+    """
+
+    ROOT = Path(__file__).resolve().parents[3]
+
+    def test_the_packaged_path_is_a_link_to_the_authored_one(self) -> None:
+        packaged = self.ROOT / "apps" / "cli" / "src" / "vitruvio" / "cli" / "skills"
+        assert packaged.is_symlink(), "the packaged path must be a link, not a second copy that can drift"
+        assert packaged.resolve() == (self.ROOT / "skills").resolve()
+
+    def test_the_authored_directory_is_the_only_copy(self) -> None:
+        """Two copies under version control would drift, and the drift would be invisible: `skills install` reads one
+        of them and a reviewer reads the other.
+
+        `.claude/` is excluded rather than overlooked. Those skills are for an agent working *on* this repository --
+        a different audience, a different lifecycle, and not shipped to anyone.
+        """
+        excluded = {".venv", ".claude", "node_modules"}
+        real = {path.resolve() for path in self.ROOT.glob("**/skills/**/SKILL.md") if not excluded & set(path.parts)}
+        assert real, "no SKILL.md found at all, which means this test is asserting nothing"
+        assert all(path.is_relative_to((self.ROOT / "skills").resolve()) for path in real), sorted(real)
+
+    def test_nothing_declares_a_force_include(self) -> None:
+        """The specific mistake, pinned by name. It is easy to reach for again -- it looks tidier in the config and
+        its failure is invisible in every check short of installing from an sdist."""
+        manifest = (self.ROOT / "apps" / "cli" / "pyproject.toml").read_text(encoding="utf-8")
+        assert "force-include" not in manifest, "a force-include here cannot be represented in an sdist"
+
+    def test_the_command_reads_the_authored_copy_in_a_working_tree(self) -> None:
+        """So that editing a skill and running `skills install` installs what was just edited, rather than whatever
+        the last `uv sync` happened to place in site-packages."""
+        assert skills_command.SOURCE.resolve() == (self.ROOT / "skills").resolve()

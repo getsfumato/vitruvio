@@ -53,7 +53,8 @@ only-include = ["src/vitruvio/cli"]
 # hatchling treats src/vitruvio as the source root, and `import vitruvio.cli` fails while `import cli`
 # succeeds: nine distributions each claiming to be the top level of a namespace they were meant to share.
 sources = ["src"]
-# The skills are package data, and shipping them inside the wheel is what ties a skill to the version of the CLI it
-# documents. `only-include` above already covers src/vitruvio/cli, but hatchling excludes non-Python files from a
-# package directory unless they are named, and a `skills install` that installs nothing is a silent failure.
+# src/vitruvio/cli/skills is a symlink to skills/ at the repository root, where they are authored: one copy under
+# version control, and both the sdist and the wheel carry the contents. `only-include` above covers the directory,
+# but hatchling excludes non-Python files from a package directory unless they are named -- and a `skills install`
+# that installs nothing is a silent failure.
 artifacts = ["src/vitruvio/cli/skills/**/*.md"]

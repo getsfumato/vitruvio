@@ -19,7 +19,7 @@ from vitruvio.cli.main import app
 ROOT = Path(__file__).resolve().parents[3]
 """The repository root, from apps/cli/tests/."""
 
-DOCUMENTS = ("docs", "apps/cli/src/vitruvio/cli/skills", "README.md")
+DOCUMENTS = ("docs", "skills", "README.md")
 
 INVOCATION = re.compile(r"(?:^|[\s(`])vitruvio ((?:[a-z][a-z0-9-]*)(?:\s+[a-z][a-z0-9-]*){0,2})")
 """A command being offered. Applied only to code, never to prose."""
@@ -109,3 +109,56 @@ def test_a_real_command_is_recognised() -> None:
     assert "bench" in commands
     assert "config embedder test" in commands
     assert "dist push" in commands
+
+
+CLI_SKILL = ROOT / "skills" / "vitruvio-cli" / "SKILL.md"
+"""The skill whose whole content is the command surface, so it is the one most able to be wrong."""
+
+
+def documented_commands() -> set[str]:
+    """Every command the vitruvio-cli skill names in an inline-code span."""
+    text = CLI_SKILL.read_text(encoding="utf-8")
+    groups = {command.split()[0] for command in known_commands()}
+    found: set[str] = set()
+    for span in re.findall(r"`([^`\n]+)`", text):
+        words = [word for word in span.strip().split() if not word.startswith("-")]
+        # A span is a command only if it starts with a group name: `--json` and `vitruvio.toml` are not.
+        if not words or words[0] not in groups:
+            continue
+        # Trailing placeholders are arguments, not subcommands: `brain init PATH` is `brain init`.
+        while words and (words[-1].isupper() or "=" in words[-1] or "-OR-" in words[-1]):
+            words.pop()
+        if words:
+            found.add(" ".join(words))
+    return found
+
+
+def test_the_cli_skill_names_only_commands_that_exist() -> None:
+    """The existing check above only sees invocations written as `vitruvio <cmd>`, and this skill writes them bare in
+    tables -- seventy-two rows the regex cannot see. Without this, the one document whose entire purpose is the
+    command surface would be the least verified thing in the repository."""
+    commands = known_commands()
+    invented = sorted(command for command in documented_commands() if command not in commands)
+    assert not invented, f"the vitruvio-cli skill names commands that do not exist: {invented}"
+
+
+def test_the_cli_skill_covers_every_group() -> None:
+    """A group nobody documented is a group an agent will not find, and the failure is silent: it simply never
+    reaches for that command."""
+    groups = {command.split()[0] for command in known_commands() if " " in command}
+    documented = {command.split()[0] for command in documented_commands()}
+    assert not groups - documented, f"undocumented command groups: {sorted(groups - documented)}"
+
+
+def test_the_counts_in_the_skill_are_the_real_ones() -> None:
+    """The skill opens with "fourteen groups, seventy-two commands". Pinned so that adding a command forces the
+    prose to be updated rather than quietly becoming wrong -- the same bargain `reference --check` makes."""
+    text = CLI_SKILL.read_text(encoding="utf-8")
+    commands = known_commands()
+    leaves = [command for command in commands if not any(other.startswith(f"{command} ") for other in commands)]
+    groups = {command.split()[0] for command in commands if " " in command}
+
+    words = {14: "Fourteen", 72: "seventy-two"}
+    assert words[14] in text or str(len(groups)) in text, f"there are {len(groups)} groups"
+    assert len(groups) == 14, f"the skill says fourteen groups; there are now {len(groups)}"
+    assert len(leaves) == 72, f"the skill says seventy-two commands; there are now {len(leaves)}"
