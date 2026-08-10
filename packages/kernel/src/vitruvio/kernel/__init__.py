@@ -27,6 +27,7 @@ from vitruvio.kernel.config import (
     ProjectSpec,
     RegistrySpec,
     ResolvedConfig,
+    SourceSpec,
     default_indices,
 )
 from vitruvio.kernel.discovery import (
@@ -51,6 +52,8 @@ from vitruvio.kernel.errors import (
     ConfigError,
     CredentialError,
     ExitCode,
+    SourceError,
+    SourceUnavailableError,
     VitruvioError,
 )
 from vitruvio.kernel.paths import (
@@ -62,6 +65,7 @@ from vitruvio.kernel.paths import (
     derived_dir,
     is_layout,
     model_cache,
+    plugin_dir,
     prepare_model_cache,
     state_file,
     state_home,
@@ -108,6 +112,9 @@ __all__ = [
     "RegistrySpec",
     "ResolvedConfig",
     "Secret",
+    "SourceError",
+    "SourceSpec",
+    "SourceUnavailableError",
     "VitruvioError",
     "__version__",
     "cache_home",
@@ -121,6 +128,7 @@ __all__ = [
     "load_project",
     "model_cache",
     "parse_actor_kind",
+    "plugin_dir",
     "prepare_model_cache",
     "provider_key",
     "read_state",

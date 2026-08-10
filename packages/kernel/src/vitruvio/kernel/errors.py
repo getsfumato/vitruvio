@@ -48,6 +48,12 @@ class ExitCode(IntEnum):
     """The registry could not be reached, or refused the credentials."""
     REVIEW = 10
     """A cascade is large enough that the policy requires human review."""
+    SOURCE = 11
+    """A declared source could not be reached, or refused.
+
+    Its own code rather than ``REGISTRY``, whose docstring scopes it to publishing, and rather than ``CONFIG``,
+    which means the declaration itself is wrong. What a caller does about the three differs: wait and retry, fix
+    a credential, edit a file. Collapsing them would make an agent guess."""
 
 
 class VitruvioError(Exception):
@@ -112,6 +118,30 @@ class CandidatesRejectedError(VitruvioError):
 
     code = "CANDIDATES_REJECTED"
     exit_code = ExitCode.VALIDATION
+
+
+class SourceError(VitruvioError):
+    """A declared source could not be reached, listed, or fetched from.
+
+    The world was uncooperative: a command exited non-zero, a host was down, a directory vanished. Distinct from
+    :class:`SourceUnavailableError`, which means the *declaration* cannot be satisfied by this installation --
+    the difference between "try again later" and "nothing will change until you edit something".
+    """
+
+    code = "SOURCE_FAILED"
+    exit_code = ExitCode.SOURCE
+
+
+class SourceUnavailableError(ConfigError):
+    """A source names a kind this installation cannot construct: unknown, or a plugin that will not import.
+
+    A ``ConfigError`` deliberately, and this is the one place worth contrasting with an existing choice:
+    ``EmbedderUnavailableError`` is a bare ``Exception``, so a missing extra currently falls through the mapping
+    table to ``INTERNAL`` and reports an uninstalled dependency as "a bug in vitruvio". A declaration naming
+    something absent is a configuration problem, and it should say so.
+    """
+
+    code = "SOURCE_UNKNOWN"
 
 
 class CredentialError(VitruvioError):

@@ -27,7 +27,7 @@ from boltzmann.blocks.provenance import Actor, ActorKind
 from boltzmann.indices.base import IndexKind
 from boltzmann.query.request import RetrievalMode
 from boltzmann.retention.policy import RetentionPolicy
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -350,6 +350,75 @@ class IngestSpec(BaseModel):
     allowed_memory_types: list[MemoryType] | None = None
 
 
+SOURCE_NAME = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+"""What a source may be called.
+
+Not the repository rule -- a source name never becomes part of one -- but the same spirit: it is typed on a command
+line (``vitruvio source pull algebra-aula``) and printed in a table, so a space or a capital in it is a papercut for
+no gain.
+"""
+
+DEFAULT_SOURCE_TIMEOUT = 300
+"""How long a source gets before it is abandoned, in seconds.
+
+Five minutes rather than the credential helper's five seconds: a source is allowed to do real work. Downloading a
+semester of course material, or running OCR over it, legitimately takes minutes. The point of the bound is that
+*something* eventually kills a hung fetch, not that it kills a slow one.
+"""
+
+
+class SourceSpec(BaseModel):
+    """
+    One place vitruvio pulls material from, declared rather than typed each time.
+
+    This schema **names** a kind; it cannot **define** one, and that is its most important property. There is
+    nowhere here to put a command line. A source vitruvio does not ship is a Python subclass you install on your
+    own machine, so cloning a repository and running ``vitruvio source pull`` cannot execute a stranger's argv --
+    the same structural move this module already makes for secrets, which have no field either.
+
+    Attributes:
+        kind (str): Which strategy acquires from this source. A built-in kind (``directory``) or one a plugin
+            registers. Unknown at parse time on purpose: the set is open, and the resolver reports an unknown kind
+            as a configuration error naming what is installed.
+        brain (str | None): Which named brain this source feeds. The source's declaration **wins** over
+            ``--brain``, and a conflict is an error rather than an override: registering algebra PDFs into the
+            history brain is the worst available outcome, and content addressing cannot undo it. Left unset in a
+            single-brain project.
+        path (str | None): A directory or file the source works from, resolved against **this file's directory**
+            rather than the working directory. First-class rather than an ``options`` key precisely so that a
+            plugin author does not have to remember that rule, or reimplement it.
+        media_type (str | None): Override the media type inferred from each item.
+        normalize_with (str | None): Which normalization pipeline to apply to what is fetched.
+        license (str | None): Recorded on every block this source produces. Material arriving from a faculty
+            platform or from arXiv has terms, and the place to state them once is the declaration.
+        timeout (int): Seconds a single acquisition gets.
+        max_bytes (int | None): Refuse an item larger than this, checked before it is read.
+        options (dict[str, Any]): Kind-specific fields, validated by the subclass constructor -- the only code
+            that knows the shape. Untyped because the set of kinds is open: a discriminated union is right for a
+            closed set, and vitruvio cannot know a third-party plugin's fields.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: str
+    brain: str | None = None
+    path: str | None = None
+    media_type: str | None = None
+    normalize_with: str | None = None
+    license: str | None = None
+    timeout: int = Field(default=DEFAULT_SOURCE_TIMEOUT, ge=1)
+    max_bytes: int | None = Field(default=None, ge=1)
+    options: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("kind")
+    @classmethod
+    def _require_kind(cls, value: str) -> str:
+        """An empty kind resolves to nothing and would report as "unknown kind ''", which reads like a bug."""
+        if not value.strip():
+            raise ValueError("kind is required: name a built-in kind or one a plugin registers")
+        return value.strip()
+
+
 class BrainSpec(BaseModel):
     """
     Which brain this project is about.
@@ -443,6 +512,8 @@ class ProjectConfig(BaseModel):
         planner (PlannerConfig): Planner knobs.
         registry (RegistrySpec): Publication target.
         ingest (IngestSpec): Ingestion defaults.
+        sources (dict[str, SourceSpec]): Where material is pulled from, keyed by name. Note the plural: ``source``
+            below is the file this configuration was read from, and predates this field.
         source (Path | None): Which file this came from. Not a TOML key -- set by the loader, and excluded
             from serialization so that a round-trip does not write it back into the file.
     """
@@ -459,6 +530,7 @@ class ProjectConfig(BaseModel):
     planner: PlannerConfig = PlannerConfig()
     registry: RegistrySpec = RegistrySpec()
     ingest: IngestSpec = IngestSpec()
+    sources: dict[str, SourceSpec] = Field(default_factory=dict)
     source: Path | None = Field(default=None, exclude=True)
 
     @field_validator("brains")
@@ -472,6 +544,38 @@ class ProjectConfig(BaseModel):
                     f"and single separators (-, _, .). `analisis-ii` rather than `Análisis II`"
                 )
         return value
+
+    @field_validator("sources")
+    @classmethod
+    def _validate_source_names(cls, value: dict[str, SourceSpec]) -> dict[str, SourceSpec]:
+        """A source name is typed on a command line, so it is held to a shape that survives one."""
+        for name in value:
+            if not SOURCE_NAME.match(name):
+                raise ValueError(
+                    f"source name {name!r} should be lowercase letters, digits and single separators (-, _): "
+                    f"`algebra-aula` rather than `Algebra Aula`"
+                )
+        return value
+
+    @model_validator(mode="after")
+    def _cross_check_source_brains(self) -> ProjectConfig:
+        """A source may only feed a brain this project declares.
+
+        Deliberately a model validator and not a field one: a field validator cannot see a sibling field, so the
+        ``brains`` name check above is not a template for this. Caught here rather than at pull time because the
+        failure it prevents is unrecoverable -- a typo'd brain name that fell through to the default brain would
+        Merkle-commit one subject's material into another's, and content addressing has no undo.
+        """
+        if not self.brains:
+            return self  # A single-brain project: `brain` names nothing to cross-check against.
+        for name, spec in self.sources.items():
+            if spec.brain is not None and spec.brain not in self.brains:
+                known = ", ".join(sorted(self.brains)) or "none"
+                raise ValueError(
+                    f"source {name!r} feeds brain {spec.brain!r}, which this project does not declare "
+                    f"(declared: {known})"
+                )
+        return self
 
     def brain_path(self, name: str) -> Path | None:
         """
@@ -488,6 +592,50 @@ class ProjectConfig(BaseModel):
             return None
         base = self.source.parent if self.source is not None else Path()
         return (base / spec.path).expanduser().resolve()
+
+    def source_root(self, name: str) -> Path | None:
+        """
+        Where one source's ``path`` points, resolved against the configuration file.
+
+        The same rule as :meth:`brain_path`, and it lives here for the same reason: a relative path in a committed
+        file that meant something different depending on which subdirectory the command ran from would not be a
+        reproducibility artifact. A plugin author gets the resolved path and never has to know the rule.
+
+        Args:
+            name (str): The source's name in this project.
+
+        Returns:
+            Path | None: The resolved root, or ``None`` when there is no such source or it declares no path.
+        """
+        spec = self.sources.get(name)
+        if spec is None or spec.path is None:
+            return None
+        base = self.source.parent if self.source is not None else Path()
+        return (base / Path(spec.path).expanduser()).expanduser().resolve()
+
+    def brain_for_source(self, name: str, *, requested: str | None = None) -> str | None:
+        """
+        Which brain a source feeds, refusing a conflicting request rather than resolving it.
+
+        Args:
+            name (str): The source's name.
+            requested (str | None): A brain named on the command line.
+
+        Returns:
+            str | None: The brain to write into, or ``None`` when neither names one.
+
+        Raises:
+            ValueError: If a request contradicts the source's own declaration. Not an override: silently honouring
+                either side writes one subject's material into another brain, and the caller is better served by
+                being told the two disagree than by a coin flip.
+        """
+        declared = spec.brain if (spec := self.sources.get(name)) is not None else None
+        if declared and requested and declared != requested:
+            raise ValueError(
+                f"source {name!r} feeds brain {declared!r}, but {requested!r} was requested; drop --brain, or "
+                f"edit the source's `brain` if it is wrong"
+            )
+        return declared or requested
 
     def repository_for(self, name: str, *, account: str | None = None) -> str | None:
         """

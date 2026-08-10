@@ -38,6 +38,9 @@ STATE_FILE = "state.toml"
 CREDENTIALS_FILE = "credentials.json"
 """The fallback credential store, used only when no system keyring is available."""
 
+PLUGIN_DIR = "sources"
+"""Where a hand-written source plugin lives, under the user-level configuration directory."""
+
 
 def _xdg(variable: str, default: Path) -> Path:
     """
@@ -85,6 +88,17 @@ def state_file() -> Path:
 def credentials_file() -> Path:
     """Where registry credentials land when no keyring is available."""
     return config_home() / CREDENTIALS_FILE
+
+
+def plugin_dir() -> Path:
+    """Where a source plugin you wrote yourself lives.
+
+    Under ``config_home()`` and deliberately **not** under a brain or the project: importing a module from here is
+    code execution, and the only trust level at which that is acceptable is "code I wrote, on my machine" -- the same
+    one as a shell profile. A plugin directory inside the repository would mean that cloning a repository and running
+    ``vitruvio source pull`` executes a stranger's Python, which is the whole thing this layout refuses.
+    """
+    return config_home() / PLUGIN_DIR
 
 
 def model_cache() -> Path:

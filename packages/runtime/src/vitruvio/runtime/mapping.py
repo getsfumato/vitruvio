@@ -181,6 +181,9 @@ def _http_for(exit_code: ExitCode) -> int:
         ExitCode.DIVERGED: 409,
         ExitCode.REGISTRY: 502,
         ExitCode.REVIEW: 409,
+        ExitCode.SOURCE: 502,
+        # A source is upstream of vitruvio exactly as a registry is, so its unreachability is a bad gateway and
+        # not the 500 the .get() fallback would report. An HTTP client retries a 502 and pages a human for a 500.
     }.get(exit_code, 500)
 
 
