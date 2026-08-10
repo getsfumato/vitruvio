@@ -192,53 +192,57 @@ class TestOrasIsolation:
         assert "hangs" in warning
 
 
+@pytest.fixture
+def published(tmp_path: Path, source_file: Path) -> tuple[Path, str]:
+    """A brain with canonical evidence, derived semantic knowledge, indices, and a published artifact.
+
+    Semantic blocks matter here: a canonical block carries no text until a normalization pipeline produces a view, so
+    a brain of canonical blocks alone has nothing embeddable and no vector index to publish. The interesting
+    assertions are about the index that travels.
+
+    Module level rather than inside one class, because two classes need it -- and a class-scoped fixture reached from
+    a second class fails as "fixture 'published' not found", which reads like a typo rather than like a scope.
+    """
+    from boltzmann.blocks.memory_type import MemoryType
+    from boltzmann.ingest.proposer import Candidate, CandidateSet
+
+    config = resolve(brain=tmp_path / "producer", actor_id="producer@example.com", require_layout=False)
+    service = BrainService(config)
+    service.init()
+    registered = service.register(source_file, media_type="text/markdown")
+
+    from boltzmann.identity.digest import BlockId
+
+    brain = service.brain(Capability.WRITE)
+    source = BlockId.parse(registered["block_id"])
+    task = brain.define_task(source, allowed=[MemoryType.SEMANTIC])
+    candidates = CandidateSet(
+        task_id=task.task_id,
+        candidates=[
+            Candidate(
+                memory_type=MemoryType.SEMANTIC,
+                evidence=[source],
+                locator="p1",
+                payload={
+                    "kind": "concept",
+                    "label": "Serie de Fourier",
+                    "subject": "senales",
+                    "statement": "Descompone una funcion periodica en senos y cosenos.",
+                },
+            )
+        ],
+    )
+    brain.commit(brain.validate(candidates, task))
+    service.index_build()
+
+    registry_root = tmp_path / "registry"
+    registry_root.mkdir()
+    service.push("demo/brain", tag="v1", local=registry_root)
+    return registry_root, "demo/brain"
+
+
 class TestLocalRoundTrip:
     """A filesystem registry, over the SDK's real contract. No network, no credentials, same code path."""
-
-    @pytest.fixture
-    def published(self, tmp_path: Path, source_file: Path) -> tuple[Path, str]:
-        """A brain with canonical evidence, derived semantic knowledge, indices, and a published artifact.
-
-        Semantic blocks matter here: a canonical block carries no text until a normalization pipeline produces a view, so
-        a brain of canonical blocks alone has nothing embeddable and no vector index to publish. The interesting
-        assertions are about the index that travels.
-        """
-        from boltzmann.blocks.memory_type import MemoryType
-        from boltzmann.ingest.proposer import Candidate, CandidateSet
-
-        config = resolve(brain=tmp_path / "producer", actor_id="producer@example.com", require_layout=False)
-        service = BrainService(config)
-        service.init()
-        registered = service.register(source_file, media_type="text/markdown")
-
-        from boltzmann.identity.digest import BlockId
-
-        brain = service.brain(Capability.WRITE)
-        source = BlockId.parse(registered["block_id"])
-        task = brain.define_task(source, allowed=[MemoryType.SEMANTIC])
-        candidates = CandidateSet(
-            task_id=task.task_id,
-            candidates=[
-                Candidate(
-                    memory_type=MemoryType.SEMANTIC,
-                    evidence=[source],
-                    locator="p1",
-                    payload={
-                        "kind": "concept",
-                        "label": "Serie de Fourier",
-                        "subject": "senales",
-                        "statement": "Descompone una funcion periodica en senos y cosenos.",
-                    },
-                )
-            ],
-        )
-        brain.commit(brain.validate(candidates, task))
-        service.index_build()
-
-        registry_root = tmp_path / "registry"
-        registry_root.mkdir()
-        service.push("demo/brain", tag="v1", local=registry_root)
-        return registry_root, "demo/brain"
 
     def test_a_pull_installs_a_verifiable_brain(self, published: tuple[Path, str], tmp_path: Path) -> None:
         registry_root, reference = published
@@ -418,3 +422,103 @@ class TestContainerRegistry:
         consumer.init()
         consumer.pull(f"{endpoint}/demo/brain", tag="v1", anonymous=True, insecure=True)
         assert consumer.verify()["verified"] is True
+
+
+class TestWhatAPullReplaces:
+    """A pull adopts the published composition and moves the head to it, with no fast-forward check.
+
+    That asymmetry is deliberate -- the divergence guard belongs on `push`, where overwriting means overwriting
+    somebody *else's* work -- but the loss used to be silent. Blocks committed locally since the last pull stop being
+    members of any composition: they do not verify into a root, do not appear in a search, and a pack does not carry
+    them. The blobs stay and the snapshot stays in `brain history`, so nothing is destroyed; nothing said it happened
+    either, and the discovery came days later when a search returned nothing.
+    """
+
+    @pytest.fixture
+    def mine(self, tmp_path: Path) -> Path:
+        """A file the producer never published, so registering it is a real commit rather than a duplicate."""
+        path = tmp_path / "mine.md"
+        path.write_text("# Nota mia\n\nEsto no esta en el upstream.\n", encoding="utf-8")
+        return path
+
+    @pytest.fixture
+    def consumer(self, published: tuple[Path, str], tmp_path: Path) -> BrainService:
+        """A brain that pulled the published version and has committed nothing of its own."""
+        registry_root, reference = published
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        service = BrainService(config)
+        service.init()
+        service.pull(reference, tag="v1", local=registry_root)
+        return service
+
+    def test_a_clean_copy_reports_nothing_to_lose(self, consumer: BrainService, published: tuple[Path, str]) -> None:
+        """The half that matters for noise: a warning on every pull would be ignored by the third one."""
+        registry_root, reference = published
+        plan = consumer.plan_pull(reference, tag="v1", local=registry_root)
+        assert plan["local_work"]["diverged"] is False
+        assert plan["local_work"]["blocks"] == 0
+
+    def test_a_fresh_empty_brain_reports_nothing_to_lose(self, published: tuple[Path, str], tmp_path: Path) -> None:
+        """An empty brain has never pulled and has no origin, which is the case that would otherwise be reported as
+        "everything you have is at stake" over a brain holding nothing."""
+        registry_root, reference = published
+        config = resolve(brain=tmp_path / "fresh", actor_id="c@example.com", require_layout=False)
+        service = BrainService(config)
+        service.init()
+        assert service.plan_pull(reference, tag="v1", local=registry_root)["local_work"]["diverged"] is False
+
+    def test_a_local_commit_is_reported_before_the_pull(
+        self, consumer: BrainService, published: tuple[Path, str], mine: Path
+    ) -> None:
+        """`plan-pull` exists to answer "what would this cost" before paying it, and losing local work is a cost."""
+        registry_root, reference = published
+        consumer.register(mine, media_type="text/markdown", origin="local://mine")
+
+        work = consumer.plan_pull(reference, tag="v1", local=registry_root)["local_work"]
+        assert work["diverged"] is True
+        assert work["blocks"] is not None
+        assert work["blocks"] > 0
+        assert work["snapshot"] is not None
+
+    def test_the_pull_reports_exactly_what_left_the_composition(
+        self, consumer: BrainService, published: tuple[Path, str], mine: Path
+    ) -> None:
+        """Counted here rather than estimated: this is the one moment both compositions are known, so the report can
+        say what happened instead of what was likely to."""
+        registry_root, reference = published
+        registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+
+        result = consumer.pull(reference, tag="v1", local=registry_root)
+        assert result["discarded"] > 0
+        assert registered["block_id"] in result["discarded_blocks"]
+
+    def test_the_discarded_block_really_is_out_of_the_composition(
+        self, consumer: BrainService, published: tuple[Path, str], mine: Path
+    ) -> None:
+        """The report would be worthless if it were describing something that had not happened. Checked against the
+        module rather than against the report."""
+        registry_root, reference = published
+        registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        consumer.pull(reference, tag="v1", local=registry_root)
+
+        held = consumer.module("canonical", limit=100)["block_ids"]
+        assert registered["block_id"] not in held
+        assert consumer.verify()["verified"] is True, "and the brain is not broken by it, only narrower"
+
+    def test_the_snapshot_that_held_them_is_still_recoverable(
+        self, consumer: BrainService, published: tuple[Path, str], mine: Path
+    ) -> None:
+        """What makes this a warning rather than an error: the state is still there to go back to by hand. If this
+        ever stops being true, the warning has to become a refusal."""
+        registry_root, reference = published
+        consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        before = str(consumer.state()["snapshot"]["digest"])
+
+        consumer.pull(reference, tag="v1", local=registry_root)
+        assert before in [entry["digest"] for entry in consumer.history()["snapshots"]]
+
+    def test_a_pull_that_changes_nothing_discards_nothing(
+        self, consumer: BrainService, published: tuple[Path, str]
+    ) -> None:
+        registry_root, reference = published
+        assert consumer.pull(reference, tag="v1", local=registry_root)["discarded"] == 0

@@ -89,3 +89,31 @@ credential — a refusal that happens after a credential lookup has already told
 `dist push --all` skips it. See [Projects](13-projects.md#a-brain-you-did-not-author) for why an installed brain
 wants this.
 
+## What a pull replaces
+
+A pull adopts the published composition and moves the head to it, with **no fast-forward check**. The divergence
+guard is on `push`, where overwriting means overwriting somebody else's work; an install installs the other side's
+version, which is the point of it.
+
+So anything committed locally since the last pull stops being a member of any module: it no longer verifies into a
+root, no longer appears in a search, and a pack no longer carries it.
+
+```console
+$ vitruvio dist plan-pull --tag v2.4
+transfer    212.4 KiB
+discards    5 blocks committed here since the last pull (they are in sha256:cabe876f9d)
+
+$ vitruvio dist pull --tag v2.4
+warning: 5 blocks committed here are no longer in the composition; the snapshot that held
+         them is still in `brain history`
+discarded   5 blocks committed here, now outside the composition
+```
+
+Nothing is destroyed. The blobs stay on disk and the previous snapshot stays in `brain history` — the retention
+policy keeps ten of them — so the state is recoverable. But **no command restores it**: going back today means
+editing `boltzmann/head.json` by hand. If you are working on a brain somebody else publishes, read `discards` in
+`plan-pull` before pulling, and push your own work somewhere first if you want to keep it.
+
+`plan-pull` estimates the count from two snapshot documents, which is why it needs no download. `pull` counts it
+exactly, because it is the one moment both compositions are known.
+

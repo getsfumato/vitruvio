@@ -20,7 +20,7 @@ caller writes the answer.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
 from boltzmann.blocks.memory_type import MemoryType
@@ -2320,6 +2320,10 @@ class BrainService:
 
         A canonical layer can be gigabytes, so "how much will this cost" has to be answerable without paying it.
 
+        Reports ``local_work`` as well as the transfer, because cost is not the only thing worth knowing before a
+        pull: an install adopts the remote composition, so anything committed here since the last pull stops being a
+        member of it. Answered from the local head and nothing else, so it costs no extra round trip.
+
         Returns:
             dict[str, Any]: The plan, with the byte count taken from the resolved manifest.
         """
@@ -2340,6 +2344,7 @@ class BrainService:
             "reference": target,
             "tag": wanted_tag,
             **wire.install_plan(plan, manifest),
+            "local_work": self._local_work(brain),
             "warnings": warnings,
         }
 
@@ -2371,15 +2376,98 @@ class BrainService:
         wanted_tag = tag or self.config.project.registry.tag
 
         brain = self.brain(Capability.WRITE)
+        # Captured before, because after the pull the composition is the remote's and there is nothing left to
+        # compare against. This is the only place the count can be exact rather than estimated.
+        before = self._composition_ids(brain)
         with _translated():
             snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
+        orphaned = sorted(before - self._composition_ids(brain))
         return {
             "reference": target,
             "tag": wanted_tag,
             "snapshot": wire.snapshot(snapshot),
             "partial": chosen is not None,
+            "discarded": len(orphaned),
+            "discarded_blocks": orphaned[:20],
             "warnings": warnings,
         }
+
+    # --- What a pull would replace ---------------------------------------------
+    #
+    # `pull` adopts the remote snapshot verbatim and moves the head to it, with no fast-forward check -- the
+    # divergence guard lives on `push`, where overwriting means overwriting somebody *else's* work. That asymmetry
+    # is right: an install installs the other side's version.
+    #
+    # What was missing is that the loss was silent. Blocks committed locally since the last pull stop being members
+    # of any composition: they do not verify into a root, they do not appear in a search, and a pack does not carry
+    # them. The blobs stay on disk and the previous snapshot stays in `retained`, so the state is recoverable by
+    # hand -- but nothing said it happened, and the discovery came days later when a search returned nothing.
+
+    def _local_work(self, brain: Brain) -> dict[str, Any]:
+        """
+        What is installed here that no pull put here.
+
+        Answered from ``Origin``, which records the snapshot digest of the last pull, so the question "did I commit
+        anything since?" is a local comparison and costs no round trip. The count is a delta between two snapshot
+        documents rather than a set difference, because a plan must not download a composition to answer it.
+
+        Args:
+            brain (Brain): The opened brain.
+
+        Returns:
+            dict[str, Any]: ``diverged``, how many blocks are at stake, and which snapshot holds them.
+        """
+        snapshot = brain.snapshot()
+        installed = sum(reference.block_count for reference in snapshot.modules.values())
+        origin = brain.origin
+        clean = {"diverged": False, "blocks": 0, "snapshot": None, "pulled": None}
+
+        if installed == 0:
+            return clean
+        if origin is None:
+            # Never pulled, and it holds blocks: everything in it is local, and a pull replaces the lot.
+            return {"diverged": True, "blocks": installed, "snapshot": str(snapshot.digest), "pulled": None}
+        if str(snapshot.digest) == str(origin.snapshot):
+            return clean
+
+        baseline = self._snapshot_at(brain, str(origin.snapshot))
+        blocks = None if baseline is None else max(installed - baseline, 0)
+        return {
+            "diverged": True,
+            "blocks": blocks,
+            "snapshot": str(snapshot.digest),
+            "pulled": str(origin.snapshot),
+        }
+
+    @staticmethod
+    def _snapshot_at(brain: Brain, digest: str) -> int | None:
+        """
+        How many blocks one retained snapshot held, or ``None`` when it can no longer be read.
+
+        ``None`` rather than zero: a missing baseline means the size of the local work is *unknown*, and reporting
+        an unknown as "nothing" is the failure this whole report exists to prevent.
+        """
+        from boltzmann.brain import Snapshot
+        from boltzmann.identity.digest import OciDigest
+
+        try:
+            document = brain.store.get_bytes(OciDigest.parse(digest))
+        # Broad on purpose: a pruned or unreadable blob is not an error here, it is an unknown.
+        except Exception:
+            return None
+        try:
+            return sum(reference.block_count for reference in Snapshot.model_validate_json(document).modules.values())
+        except ValueError:  # pragma: no cover - a blob that is not a snapshot document
+            return None
+
+    @staticmethod
+    def _composition_ids(brain: Brain) -> set[str]:
+        """Every block identity currently a member of some installed module."""
+        found: set[str] = set()
+        for kind in brain.snapshot().installed:
+            with suppress(Exception):
+                found.update(str(identity) for identity in brain.module(kind).block_ids)
+        return found
 
     def tags(
         self,

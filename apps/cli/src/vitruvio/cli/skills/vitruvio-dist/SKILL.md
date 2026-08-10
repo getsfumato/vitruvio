@@ -51,6 +51,23 @@ fails for a real reason does not stop the others, and the command exits non-zero
 `--all` refuses a reference, because a reference names one repository and this publishes several. It also **skips a
 brain declaring `publish = false`**, which is how a project marks somebody else's upstream.
 
+### A pull replaces local work, and says so
+
+`dist pull` adopts the published composition with no fast-forward check, so blocks committed locally since the last
+pull leave the composition. Both commands report it:
+
+```bash
+vitruvio dist plan-pull --tag v2.4 --json    # read data.local_work.diverged and data.local_work.blocks
+vitruvio dist pull --tag v2.4 --json         # read data.discarded and data.discarded_blocks
+```
+
+`discarded > 0` means the user lost the membership of that many blocks. Say so plainly and name the snapshot from
+`brain history` that still holds them; do not describe the pull as clean. Nothing is destroyed -- the blobs remain
+and the snapshot is retained -- but **no command restores it**, so do not promise a rollback you cannot perform.
+
+When a user asks to update a brain they have been writing into, run `plan-pull` first and show them
+`local_work.blocks` before pulling. That is the only point at which the choice is still theirs.
+
 ### Never publish a brain the project marked unpublishable
 
 `vitruvio --brain X dist push` exits **6** with code `PUBLISH_FORBIDDEN` when brain X declares `publish = false`.

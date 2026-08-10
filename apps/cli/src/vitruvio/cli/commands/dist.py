@@ -235,6 +235,22 @@ def _push_all(
     )
 
 
+def _local_work_line(result: dict[str, Any]) -> str | None:
+    """
+    One line about what a pull replaces, or ``None`` when it replaces nothing of yours.
+
+    Shared by `plan-pull` and `pull` so the two cannot come to phrase the same fact differently -- the phrasing is
+    the feature here, and two copies of it drift.
+    """
+    work = result.get("local_work") or {}
+    if not work.get("diverged"):
+        return None
+    blocks = work.get("blocks")
+    count = "an unknown number of blocks" if blocks is None else f"{blocks} block{'' if blocks == 1 else 's'}"
+    where = f" (they are in {short(str(work['snapshot']))})" if work.get("snapshot") else ""
+    return f"this pull discards {count} committed here since the last pull{where}"
+
+
 @app.command(name="plan-pull")
 def plan_pull(
     reference: str | None = None,
@@ -253,8 +269,9 @@ def plan_pull(
 ) -> ExitCode:
     """Report what a pull would transfer, before transferring it.
 
-    Worth doing every time: a canonical layer can be gigabytes, and "how much is this going to cost" should be
-    answerable without paying it.
+    Worth doing every time, for two reasons. A canonical layer can be gigabytes, and "how much is this going to
+    cost" should be answerable without paying it. And an install adopts the published composition, so anything
+    committed here since the last pull stops being part of it — `discards` says how much, before rather than after.
 
     Parameters
     ----------
@@ -286,6 +303,9 @@ def plan_pull(
         f"vectors     {', '.join(result['fetch_vector_indices']) or '(none)'}",
         f"transfer    {f'{size / 1024:.1f} KiB' if size is not None else '(unknown)'}",
     ]
+    if (discards := _local_work_line(result)) is not None:
+        lines.append(f"discards    {discards.removeprefix('this pull discards ')}")
+        console.warn(discards)
     if result["is_noop"]:
         lines.append("")
         lines.append("this brain is already at the published state")
@@ -338,7 +358,17 @@ def pull(
     if result["partial"]:
         console.warn("a selective install leaves the other modules missing; `inspect resolvability` reports which")
 
-    lines = [f"pulled      {result['reference']}:{result['tag']}", "", *render.snapshot(result["snapshot"])]
+    lines = [f"pulled      {result['reference']}:{result['tag']}"]
+    if discarded := int(result["discarded"]):
+        # Counted exactly here rather than estimated: this is the one moment both compositions are known, so the
+        # report says what happened instead of what was likely to. Stated after the fact because a pull is a
+        # request to install the other side's version -- `plan-pull` is where it is stated before.
+        console.warn(
+            f"{discarded} block{'' if discarded == 1 else 's'} committed here are no longer in the composition; "
+            f"the snapshot that held them is still in `brain history`"
+        )
+        lines.append(f"discarded   {discarded} blocks committed here, now outside the composition")
+    lines += ["", *render.snapshot(result["snapshot"])]
     return console.emit("dist.pull", result, lines=lines)
 
 
