@@ -3418,6 +3418,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "vitruvio-bench" },
     { name = "vitruvio-embeddings", extra = ["api", "local-text", "vision"] },
     { name = "vitruvio-ingest", extra = ["api", "vision"] },
     { name = "vitruvio-runtime", extra = ["keyring"] },
@@ -3425,6 +3426,9 @@ all = [
 api = [
     { name = "vitruvio-embeddings", extra = ["api"] },
     { name = "vitruvio-ingest", extra = ["api"] },
+]
+bench = [
+    { name = "vitruvio-bench" },
 ]
 keyring = [
     { name = "vitruvio-runtime", extra = ["keyring"] },
@@ -3442,9 +3446,11 @@ requires-dist = [
     { name = "cyclopts", specifier = ">=4.0.0" },
     { name = "rich", specifier = ">=13.7.0" },
     { name = "vitruvio", extras = ["api"], marker = "extra == 'all'" },
+    { name = "vitruvio", extras = ["bench"], marker = "extra == 'all'" },
     { name = "vitruvio", extras = ["keyring"], marker = "extra == 'all'" },
     { name = "vitruvio", extras = ["local"], marker = "extra == 'all'" },
     { name = "vitruvio", extras = ["vision"], marker = "extra == 'all'" },
+    { name = "vitruvio-bench", marker = "extra == 'bench'", editable = "packages/bench" },
     { name = "vitruvio-embeddings", extras = ["api"], marker = "extra == 'api'", editable = "packages/embeddings" },
     { name = "vitruvio-embeddings", extras = ["local-text"], marker = "extra == 'local'", editable = "packages/embeddings" },
     { name = "vitruvio-embeddings", extras = ["vision"], marker = "extra == 'vision'", editable = "packages/embeddings" },
@@ -3454,7 +3460,7 @@ requires-dist = [
     { name = "vitruvio-runtime", editable = "packages/runtime" },
     { name = "vitruvio-runtime", extras = ["keyring"], marker = "extra == 'keyring'", editable = "packages/runtime" },
 ]
-provides-extras = ["local", "vision", "api", "keyring", "all"]
+provides-extras = ["local", "vision", "api", "keyring", "bench", "all"]
 
 [[package]]
 name = "vitruvio-bench"
