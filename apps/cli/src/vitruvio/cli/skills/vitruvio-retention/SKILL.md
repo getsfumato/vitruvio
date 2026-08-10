@@ -82,6 +82,11 @@ conversation, and state these two limits plainly first:
 Content another block still names survives, because destroying it would take that block's evidence with it. The
 output says what was held back for that reason — read it, because it means the erasure was partial.
 
+**A declared source that still offers the redacted item cannot bring it back.** `vitruvio source pull` refuses a
+tombstoned digest by design, and `--refetch` does not override it, so a scheduled pull cannot undo an erasure. Worth
+saying to a user who redacts something a source keeps listing: the item will show up as `skipped` in every future
+pull, with the redaction named as the reason. That is the mechanism working, not a failure to fix.
+
 ## Prune is separate on purpose
 
 ```bash

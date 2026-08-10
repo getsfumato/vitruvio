@@ -16,6 +16,7 @@ differently — which is the only question an automated caller actually has.
 | 8 | NOT_FAST_FORWARD | the histories diverged | pull, re-commit, push |
 | 9 | REGISTRY | registry unreachable or refused | yes |
 | 10 | REVIEW | the cascade needs human review | ask a person |
+| 11 | SOURCE | a declared source was unreachable or refused | yes |
 
 ## The distinctions that matter
 
@@ -27,6 +28,10 @@ loop.
 member, a blob does not hash to its digest. 6 means the protocol's own rules forbid what was asked — episodic
 memory is append-only, canonical drops need permission. Retrying either is pointless, and a caller that retries on
 5 is retrying against corruption.
+
+**9 vs 11.** Both are "the world was uncooperative", and both are worth retrying. 9 is a registry, which is where a
+brain *goes*; 11 is a source, which is where material *comes from*. Neither is 3: a source whose tool is missing or
+whose host is down will work later, and a source whose declaration is wrong will not work until a file is edited.
 
 **10 is not an error.** It is the protocol asking for a human, because the cascade exceeded the policy's review
 threshold. Answering on the human's behalf defeats the mechanism that produced the exit code.

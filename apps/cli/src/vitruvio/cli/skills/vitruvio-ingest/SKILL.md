@@ -94,6 +94,35 @@ proposer reads. `vitruvio ingest pipelines --json` lists what is available. Two 
 - **Raster images have no pipeline**, deliberately: a re-encode is not reproducible across library versions. SVG
   does, because it is text and its labels are the signal.
 
+## When the evidence arrives on its own
+
+A **source** is a declaration of where material comes from, in `vitruvio.toml`. `pull` acquires from it and registers
+into canonical memory; interpretation is still this skill's loop, unchanged.
+
+```bash
+vitruvio source status --json                   # what is declared, and whether each can be used
+vitruvio source pull papers --dry-run --json    # what it would take, fetching nothing
+vitruvio source pull papers --json
+vitruvio source pull --all --json               # every source, each into the brain it declares
+```
+
+Read three things in the result:
+
+- **`counts`** — `registered`, `skipped`, `duplicate`, `failed`. `skipped` is the normal outcome of a repeated pull
+  and means the origin was already registered; it is not a problem to fix.
+- **`items[].outcome`** per item, with a `reason` when it is `skipped` or `failed`. Per-item failures do not stop the
+  rest, so a pull can succeed overall while one file did not arrive.
+- **exit 11** means a whole *source* was unreachable — a tool missing, a timeout, a directory gone. Worth retrying
+  later. Exit 3 means the declaration is wrong and retrying changes nothing until a file is edited.
+
+**A pull cannot restore redacted bytes, and must not be used to try.** A digest that `vitruvio retain redact`
+tombstoned is refused with `outcome: skipped` and a reason naming the redaction, and `--refetch` does not override
+it. If a user asks you to bring back redacted content, say that the refusal is deliberate and that undoing a
+redaction is a manual `vitruvio source register` — do not look for a flag that defeats it.
+
+Do not run `source add` on a user's behalf without being asked to. A `directory` source pointed at the wrong folder
+turns everything in it into content-addressed canonical evidence, and `dist push` would publish it.
+
 ## Re-deriving
 
 ```bash

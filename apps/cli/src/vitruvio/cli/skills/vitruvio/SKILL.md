@@ -71,6 +71,7 @@ The whole point of these is "may I retry, and with what changed".
 | 8 | push is not a fast-forward | pull, re-commit, push again — never `--force` |
 | 9 | registry unreachable or refused | retryable |
 | 10 | the cascade needs human review | stop and ask a person |
+| 11 | a declared source was unreachable or refused | retryable |
 
 The distinction that matters most: **2** means you asked wrong, **5** and **6** mean the protocol refused and
 retrying is pointless, **7** means your input was wrong and is fixable.
@@ -78,7 +79,7 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 ## Where to go next
 
 - `vitruvio-query` — searching, and how to read an evidence bundle without over-claiming.
-- `vitruvio-ingest` — the loop where you propose knowledge and the protocol validates it. The highest-value one.
+- `vitruvio-ingest` — the loop where you propose knowledge and the protocol validates it, plus pulling from declared sources. The highest-value one.
 - `vitruvio-retention` — removing things, and why there are five different ways.
 - `vitruvio-dist` — publishing a brain and installing one.
 

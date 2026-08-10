@@ -15,5 +15,6 @@ In order. Each page assumes the ones before it.
 11. [Skills](11-skills.md) — making the CLI drivable by an agent.
 12. [Benchmarking](12-benchmarking.md) — measuring recall, and calibrating the cost model.
 13. [Projects](13-projects.md) — one project, many brains, and publishing each to its own repository.
+14. [Sources](14-sources.md) — declaring where material comes from, and why a pull cannot resurrect redacted bytes.
 
 For the reasoning behind the design, read the [ADRs](../adr/README.md).
