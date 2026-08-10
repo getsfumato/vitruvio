@@ -1,12 +1,16 @@
-"""``vitruvio source`` -- canonical registration.
+"""``vitruvio source`` -- canonical registration, by hand or from a declared source.
 
 Registering a source does not declare it *true*. The canonical module asserts that evidence was incorporated
 and preserved; every interpretation of it is a separate block that cites it through provenance. That
-distinction is what makes a brain re-interpretable when the models improve, and it is why these three commands
+distinction is what makes a brain re-interpretable when the models improve, and it is why these commands
 are separate from ``vitruvio task``, which is where interpretation happens.
 
 There is no in-place edit of evidence. A newer edition is a new block plus a supersession edge, which is what
 ``replace`` does.
+
+``pull`` and ``register`` are in the same group deliberately: the noun is identical and only the mover differs --
+``register`` moves bytes you already had, ``pull`` moves bytes vitruvio fetched. A user should not have to know
+which of the two happened in order to find the command.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from cyclopts import App, Parameter
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
 from vitruvio.ingest.media import EXTRA_MEDIA_TYPES, FALLBACK_MEDIA_TYPE, media_type_for
-from vitruvio.kernel import ExitCode, VitruvioError
+from vitruvio.kernel import ExitCode, UsageError, VitruvioError
 
 app = App(name="source", help="Register canonical evidence.", result_action="return_value", exit_on_error=False)
 
@@ -177,3 +181,239 @@ def put(
         result,
         lines=[f"blob   {result['blob']}", f"size   {result['size']} bytes", f"type   {result['media_type']}"],
     )
+
+
+# --- Declared sources ---------------------------------------------------------
+#
+# A source is declared in vitruvio.toml, which is committed. It names a kind and can never define one: a kind is a
+# Python class, either shipped by vitruvio or written by you under $XDG_CONFIG_HOME. That means cloning a repository
+# and running `source pull` cannot execute a stranger's command line, which is a property of the schema rather than
+# of a confirmation prompt.
+
+
+@app.command(name="pull")
+def pull(
+    name: str | None = None,
+    *,
+    all_sources: Annotated[bool, Parameter(name=["--all"])] = False,
+    dry_run: Annotated[bool, Parameter(name=["--dry-run"])] = False,
+    limit: int | None = None,
+    refetch: bool = False,
+) -> ExitCode:
+    """Acquire from a declared source and register what is new as canonical evidence.
+
+    A repeated pull is cheap rather than merely idempotent: an origin already registered is skipped *before*
+    anything is fetched, by one lookup in the provenance index. Changing a source's `--media-type` or
+    `normalize_with` re-registers, because both are part of a block's identity.
+
+    Nothing here can restore redacted bytes. A digest that was tombstoned is refused, out loud, rather than
+    re-fetched -- otherwise a scheduled pull would quietly undo `vitruvio retain redact`.
+
+    Parameters
+    ----------
+    name
+        Which declared source. Omit it with --all.
+    all_sources
+        Pull every declared source, each into the brain it declares. Keeps going past a failure.
+    dry_run
+        List and decide, fetch nothing and register nothing. What to run first when a source has just been
+        pointed at a directory.
+    limit
+        Stop after this many registrations -- per source, and not counting skips, so it still does something on
+        the second run.
+    refetch
+        Ignore the origin index. For a source whose addresses turned out to be unstable, or to bring back a
+        block that was dropped.
+    """
+    console = current().console
+    if all_sources:
+        if name is not None:
+            raise UsageError(
+                "--all pulls every source and a name selects one",
+                hint="drop the name, or drop --all",
+            )
+        result = current().service(require_brain=False).pull_all(dry_run=dry_run, limit=limit, refetch=refetch)
+        for entry in result["sources"]:
+            if entry["ok"]:
+                counts = ", ".join(f"{value} {key}" for key, value in sorted(entry["counts"].items())) or "nothing"
+                console.note(f"ok    {entry['source']!s:<18} {counts}")
+            else:
+                console.warn(f"{entry['source']}: {entry['error']}")
+        lines = [f"registered  {result['registered']}", f"sources     {len(result['sources'])}"]
+        code = console.emit("source.pull", result, lines=lines)
+        return code if result["ok"] else ExitCode.SOURCE
+
+    if name is None:
+        raise UsageError("name which source to pull, or pass --all", hint="`vitruvio source status` lists them")
+
+    result = current().service().pull_source(name, dry_run=dry_run, limit=limit, refetch=refetch)
+    for item in result["items"]:
+        if item["outcome"] == "failed":
+            console.warn(f"{item['title'] or item['id']}: {item['reason']}")
+        elif item["outcome"] == "skipped":
+            console.note(f"skip  {item['title'] or item['id']!s:<28} {item['reason']}")
+    lines = [
+        f"source      {result['source']} ({result['kind']})",
+        f"listed      {result['listed']}",
+        f"registered  {result['registered']}" + ("  (dry run)" if result["dry_run"] else ""),
+    ]
+    failed = result["counts"].get("failed", 0)
+    code = console.emit("source.pull", result, lines=lines)
+    return ExitCode.SOURCE if failed else code
+
+
+@app.command(name="status")
+def status() -> ExitCode:
+    """What sources this project declares, and whether each one can be used.
+
+    `status` rather than `list`, because in this group "list" reads as "list the canonical sources in the brain",
+    which is what `vitruvio inspect module canonical` does.
+
+    A source that cannot be used is a row, not an error: a directory that has not been created yet, or a kind
+    whose plugin is missing, is something to be told about rather than something to fail on.
+    """
+    console = current().console
+    result = current().service(require_brain=False).sources()
+    lines = []
+    for row in result["sources"]:
+        mark = "ok  " if row["available"] else "--  "
+        detail = row["reason"] or row["path"] or ""
+        brain = f"-> {row['brain']}" if row["brain"] else ""
+        lines.append(f"{mark}{row['name']!s:<18} {row['kind']!s:<14} {brain:<16} {detail}")
+    if not lines:
+        lines = ["no sources declared"]
+    return console.emit("source.status", result, lines=lines)
+
+
+@app.command(name="kinds")
+def kinds() -> ExitCode:
+    """Every source kind this installation can construct, and where each came from.
+
+    "built-in" is one vitruvio ships; "plugin:<path>" is a file you wrote; "entry-point:<name>" arrived with an
+    installed distribution. Which of the three it is happens to be the first question worth asking when a kind
+    behaves unexpectedly.
+    """
+    console = current().console
+    result = current().service(require_brain=False).source_kinds()
+    lines = [f"{row['kind']!s:<20} {row['provenance']}" for row in result["kinds"]]
+    lines.append(f"\nwrite your own in {result['plugin_dir']} -- `vitruvio source scaffold <kind>`")
+    return console.emit("source.kinds", result, lines=lines)
+
+
+@app.command(name="scaffold")
+def scaffold(kind: str, *, force: bool = False) -> ExitCode:
+    """Write a starter plugin for a source kind vitruvio does not ship.
+
+    A command rather than a documentation section, because "inherit from BaseSource" leaves an author to discover
+    the containment helper and the stability requirement on `origin` the hard way -- and the hard way there is a
+    directory's worth of duplicate or unsafe blocks.
+
+    Parameters
+    ----------
+    kind
+        The name vitruvio.toml will select it by.
+    force
+        Overwrite an existing file. Refused by default: that file is hand-written code, and it is the one thing
+        here no content address can recover.
+    """
+    console = current().console
+    result = current().service(require_brain=False).scaffold_source(kind, force=force)
+    lines = [
+        f"wrote   {result['path']}",
+        f'declare [sources.<name>] kind = "{result["kind"]}" in vitruvio.toml',
+    ]
+    return console.emit("source.scaffold", result, lines=lines)
+
+
+@app.command(name="add")
+def add(
+    name: str,
+    *,
+    kind: Annotated[str, Parameter(name=["--kind"])],
+    brain: Annotated[str | None, Parameter(name=["--brain-name"])] = None,
+    path: str | None = None,
+    media_type: Annotated[str | None, Parameter(name=["--media-type"])] = None,
+    normalize_with: Annotated[str | None, Parameter(name=["--normalize-with"])] = None,
+    license_id: Annotated[str | None, Parameter(name=["--license"])] = None,
+    option: Annotated[list[str] | None, Parameter(name=["--option"])] = None,
+) -> ExitCode:
+    """Declare a source in vitruvio.toml.
+
+    Parameters
+    ----------
+    name
+        What to call it. Lowercase, because you will type it on a command line.
+    kind
+        Which strategy acquires from it. `vitruvio source kinds` lists what is installed.
+    brain
+        Which named brain it feeds. Spelled --brain-name because --brain is a global option that selects the
+        brain for *this invocation*; this one is written into the file and decides every future pull.
+    path
+        Its root. Recorded as given and resolved against vitruvio.toml, never against the working directory.
+    media_type
+        Override the media type inferred from each item's name.
+    normalize_with
+        A normalization pipeline applied to everything this source produces.
+    license_id
+        Recorded on every block from this source.
+    option
+        A kind-specific field, as `key=value`. Repeatable.
+    """
+    console = current().console
+    options: dict[str, object] = {}
+    for entry in option or []:
+        if "=" not in entry:
+            raise UsageError(f"--option expects key=value, got {entry!r}", hint="e.g. --option glob='*.pdf'")
+        key, value = entry.split("=", 1)
+        options[key.strip()] = _typed(value.strip())
+
+    result = (
+        current()
+        .service(require_brain=False)
+        .add_source(
+            name,
+            kind=kind,
+            brain=brain,
+            path=path,
+            media_type=media_type,
+            normalize_with=normalize_with,
+            license_id=license_id,
+            options=options,
+        )
+    )
+    if result["warning"]:
+        console.warn(result["warning"])
+    lines = [f"declared    {result['name']} ({result['kind']})", f"in          {result['config_file']}"]
+    if result["path"]:
+        lines.insert(1, f"path        {result['path']}")
+    return console.emit("source.add", result, lines=lines)
+
+
+@app.command(name="remove")
+def remove(name: str) -> ExitCode:
+    """Undeclare a source. Nothing it ever registered is touched.
+
+    Parameters
+    ----------
+    name
+        The source's name.
+    """
+    console = current().console
+    result = current().service(require_brain=False).remove_source(name)
+    return console.emit("source.remove", result, lines=[f"removed   {result['name']}"])
+
+
+def _typed(value: str) -> object:
+    """
+    Read an option value as a bool, an int, or the string it is.
+
+    Because `--option recursive=false` written into TOML as the string "false" is *true* to `bool()`, and the
+    resulting behaviour -- a recursive glob nobody asked for -- is both surprising and expensive.
+    """
+    lowered = value.lower()
+    if lowered in {"true", "false"}:
+        return lowered == "true"
+    try:
+        return int(value)
+    except ValueError:
+        return value

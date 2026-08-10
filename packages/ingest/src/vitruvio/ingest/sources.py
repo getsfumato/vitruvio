@@ -650,9 +650,9 @@ def _subclasses(container: object) -> Iterable[type[BaseSource]]:
 
 SCAFFOLD = '''"""A vitruvio source: {kind}.
 
-Written by `vitruvio source scaffold {kind}`. This file is imported by vitruvio when a `source` command runs, from
-your own configuration directory -- the same trust level as your shell profile. Nothing in a repository can add a
-kind here.
+Written by `vitruvio source scaffold {kind}`. vitruvio imports this file when a `source` command runs, from your
+own configuration directory -- the same trust level as your shell profile. Nothing that arrives with a `git clone`
+can add a kind here.
 
 Declare it in vitruvio.toml:
 
@@ -663,6 +663,8 @@ Declare it in vitruvio.toml:
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 
 from vitruvio.ingest.sources import BaseSource, Item
 

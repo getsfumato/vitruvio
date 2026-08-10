@@ -339,6 +339,34 @@ class TestScaffold:
     def test_it_is_valid_python(self) -> None:
         compile(scaffold("youtube"), "scaffold", "exec")
 
+    def test_every_name_it_annotates_with_is_imported(self) -> None:
+        """This one caught a real bug rather than guarding a hypothetical. A rename put `Sequence[Item]` into the
+        starter without its import, and `from __future__ import annotations` means Python never evaluates an
+        annotation -- so the file imported cleanly and the only thing that complained was a plugin author's editor,
+        much later."""
+        import ast
+
+        tree = ast.parse(scaffold("youtube"))
+        imported = {
+            alias.asname or alias.name.split(".")[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import | ast.ImportFrom)
+            for alias in node.names
+        }
+        annotated = [
+            node.annotation
+            for node in ast.walk(tree)
+            if isinstance(node, ast.arg | ast.AnnAssign) and node.annotation is not None
+        ]
+        annotated += [node.returns for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.returns]
+        used = {
+            name.id
+            for annotation in annotated
+            for name in ast.walk(annotation)
+            if isinstance(name, ast.Name) and name.id[:1].isupper()
+        }
+        assert used <= imported, f"the starter annotates with names it does not import: {sorted(used - imported)}"
+
     def test_it_teaches_the_two_things_a_plugin_author_gets_wrong(self) -> None:
         """`origin` has to be stable, and a local read has to go through `contain`. Both are in the starter because
         the cost of discovering them the hard way is a directory's worth of duplicate or unsafe blocks."""

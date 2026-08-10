@@ -744,6 +744,595 @@ class BrainService:
         records = describe()
         return {"pipelines": records, "available": [item["name"] for item in records if item["available"]]}
 
+    # --- Declared sources -----------------------------------------------------
+    #
+    # `pull` is `register` with the bytes fetched rather than handed over, and the interesting part is the three
+    # things that stop it registering the same material twice -- or, in one case, registering material that was
+    # deliberately destroyed.
+    #
+    # 1. **The tombstone guard.** `Brain.register` calls `store.put_bytes(data)` *before* its duplicate check, and
+    #    `OciLayoutStore.has` returns True for a tombstoned digest while `tombstone()` unlinks the file. So
+    #    re-fetching redacted bytes writes the destroyed bytes back onto disk and then quietly reports
+    #    `duplicate=True`. A scheduled `source pull` is precisely the machine that would silently undo `retain
+    #    redact` -- the command whose own docstring says it is for personal data, credentials and licensed
+    #    material. Nothing else here may assume `register` is safe on these bytes.
+    #
+    # 2. **The origin index.** `origin` is projected as an identity key, so "have I acquired this?" is one
+    #    hash-map probe. It runs *before* the fetch, which is what makes a repeated pull cheap rather than merely
+    #    idempotent. A hit is compared against the declaration before it is trusted: changing a source's
+    #    `media_type` or `normalize_with` must re-register, because both are part of a block's identity and a
+    #    silent skip would make the correction do nothing at all.
+    #
+    # 3. **Content addressing**, which needs no code: identical bytes compute the same block identity and
+    #    `register` returns `duplicate=True`. It is the backstop for every source that cannot produce a stable
+    #    origin, at the cost of one wasted download.
+
+    def sources(self) -> dict[str, Any]:
+        """
+        Every declared source, whether it can be used, and where its kind came from.
+
+        Constructing each source is what tells you it is usable, so this constructs them -- and a construction that
+        fails is reported as a row rather than raised, because one broken declaration must not hide the other five
+        that are fine. That is the difference between ``status`` and ``pull``.
+
+        Returns:
+            dict[str, Any]: A row per source, plus the installed kinds.
+        """
+        from vitruvio.ingest.sources import describe as describe_sources
+        from vitruvio.kernel import VitruvioError
+
+        rows: list[dict[str, Any]] = []
+        for name, spec in sorted(self.config.project.sources.items()):
+            row: dict[str, Any] = {
+                "name": name,
+                "kind": spec.kind,
+                "brain": spec.brain,
+                "path": str(self.config.project.source_root(name) or "") or None,
+                "normalize_with": spec.normalize_with,
+            }
+            try:
+                source = self._source(name, spec)
+            except (VitruvioError, ValueError) as error:
+                rows.append({**row, "available": False, "reason": str(error), "provenance": None})
+                continue
+            rows.append(
+                {
+                    **row,
+                    "available": source.available,
+                    "reason": source.unavailable_because(),
+                    "provenance": self._kind_provenance(spec.kind),
+                }
+            )
+        return {"sources": rows, "kinds": describe_sources(), "config_file": str(self.config.config_file or "")}
+
+    def source_kinds(self) -> dict[str, Any]:
+        """
+        Every source kind this installation can construct.
+
+        Returns:
+            dict[str, Any]: The kinds, and where a hand-written one would go.
+        """
+        from vitruvio.ingest.sources import describe as describe_sources
+        from vitruvio.kernel import plugin_dir
+
+        return {"kinds": describe_sources(), "plugin_dir": str(plugin_dir())}
+
+    def scaffold_source(self, kind: str, *, force: bool = False) -> dict[str, Any]:
+        """
+        Write a starter plugin for one kind into the user's plugin directory.
+
+        Args:
+            kind (str): The kind name, as it will appear in ``vitruvio.toml``.
+            force (bool): Overwrite an existing file.
+
+        Returns:
+            dict[str, Any]: Where it was written.
+
+        Raises:
+            UsageError: If a file for that kind already exists and ``force`` was not given. Refusing rather than
+                overwriting: that file is hand-written code, and it is the one thing here no content address can
+                recover.
+        """
+        from vitruvio.ingest.sources import scaffold
+        from vitruvio.kernel import UsageError, plugin_dir
+
+        directory = plugin_dir()
+        target = directory / f"{kind.replace('-', '_')}.py"
+        existed = target.exists()
+        if existed and not force:
+            raise UsageError(
+                f"{target} already exists",
+                hint="edit it, or pass --force to overwrite what is there",
+            )
+        directory.mkdir(parents=True, exist_ok=True)
+        target.write_text(scaffold(kind), encoding="utf-8")
+        return {"kind": kind, "path": str(target), "overwritten": existed}
+
+    def add_source(
+        self,
+        name: str,
+        *,
+        kind: str,
+        brain: str | None = None,
+        path: str | None = None,
+        media_type: str | None = None,
+        normalize_with: str | None = None,
+        license_id: str | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Declare a source in ``vitruvio.toml``.
+
+        Args:
+            name (str): What to call it.
+            kind (str): Which strategy acquires from it.
+            brain (str | None): Which named brain it feeds.
+            path (str | None): Its root, recorded as given and resolved against the configuration file.
+            media_type (str | None): Override the inferred media type.
+            normalize_with (str | None): A normalization pipeline.
+            license_id (str | None): Recorded on every block from this source.
+            options (dict[str, Any] | None): Kind-specific fields.
+
+        Returns:
+            dict[str, Any]: The declaration, and a warning when its path sits outside the project.
+
+        Raises:
+            ConfigError: If there is no configuration file to write to.
+            UsageError: If the name is already taken.
+        """
+        import pathlib
+
+        from vitruvio.kernel import ConfigError, ProjectConfig, SourceSpec, UsageError, update_config
+
+        config_path = self.config.config_file
+        if config_path is None:
+            raise ConfigError(
+                "this project has no vitruvio.toml to declare a source in",
+                hint="run `vitruvio project init <name>` first, or `vitruvio brain init`",
+            )
+        if name in self.config.project.sources:
+            raise UsageError(
+                f"this project already declares a source called {name!r}",
+                hint="pick another name, or `vitruvio source remove` it first",
+            )
+
+        spec = SourceSpec(
+            kind=kind,
+            brain=brain,
+            path=path,
+            media_type=media_type,
+            normalize_with=normalize_with,
+            license=license_id,
+            options=options or {},
+        )
+        # Validated against the whole document before anything is written, so a source naming a brain the project
+        # does not declare is refused here rather than at the next pull, by which time it is committed.
+        declared = {
+            key: value.model_dump(exclude_none=True, mode="json") for key, value in self.config.project.sources.items()
+        }
+        ProjectConfig.model_validate(
+            {
+                **self.config.project.model_dump(exclude_none=True, mode="json"),
+                "sources": {**declared, name: spec.model_dump(exclude_none=True, mode="json")},
+            }
+        )
+
+        # One call for the whole table, not one per field: `update_config` validates the entire document before
+        # writing, so writing `kind` first would submit an intermediate document missing required fields.
+        update_config(config_path, f"sources.{name}", spec.model_dump(exclude_none=True, mode="json"))
+
+        # Resolved here rather than through `source_root`, which reads the configuration this process loaded -- and
+        # that copy predates the write above, so it does not know about this source yet.
+        root = (
+            (config_path.parent / pathlib.Path(path).expanduser()).expanduser().resolve() if path is not None else None
+        )
+        warning = None
+        if root is not None and not root.is_relative_to(config_path.parent):
+            # Worth saying out loud once. A directory source composes with `dist push` into a way to publish
+            # something nobody meant to: point one at the wrong folder and a private key becomes a canonical block,
+            # content-addressed and Merkle-committed in a public repository.
+            warning = f"{root} is outside the project directory; everything matching will become canonical evidence"
+        return {
+            "name": name,
+            "kind": kind,
+            "brain": brain,
+            "path": str(root) if root else None,
+            "config_file": str(config_path),
+            "warning": warning,
+        }
+
+    def remove_source(self, name: str) -> dict[str, Any]:
+        """
+        Undeclare a source. Nothing it ever registered is touched.
+
+        Args:
+            name (str): The source's name.
+
+        Returns:
+            dict[str, Any]: What was removed.
+
+        Raises:
+            UsageError: If the project declares no such source.
+        """
+        from vitruvio.kernel import UsageError, update_config
+
+        config_path = self.config.config_file
+        if config_path is None or name not in self.config.project.sources:
+            raise UsageError(
+                f"this project declares no source called {name!r}",
+                hint=f"declared: {', '.join(sorted(self.config.project.sources)) or '(none)'}",
+            )
+        update_config(config_path, f"sources.{name}", None)
+        return {"name": name, "config_file": str(config_path)}
+
+    def pull_source(
+        self,
+        name: str,
+        *,
+        dry_run: bool = False,
+        limit: int | None = None,
+        refetch: bool = False,
+    ) -> dict[str, Any]:
+        """
+        Acquire from one declared source and register what is new as canonical evidence.
+
+        Args:
+            name (str): The source's name in the project.
+            dry_run (bool): List and decide, fetch nothing and register nothing. What to run first when a source
+                has just been pointed at a directory.
+            limit (int | None): Stop after this many *registrations*, not this many items -- a limit that counted
+                skips would do nothing on the second run, which is the run people repeat.
+            refetch (bool): Ignore the origin index. For a source whose addresses turned out to be unstable, or to
+                bring back a block that was dropped.
+
+        Returns:
+            dict[str, Any]: A row per item with what happened to it, and the totals.
+
+        Raises:
+            UsageError: If the source is not declared, or feeds a brain other than the selected one.
+        """
+        from vitruvio.kernel import UsageError
+
+        spec = self.config.project.sources.get(name)
+        if spec is None:
+            raise UsageError(
+                f"this project declares no source called {name!r}",
+                hint=f"declared: {', '.join(sorted(self.config.project.sources)) or '(none)'}",
+            )
+        self._require_declared_brain(name, spec)
+        source = self._source(name, spec)
+
+        with _translated():
+            items = list(source.list())
+
+        brain = self.brain(Capability.INSPECT if dry_run else Capability.WRITE)
+        rows: list[dict[str, Any]] = []
+        registered = 0
+        for item in items:
+            if limit is not None and registered >= limit:
+                rows.append({**self._item_row(item), "outcome": "not-reached"})
+                continue
+            row = self._pull_one(brain, source, spec, item, dry_run=dry_run, refetch=refetch)
+            rows.append(row)
+            if row["outcome"] == "registered":
+                registered += 1
+
+        counts: dict[str, int] = {}
+        for row in rows:
+            counts[str(row["outcome"])] = counts.get(str(row["outcome"]), 0) + 1
+        return {
+            "source": name,
+            "kind": spec.kind,
+            "brain": self.config.brain_name or str(self.config.brain),
+            "listed": len(items),
+            "registered": registered,
+            "dry_run": dry_run,
+            "counts": counts,
+            "items": rows,
+        }
+
+    def pull_all(self, *, dry_run: bool = False, limit: int | None = None, refetch: bool = False) -> dict[str, Any]:
+        """
+        Pull every declared source, each into the brain it declares.
+
+        Keeps going past a failed source, for the same reason ``dist push --all`` does: being told which one of six
+        failed is better than stopping at the first and leaving four that would have worked unpulled and
+        unmentioned.
+
+        The loop lives here rather than in the CLI on purpose. ``dist``'s equivalent sits in the CLI and is already
+        the thinnest part of that boundary; repeating it would mean the MCP server reimplements "which failures are
+        fatal", and a second implementation of that is a second set of answers.
+
+        Args:
+            dry_run (bool): Decide without fetching or registering.
+            limit (int | None): Per source, not in total.
+            refetch (bool): Ignore the origin index.
+
+        Returns:
+            dict[str, Any]: A result per source, and whether every one succeeded.
+
+        Raises:
+            ConfigError: If the project declares no sources at all.
+        """
+        from vitruvio.kernel import ConfigError, VitruvioError
+
+        declared = self.config.project.sources
+        if not declared:
+            raise ConfigError(
+                "this project declares no sources",
+                hint="declare one with `vitruvio source add <name> --kind directory --path ...`",
+            )
+
+        results: list[dict[str, Any]] = []
+        for name, spec in sorted(declared.items()):
+            try:
+                service = self._service_for_brain(spec.brain)
+                outcome = service.pull_source(name, dry_run=dry_run, limit=limit, refetch=refetch)
+                results.append({"ok": True, **outcome})
+            except VitruvioError as error:
+                # Per-source failures accumulate; per-item ones already did, inside `pull_source`. A source that is
+                # down, or a tool that is not installed, says so and the next source still runs.
+                results.append(
+                    {
+                        "ok": False,
+                        "source": name,
+                        "kind": spec.kind,
+                        "brain": spec.brain,
+                        "error": str(error),
+                        "code": error.code,
+                    }
+                )
+        return {
+            "sources": results,
+            "ok": all(bool(result["ok"]) for result in results),
+            "registered": sum(int(result.get("registered", 0)) for result in results),
+            "dry_run": dry_run,
+        }
+
+    # --- The parts of a pull --------------------------------------------------
+
+    def _source(self, name: str, spec: Any) -> Any:
+        """Construct one declared source, with its path resolved against the configuration file."""
+        from vitruvio.ingest.sources import resolve_source
+
+        return resolve_source(
+            name,
+            spec,
+            root=self.config.project.source_root(name),
+            cwd=self.config.config_file.parent if self.config.config_file else None,
+        )
+
+    def _kind_provenance(self, kind: str) -> str | None:
+        """Where a kind came from -- built-in, a plugin file, an entry point -- for ``source status``."""
+        from vitruvio.ingest.sources import kinds
+
+        found = kinds().get(kind)
+        return found.provenance if found else None
+
+    def _require_declared_brain(self, name: str, spec: Any) -> None:
+        """
+        Refuse a pull whose source declares a brain other than the selected one.
+
+        An error rather than an override in either direction. Registering one subject's material into another brain
+        is the worst outcome available here and content addressing has no undo for it, so a coin flip between two
+        readings of the request is not a resolution.
+        """
+        from vitruvio.kernel import UsageError
+
+        declared = spec.brain
+        selected = self.config.brain_name
+        if declared and selected and declared != selected:
+            raise UsageError(
+                f"source {name!r} feeds brain {declared!r}, but {selected!r} is selected",
+                hint=f"drop --brain and let the declaration decide, or edit `brain` under [sources.{name}]",
+            )
+
+    def _service_for_brain(self, brain: str | None) -> BrainService:
+        """
+        A service bound to one named brain of this project, reusing the resolved configuration.
+
+        Resolved once and copied rather than re-read per brain: every brain in a project shares its actor, policy
+        and embedder, and re-reading the file per source would let the project change underneath a half-finished
+        pull.
+        """
+        from vitruvio.kernel import ConfigError
+
+        if brain is None or brain == self.config.brain_name:
+            return self
+        path = self.config.project.brain_path(brain)
+        if path is None:
+            raise ConfigError(
+                f"a source feeds brain {brain!r}, which this project does not declare",
+                hint="add it with `vitruvio project add`, or fix `brain` under that source",
+            )
+        return BrainService(self.config.model_copy(update={"brain": path, "brain_name": brain}))
+
+    @staticmethod
+    def _item_row(item: Any) -> dict[str, Any]:
+        """The reportable part of an item, before anything has been decided about it."""
+        return {"id": item.id, "origin": item.origin, "title": item.title, "media_type": item.media_type}
+
+    def _pull_one(
+        self,
+        brain: Brain,
+        source: Any,
+        spec: Any,
+        item: Any,
+        *,
+        dry_run: bool,
+        refetch: bool,
+    ) -> dict[str, Any]:
+        """
+        Decide about one item, and register it if it is new.
+
+        The order is the whole point: the cheap checks come first, so a repeated pull over a hundred unchanged
+        files performs a hundred hash-map probes and no downloads.
+        """
+        from vitruvio.kernel import SourceError, VitruvioError
+
+        row = self._item_row(item)
+        media_type = spec.media_type or item.media_type or "application/octet-stream"
+
+        if not refetch:
+            held = self._registered_as(brain, item.origin)
+            if held is not None and self._matches_declaration(held, media_type, spec.normalize_with):
+                return {**row, "outcome": "skipped", "reason": "origin already registered", "block": held["block"]}
+
+        if dry_run:
+            return {**row, "outcome": "would-fetch"}
+
+        try:
+            data = source.fetch(item)
+        except (SourceError, OSError) as error:
+            # Per-item, and accumulated rather than fatal: one unreadable file in a folder of forty must not cost
+            # the other thirty-nine their registration.
+            return {**row, "outcome": "failed", "reason": str(error)}
+
+        guarded = self._tombstoned(brain, data)
+        if guarded is not None:
+            return {**row, "outcome": "skipped", "reason": guarded}
+
+        try:
+            result = self._register_bytes(brain, data, media_type=media_type, origin=item.origin, spec=spec)
+        except VitruvioError as error:
+            return {**row, "outcome": "failed", "reason": str(error)}
+        return {**row, **result}
+
+    def _register_bytes(
+        self,
+        brain: Brain,
+        data: bytes,
+        *,
+        media_type: str,
+        origin: str,
+        spec: Any,
+    ) -> dict[str, Any]:
+        """Register fetched bytes as canonical evidence, under the source's declared licence and pipeline."""
+        from boltzmann.ingest.register import RegistrationRequest
+
+        with _translated():
+            registration = brain.register(
+                data,
+                RegistrationRequest(
+                    media_type=media_type,
+                    actor=self.config.actor(),
+                    origin=origin,
+                    license=spec.license,
+                    normalize_with=spec.normalize_with,
+                ),
+            )
+        return {
+            "outcome": "duplicate" if registration.duplicate else "registered",
+            "block": str(registration.block_id),
+            "size": len(data),
+        }
+
+    @staticmethod
+    def _tombstoned(brain: Brain, data: bytes) -> str | None:
+        """
+        Whether these bytes were redacted, checked *before* anything writes them back.
+
+        The one check here that cannot be moved or merged into another. ``Brain.register`` stores the blob before it
+        decides whether the block is a duplicate, and a tombstoned digest still answers ``has()`` with True while
+        its file is gone -- so calling ``register`` with redacted bytes re-materialises exactly what a retention
+        policy destroyed, and then reports a duplicate as though nothing had happened. A scheduled pull would undo
+        every redaction, quietly, on a schedule.
+
+        Returns:
+            str | None: Why these bytes must not be registered, or ``None`` when it is safe.
+        """
+        from boltzmann.identity.digest import OciDigest
+
+        digest = OciDigest.of(data)
+        store = brain.store
+        if store.has(digest) and not store.is_resolvable(digest):
+            return (
+                f"{digest} was redacted; re-registering would restore the bytes a retention policy destroyed. "
+                f"Undo the redaction deliberately if that is what you want"
+            )
+        return None
+
+    def _registered_as(self, brain: Brain, origin: str) -> dict[str, Any] | None:
+        """
+        What was registered from this origin before, or ``None``.
+
+        One hash-map probe on the provenance module, which is the reason ``origin`` is projected at all. Falls back
+        to ``None`` -- never to a scan -- when no such index is registered: a pull that silently became O(n) per
+        item over a large brain would look like a hang, and content addressing still catches the duplicate.
+        """
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.indices import HashMapIndex, IdentityKey, IdQuery, fold
+
+        index = next(
+            (
+                candidate
+                for candidate in brain.indices.get(MemoryType.PROVENANCE, [])
+                if isinstance(candidate, HashMapIndex)
+            ),
+            None,
+        )
+        if index is None or not index.population:
+            return None
+
+        results = index.lookup(IdQuery(keys=((IdentityKey.ORIGIN, fold(origin)),)))
+        for identity in results.identities():
+            record = self._registration_record(brain, identity)
+            if record is not None:
+                return record
+        return None
+
+    def _registration_record(self, brain: Brain, provenance_id: str) -> dict[str, Any] | None:
+        """The canonical block one registration record talks about, with what it was registered as."""
+        from boltzmann.identity.digest import BlockId
+
+        try:
+            with _translated():
+                block = brain.resolve(BlockId.parse(provenance_id))
+        except VitruvioError:
+            # A record whose provenance block is no longer resolvable tells us nothing useful, and a pull is not
+            # the place to raise about it.
+            return None
+        record: Any = getattr(block, "record", None)
+        target = getattr(record, "block", None)
+        if target is None:
+            return None
+        return {"block": str(target), **self._canonical_shape(brain, str(target))}
+
+    def _canonical_shape(self, brain: Brain, block_id: str) -> dict[str, Any]:
+        """
+        The two parts of a canonical block's identity that a declaration can change: media type and view.
+
+        Read so that editing a source's ``media_type`` or ``normalize_with`` re-registers instead of being skipped
+        by the origin check. Both are inputs to the block's identity, so a silent skip would make the correction do
+        nothing -- and the block that was meant to be fixed would still be wrong.
+        """
+        from boltzmann.identity.digest import BlockId
+
+        try:
+            with _translated():
+                block = brain.resolve(BlockId.parse(block_id))
+        except VitruvioError:  # pragma: no cover - a record pointing at an absent block
+            return {"media_type": None, "pipeline": None}
+        view = getattr(block, "normalized_view", None)
+        return {
+            "media_type": getattr(block, "media_type", None),
+            "pipeline": getattr(view, "pipeline", None) if view is not None else None,
+        }
+
+    @staticmethod
+    def _matches_declaration(held: dict[str, Any], media_type: str, normalize_with: str | None) -> bool:
+        """
+        Whether what is already registered is what the declaration now asks for.
+
+        A ``False`` here is what turns "I fixed the media type in vitruvio.toml" into a new block rather than into
+        nothing at all. Neither field is compared when the held block could not be read, because an unreadable
+        block is not evidence that the declaration changed.
+        """
+        if held.get("media_type") is not None and held["media_type"] != media_type:
+            return False
+        return not (normalize_with is not None and held.get("pipeline") not in (None, normalize_with))
+
     # --- Retention ------------------------------------------------------------
     #
     # Every operation here is *shaped* by one asymmetry: a drop is cheap to state and expensive to undo, and its cost

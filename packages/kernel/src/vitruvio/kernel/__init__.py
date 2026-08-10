@@ -54,6 +54,7 @@ from vitruvio.kernel.errors import (
     ExitCode,
     SourceError,
     SourceUnavailableError,
+    UsageError,
     VitruvioError,
 )
 from vitruvio.kernel.paths import (
@@ -115,6 +116,7 @@ __all__ = [
     "SourceError",
     "SourceSpec",
     "SourceUnavailableError",
+    "UsageError",
     "VitruvioError",
     "__version__",
     "cache_home",

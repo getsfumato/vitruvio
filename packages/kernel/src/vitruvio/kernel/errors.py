@@ -108,6 +108,19 @@ class ActorUnknownError(ConfigError):
     code = "ACTOR_UNKNOWN"
 
 
+class UsageError(VitruvioError):
+    """The invocation contradicts itself, or names something that does not exist.
+
+    Exists because the alternative was worse. cyclopts produces :attr:`ExitCode.USAGE` for a malformed command
+    line, but a *semantic* usage error -- two mutually exclusive flags, a name the project does not know -- is
+    raised by our own code, and a bare ``VitruvioError`` reports it as exit 1, which this enum documents as "always
+    a bug in vitruvio". Telling a user their typo is our bug costs them a real investigation.
+    """
+
+    code = "USAGE"
+    exit_code = ExitCode.USAGE
+
+
 class CandidatesRejectedError(VitruvioError):
     """The validation gate rejected at least one candidate, so nothing was committed.
 

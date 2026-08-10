@@ -74,6 +74,30 @@ Register a newer edition and record that it supersedes an older block.
 
 Store bytes addressably without registering a canonical block.
 
+### `vitruvio source pull` `[name]` `--all-sources` `--dry-run` `--limit` `--refetch`
+
+Acquire from a declared source and register what is new as canonical evidence.
+
+### `vitruvio source status`
+
+What sources this project declares, and whether each one can be used.
+
+### `vitruvio source kinds`
+
+Every source kind this installation can construct, and where each came from.
+
+### `vitruvio source scaffold` `kind` `--force`
+
+Write a starter plugin for a source kind vitruvio does not ship.
+
+### `vitruvio source add` `name` `--kind` *(required)* `--brain` `--path` `--media-type` `--normalize-with` `--license-id` `--option`
+
+Declare a source in vitruvio.toml.
+
+### `vitruvio source remove` `name`
+
+Undeclare a source. Nothing it ever registered is touched.
+
 ## `vitruvio task`
 
 Define processing tasks, validate a model's candidates, and commit them.
