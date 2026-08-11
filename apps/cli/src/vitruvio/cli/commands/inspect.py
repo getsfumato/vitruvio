@@ -209,7 +209,9 @@ def content(
     if open_:
         from vitruvio.cli.render import desktop
 
-        target = out if out is not None else desktop.scratch(None, digest)
+        # The media type reaches the file name, not only the drawing: without a suffix the desktop picks a handler
+        # by guesswork and lands on a text editor, which for a PDF means a screenful of binary.
+        target = out if out is not None else desktop.scratch(None, digest, media_type)
         result = service.export_content(digest, target)
         try:
             ran = desktop.open_path(Path(result["path"]))

@@ -13,14 +13,38 @@ consult the *registered* handler, which is the thing the user configured.
 **The file is named after its origin.** A content-addressed store has no filenames in it, so the bytes have to be
 written somewhere before anything can open them -- and a viewer whose title bar says ``content.pdf`` has thrown
 away the one piece of context the reader needed. The registration record's origin supplies the name.
+
+**And it must end in an extension, whatever else it is called.** That is not cosmetic: a handler is chosen *by
+suffix*, so a PDF written to a file called ``sha256-b0a1...`` opens in a text editor showing ``%PDF-1.7`` and a
+screenful of binary. Which is exactly what happened, on a brain whose blocks carry no origin at all -- a pulled
+one, where nobody recorded the filenames -- and it is why :func:`extension_for` exists. The block always knows its
+media type; that is part of its identity. Falling back to the content address must not throw it away.
 """
 
 from __future__ import annotations
 
+import mimetypes
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+EXTENSIONS = {
+    "text/markdown": ".md",
+    "text/x-markdown": ".md",
+    "text/yaml": ".yaml",
+    "application/x-yaml": ".yaml",
+    "application/toml": ".toml",
+    "text/toml": ".toml",
+    "application/jsonl": ".jsonl",
+    "application/x-ndjson": ".jsonl",
+}
+"""Suffixes :mod:`mimetypes` does not know, for types vitruvio handles anyway.
+
+Short on purpose: the standard table answers ``application/pdf``, ``image/png``, ``video/mp4`` and the rest
+correctly, and duplicating it here would be a second table to keep in sync. What is listed is what it answers
+``None`` for -- Markdown above all, which is most of what a normalized view is.
+"""
 
 OPENERS = {
     "darwin": ("open",),
@@ -99,13 +123,56 @@ def open_path(path: Path) -> str:
     return f"{Path(command[0]).name} {path}"
 
 
-def scratch(name: str | None, digest: str) -> Path:
+def extension_for(media_type: str | None) -> str:
+    """
+    The file suffix a media type should be written with.
+
+    Args:
+        media_type (str | None): The block's media type. Parameters are ignored, so
+            ``text/plain; charset=utf-8`` answers the same as ``text/plain``.
+
+    Returns:
+        str: A suffix including its dot, or ``""`` when nothing sensible is known -- ``application/octet-stream``
+        being the honest case: bytes nobody described should not be dressed up as a format.
+    """
+    if not media_type:
+        return ""
+    bare = media_type.split(";")[0].strip().lower()
+    if bare in EXTENSIONS:
+        return EXTENSIONS[bare]
+    return mimetypes.guess_extension(bare) or ""
+
+
+def filename(name: str | None, digest: str, media_type: str | None = None) -> str:
+    """
+    What to call bytes taken out of a content-addressed store.
+
+    The origin when the block records one, the content address when it does not -- and in both cases a suffix, if
+    the name does not already carry one. A desktop handler is chosen by suffix, so an extensionless file is one no
+    application can open correctly no matter what is in it.
+
+    Args:
+        name (str | None): The origin recorded when the block was registered, when there is one.
+        digest (str): The content address, as a fallback name.
+        media_type (str | None): The block's media type, used only to supply a missing suffix.
+
+    Returns:
+        str: A file name.
+    """
+    stem = Path(name).name if name else digest.replace(":", "-")
+    if Path(stem).suffix:
+        return stem
+    return stem + extension_for(media_type)
+
+
+def scratch(name: str | None, digest: str, media_type: str | None = None) -> Path:
     """
     Where to write bytes that are about to be handed to another application.
 
     Args:
         name (str | None): The origin recorded when the block was registered, when there is one.
         digest (str): The content address, as a fallback name and as the directory's suffix.
+        media_type (str | None): The block's media type, which supplies the suffix when the name has none.
 
     Returns:
         Path: A path inside a fresh temporary directory. Fresh per call rather than one shared directory,
@@ -114,8 +181,7 @@ def scratch(name: str | None, digest: str) -> Path:
     """
     import tempfile
 
-    stem = Path(name).name if name else digest.replace(":", "-")
-    return Path(tempfile.mkdtemp(prefix="vitruvio-")) / stem
+    return Path(tempfile.mkdtemp(prefix="vitruvio-")) / filename(name, digest, media_type)
 
 
-__all__ = ["OPENERS", "NoOpenerError", "open_path", "opener", "scratch"]
+__all__ = ["EXTENSIONS", "OPENERS", "NoOpenerError", "extension_for", "filename", "open_path", "opener", "scratch"]

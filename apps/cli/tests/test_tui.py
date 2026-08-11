@@ -223,6 +223,26 @@ class TestOpeningInTheDesktop:
         assert desktop.scratch("apuntes/clase-3.pdf", "sha256:abc").name == "clase-3.pdf"
         assert desktop.scratch(None, "sha256:abc").name == "sha256-abc"
 
+    def test_a_block_with_no_origin_is_still_named_for_its_media_type(self) -> None:
+        """A handler is chosen by *suffix*, so this is the difference between opening a PDF and opening a text
+        editor full of `%PDF-1.7`.
+
+        Reported from a brain that was pulled rather than authored: nobody had recorded an origin for any of its
+        blocks, so every one of them fell back to a bare content address with no extension at all. The block always
+        knows its media type -- that is part of its identity -- and the fallback used to throw it away.
+        """
+        from vitruvio.cli.render import desktop
+
+        assert desktop.scratch(None, "sha256:abc", "application/pdf").name == "sha256-abc.pdf"
+        assert desktop.scratch(None, "sha256:abc", "text/markdown").name == "sha256-abc.md"
+        assert desktop.scratch(None, "sha256:abc", "text/plain; charset=utf-8").name == "sha256-abc.txt"
+        # An origin that carries its own suffix is left alone, and one that does not is completed.
+        assert desktop.scratch("apuntes.pdf", "sha256:abc", "application/pdf").name == "apuntes.pdf"
+        assert desktop.scratch("apuntes", "sha256:abc", "application/pdf").name == "apuntes.pdf"
+        # Bytes nobody described stay undressed rather than being given a format they may not have.
+        assert desktop.extension_for(None) == ""
+        assert desktop.scratch(None, "sha256:abc").name == "sha256-abc"
+
     def test_two_blocks_sharing_an_origin_do_not_overwrite_each_other(self) -> None:
         """A brain holding two editions of the same paper is the ordinary case, not the odd one."""
         from vitruvio.cli.render import desktop
