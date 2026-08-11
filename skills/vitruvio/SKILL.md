@@ -38,6 +38,14 @@ actually returned.
    `--brain <name>` then selects one. A project is several brains under one configuration — a subject per brain,
    a client per brain — and picking the wrong one is a mistake nothing downstream will report.
 
+   **Say which project and which brain on every command**, as `--project <name> --brain <name>`. That pair
+   identifies a brain completely, independently of the working directory and of what any other session is doing,
+   which is what lets several agents work on several projects at the same time. `vitruvio project list --json` is
+   how to see which names `--project` accepts; a project that was cloned rather than created here needs
+   `vitruvio project register` once. Do not rely on a saved default: a project holding several brains refuses to
+   guess, and the refusal names them — pass one, rather than running `brain use`, which changes state other
+   sessions read.
+
 4. **To see what a brain holds, read it rather than searching it.** `vitruvio inspect blocks <module> --json`
    lists a module in its own order, one row per block, with what each one says — and for canonical evidence, the
    origin it was registered from. That is the answer to "what is in here", which a search cannot give you: a

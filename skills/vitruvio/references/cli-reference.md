@@ -14,6 +14,18 @@ Manage a project and the brains it holds.
 
 Create a project in the working directory.
 
+### `vitruvio project register` `[name]` `--path`
+
+Make a project addressable by `--project <name>` from any directory.
+
+### `vitruvio project list`
+
+List every project this machine can address by name, and the brains each one holds.
+
+### `vitruvio project forget` `name`
+
+Drop a project from this machine's registry.
+
 ### `vitruvio project show`
 
 List the project's brains, where each lives, and where each publishes.
@@ -30,9 +42,9 @@ Unregister a brain from the project.
 
 Select a brain and inspect its state.
 
-### `vitruvio brain use` `path`
+### `vitruvio brain use` `brain`
 
-Record a brain as the interactive default.
+Record a brain as this project's default, for a shell.
 
 ### `vitruvio brain list`
 

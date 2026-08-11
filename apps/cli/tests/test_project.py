@@ -138,6 +138,152 @@ class TestSelectionByName:
         assert payload["data"]["project"] == "facultad"
 
 
+class TestSelectionByProjectAndBrain:
+    """`--project` and `--brain` together, from outside any project.
+
+    This is the pair the CLI is now expected to be driven by: several agents, several projects, several brains,
+    at once. Every test here runs from a directory with no vitruvio.toml above it, because depending on the
+    working directory is the thing being replaced.
+    """
+
+    @pytest.fixture
+    def second(self, capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """An `eticompass` project holding a brain whose name also exists in `facultad`."""
+        root = tmp_path / "eticompass"
+        root.mkdir()
+        monkeypatch.chdir(root)
+        # `--config` explicitly: the `project` fixture put a vitruvio.toml in tmp_path, and the walk-up would find
+        # *that* one from a subdirectory of it -- correctly, since a project inside a project is one project.
+        config = str(root / "vitruvio.toml")
+        for args in (
+            ("project", "init", "eticompass"),
+            ("project", "add", "metrica-a"),
+            ("project", "add", "algebra"),
+        ):
+            assert envelope(capsys, "--actor", "a@b.c", "--config", config, *args)[0] == ExitCode.OK
+        return root
+
+    def test_init_registers_the_project_so_the_flag_works_immediately(
+        self, capsys: pytest.CaptureFixture[str], project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        code, payload = envelope(capsys, "--project", "facultad", "--brain", "algebra", "brain", "state")
+        assert code == ExitCode.OK
+        assert payload["data"]["brain"] == str(project / "brains" / "algebra")
+
+    def test_two_projects_holding_the_same_brain_name_stay_apart(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        project: Path,
+        second: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The failure this whole change is about: `--brain algebra` means two different brains, and which one
+        it means is the project's business rather than the working directory's."""
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        _, first = envelope(capsys, "--project", "facultad", "--brain", "algebra", "brain", "state")
+        _, other = envelope(capsys, "--project", "eticompass", "--brain", "algebra", "brain", "state")
+        assert first["data"]["brain"] == str(project / "brains" / "algebra")
+        assert other["data"]["brain"] == str(second / "brains" / "algebra")
+
+    def test_project_list_names_every_project_and_its_brains(
+        self, capsys: pytest.CaptureFixture[str], project: Path, second: Path
+    ) -> None:
+        code, payload = envelope(capsys, "project", "list")
+        assert code == ExitCode.OK
+        listed = {entry["name"]: entry for entry in payload["data"]["projects"]}
+        assert set(listed) == {"facultad", "eticompass"}
+        assert listed["eticompass"]["brains"] == ["algebra", "metrica-a"]
+
+    def test_an_unregistered_project_is_refused_by_name(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        code, payload = envelope(capsys, "--project", "telepatia", "brain", "state")
+        assert code == ExitCode.CONFIG
+        assert payload["error"]["code"] == "PROJECT_NOT_KNOWN"
+        assert "facultad" in payload["error"]["message"], "the refusal lists what is registered"
+
+    def test_register_makes_a_cloned_project_addressable(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A project that arrived by `git clone` was never `init`ed on this machine, so this is the path for it."""
+        clone = tmp_path / "clone"
+        clone.mkdir()
+        (clone / "vitruvio.toml").write_text(
+            '[project]\nname = "clonado"\n\n[brains.uno]\npath = "./brains/uno"\n', encoding="utf-8"
+        )
+        monkeypatch.chdir(clone)
+        code, payload = envelope(capsys, "project", "register")
+        assert code == ExitCode.OK
+        assert payload["data"]["name"] == "clonado"
+
+        monkeypatch.chdir(tmp_path)
+        code, payload = envelope(capsys, "project", "list")
+        assert "clonado" in {entry["name"] for entry in payload["data"]["projects"]}
+
+    def test_forget_leaves_the_files_alone(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        code, _ = envelope(capsys, "project", "forget", "facultad")
+        assert code == ExitCode.OK
+        assert (project / "vitruvio.toml").is_file()
+        assert (project / "brains" / "algebra").is_dir()
+
+    def test_forgetting_something_unknown_is_an_error_rather_than_a_shrug(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        code, _ = envelope(capsys, "project", "forget", "telepatia")
+        assert code != ExitCode.OK
+
+
+class TestBrainUseIsScopedToItsProject:
+    """`brain use` records a default for one project and reaches no other.
+
+    A machine-wide pointer cannot describe two projects open at once, and it failed *silently*: the brain another
+    project's `brain use` named answered here too. So the pointer is per project, and a project that declares
+    brains asks by name rather than falling back to anything.
+    """
+
+    def test_a_choice_applies_to_its_own_project(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        assert envelope(capsys, "brain", "use", "algebra")[0] == ExitCode.OK
+        code, payload = envelope(capsys, "brain", "state")
+        assert code == ExitCode.OK
+        assert payload["data"]["brain"] == str(project / "brains" / "algebra")
+        assert payload["data"]["brain_origin"] == "state"
+
+    def test_it_does_not_answer_for_another_project(
+        self, capsys: pytest.CaptureFixture[str], project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert envelope(capsys, "brain", "use", "algebra")[0] == ExitCode.OK
+
+        other = tmp_path / "eticompass"
+        other.mkdir()
+        monkeypatch.chdir(other)
+        config = str(other / "vitruvio.toml")
+        for args in (
+            ("project", "init", "eticompass"),
+            ("project", "add", "metrica-a"),
+            ("project", "add", "metrica-b"),
+        ):
+            assert envelope(capsys, "--actor", "a@b.c", "--config", config, *args)[0] == ExitCode.OK
+
+        code, payload = envelope(capsys, "--project", "eticompass", "brain", "state")
+        assert code == ExitCode.CONFIG
+        assert payload["error"]["code"] == "NO_BRAIN"
+        assert "metrica-a" in (payload["error"]["hint"] or "")
+
+    def test_brain_list_marks_the_project_s_own_choice(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        envelope(capsys, "brain", "use", "analisis-ii")
+        _, payload = envelope(capsys, "brain", "list")
+        chosen = [item["name"] for item in payload["data"]["members"] if item["selected"]]
+        assert chosen == ["analisis-ii"]
+
+
 class TestPushAll:
     def test_each_brain_goes_to_its_own_repository(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
         code, payload = envelope(capsys, "dist", "push", "--all", "--local", str(project / "registry"))

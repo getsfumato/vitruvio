@@ -44,7 +44,22 @@ member — silently operating on the wrong brain is the failure worth spending a
 takes a name too, which is how a container or a CI job picks a subject without editing a file.
 
 A project holding exactly one brain needs no flag at all. With two or more it is a real question, and the error asks
-it by listing them.
+it by listing them — it does **not** fall back to a saved pointer, which is
+[ADR-0002](0002-configuration-and-brain-selection.md)'s amendment and the reason a name is trustworthy.
+
+### The project is selected by name too, from any directory
+
+Added in M4. `[projects]` in the state file maps a project's name to its `vitruvio.toml`, written by `project init`
+and managed by `project register` / `list` / `forget`, so `--project facultad --brain analisis-numerico` states an
+invocation's whole context from anywhere.
+
+That pair is what makes concurrency free. A project per client and a subject per brain is the shape this ADR
+already assumed; what it did not follow through on is that people then work in **several at once** — three agents,
+three projects, three brains — and every layer below the flags is either directory-dependent or machine-global.
+Two commands that name their project and brain share no mutable state and cannot influence one another.
+
+The registry holds names and nothing else: every entry is a path to a committed file. A project is still configured
+in exactly one place, and losing the registry costs the shorthand rather than any knowledge.
 
 ### The repository is derived, not written per brain
 

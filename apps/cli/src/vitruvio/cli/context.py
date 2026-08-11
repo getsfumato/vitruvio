@@ -32,7 +32,10 @@ class Context:
     What every command may need to know, independent of its own arguments.
 
     Attributes:
-        brain (Path | None): ``--brain``.
+        brain (Path | None): ``--brain``, a name the project declares or a path.
+        project (str | None): ``--project``, a name in the machine's project registry. With ``--brain`` it
+            states an invocation's whole context, which is what lets several agents drive several projects
+            from several terminals without any of them sharing a saved selection.
         config (Path | None): ``--config``.
         actor_id (str | None): ``--actor``.
         actor_kind (str | None): ``--actor-kind``, coerced by the kernel.
@@ -41,6 +44,7 @@ class Context:
     """
 
     brain: Path | None = None
+    project: str | None = None
     config: Path | None = None
     actor_id: str | None = None
     actor_kind: str | None = None
@@ -84,11 +88,27 @@ class Context:
         return resolve(
             brain=self.brain,
             config=self.config,
+            project=self.project,
             actor_id=self.actor_id,
             actor_kind=self.actor_kind,
             require_layout=require_layout,
             require_brain=require_brain,
         )
+
+    def config_file(self) -> Path | None:
+        """
+        Which ``vitruvio.toml`` this invocation is about, without resolving a brain.
+
+        For the commands that are about the project rather than about any brain in it -- ``config set``,
+        ``project register`` -- and it asks exactly the question :meth:`resolve` asks first, so that the file
+        one command writes is the file the next one reads.
+
+        Returns:
+            Path | None: The file, or ``None`` when no layer names one.
+        """
+        from vitruvio.kernel import select_config_file
+
+        return select_config_file(project=self.project, config=self.config, brain=self.brain)
 
 
 _CURRENT: ContextVar[Context | None] = ContextVar("vitruvio_cli_context", default=None)

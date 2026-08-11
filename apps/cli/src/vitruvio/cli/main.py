@@ -8,6 +8,10 @@ have.
 The global options live on cyclopts' *meta* app, which runs before dispatch: it installs the
 :class:`~vitruvio.cli.context.Context` and then hands the remaining tokens to the real app. That is what
 keeps ``--brain`` and ``--json`` out of the signature -- and out of the ``--help`` -- of all forty commands.
+
+``--project`` and ``--brain`` together are why they are *global*. One invocation states its whole context, so
+three terminals -- or three agents -- can hold three projects and three brains at once, none of them
+depending on the working directory and none of them sharing a saved pointer with the others.
 """
 
 from __future__ import annotations
@@ -46,7 +50,17 @@ commands.register(app)
 @app.meta.default
 def launcher(
     *tokens: Annotated[str, Parameter(show=False, allow_leading_hyphen=True)],
-    brain: Annotated[Path | None, Parameter(name=["--brain"], help="The brain to operate on.")] = None,
+    brain: Annotated[
+        Path | None,
+        Parameter(name=["--brain"], help="The brain to operate on: a name the project declares, or a path."),
+    ] = None,
+    project: Annotated[
+        str | None,
+        Parameter(
+            name=["--project"],
+            help="The project to operate in, by name. Works from any directory once `project register` knows it.",
+        ),
+    ] = None,
     config: Annotated[Path | None, Parameter(name=["--config"], help="A vitruvio.toml to use verbatim.")] = None,
     actor: Annotated[str | None, Parameter(name=["--actor"], help="Who to attribute writes to.")] = None,
     actor_kind: Annotated[
@@ -66,6 +80,7 @@ def launcher(
     install(
         Context(
             brain=brain,
+            project=project,
             config=config,
             actor_id=actor,
             actor_kind=actor_kind,

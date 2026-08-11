@@ -2270,6 +2270,7 @@ class BrainService:
 
         return {
             "name": name,
+            "project": self.config.project.project.name,
             "path": str(target),
             "created": created,
             "description": description,

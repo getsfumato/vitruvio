@@ -20,7 +20,6 @@ from vitruvio.kernel import (
     ConfigError,
     ExitCode,
     Secret,
-    find_config_file,
     load_project,
     paths,
     provider_key,
@@ -42,23 +41,25 @@ def _target() -> Path | None:
     """
     Which configuration file these commands operate on.
 
-    One function for all five, and it deliberately asks the *same* question every other command asks: `--config` if
-    given, then the walk up from the working directory, then -- and this is the part a plain walk-up misses -- the file
-    beside an explicitly named `--brain`. Without that last layer, `config set --brain elsewhere/demo` wrote a brand
-    new `vitruvio.toml` into the working directory, silently, while `config show` for the same brain read a different
-    file. Two commands disagreeing about which file is "the configuration" is worse than either being wrong.
+    One function for all five, and it deliberately asks the *same* question every other command asks -- it is
+    literally the kernel's own project selection: `--config`, then `--project`, then the environment, then the walk
+    up from the working directory, then the file beside an explicitly named `--brain`. Without that last layer,
+    `config set --brain elsewhere/demo` wrote a brand new `vitruvio.toml` into the working directory, silently,
+    while `config show` for the same brain read a different file. Two commands disagreeing about which file is
+    "the configuration" is worse than either being wrong.
+
+    The one deviation is that `--config` is taken verbatim without having to exist. These commands are the ones
+    that *create* a configuration file -- `vitruvio --config new.toml config set actor.id ...` is how a project
+    starts -- so the kernel's insistence that the path be a file already is right for every other caller and wrong
+    for this one.
 
     Returns:
         Path | None: The file, or ``None`` when no configuration exists anywhere.
     """
     context = current()
-    if context.config:
+    if context.config is not None:
         return context.config
-    if found := find_config_file():
-        return found
-    if context.brain:
-        return find_config_file(context.brain.expanduser().resolve().parent)
-    return None
+    return context.config_file()
 
 
 def _redact(document: dict[str, Any]) -> dict[str, Any]:
@@ -108,9 +109,30 @@ def _describe(project: ProjectConfig, source: Path | None) -> Table:
     vision = project.vision_embedder
     username, token = registry_credentials()
 
+    from vitruvio.kernel import known_projects, selected_brain
+
+    name = project.project.name
+    registered = name is not None and name in known_projects()
+    # Whether `--project <name>` reaches this project is the first thing to know about it now that a name is how
+    # an invocation addresses one, and it is invisible in the file: the registry is machine state, not config.
+    if name is None:
+        addressable = "(unnamed -- set [project] name to address it by name)"
+    elif registered:
+        addressable = f"{name}  (registered: --project {name} works from anywhere)"
+    else:
+        addressable = f"{name}  (not registered -- run `vitruvio project register`)"
+
+    if project.brains:
+        chosen = selected_brain(project)
+        declared = ", ".join(f"{brain}*" if brain == chosen else brain for brain in sorted(project.brains))
+        brains = f"{declared}" + ("   * this project's saved default" if chosen else "")
+    else:
+        brains = project.brain.path or "(not set)"
+
     pairs: list[tuple[str, Any]] = [
         ("config file", source or "(none -- using defaults)"),
-        ("brain", project.brain.path or "(not set)"),
+        ("project", addressable),
+        ("brain", brains),
         ("actor", f"{actor.id or '(not set)'} [{actor.kind.value}]"),
         (
             "policy",

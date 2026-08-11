@@ -41,6 +41,51 @@ wrong brain in silence is the failure that ordering exists to prevent.
 `$VITRUVIO_BRAIN=algebra` works the same way, which is how a container or a CI job picks a subject without editing a
 file. A project holding exactly one brain needs no flag at all.
 
+## Selecting the project too, from anywhere
+
+`project init` registers the project's name on this machine, so `--project` reaches it from any directory:
+
+```console
+vitruvio --project facultad --brain analisis-numerico search "criterio de convergencia"
+vitruvio --project eticompass --brain metrica-a search "sesgo de seleccion"
+```
+
+Those two commands share no mutable state, so they can run **at the same time, in different terminals**. That is the
+point: one invocation states its whole context — project and brain — and nothing about it depends on the working
+directory or on anything another terminal did. Three agents, three projects, three subjects.
+
+`$VITRUVIO_PROJECT=facultad` is the same answer from a shell profile or a container, and pairs with
+`$VITRUVIO_BRAIN=analisis-numerico`. Exporting both once is how one agent's session pins itself to one subject.
+
+Managing the registry:
+
+```console
+vitruvio project list                 # every project --project accepts, and their brains
+vitruvio project register             # make the project in this directory addressable (for a clone)
+vitruvio project forget eticompass    # drop the name; touches no files at all
+```
+
+It is a registry of **names**: every entry is a path to a committed `vitruvio.toml`, and everything about a project is
+still read from there. Nothing is configured in it, so losing it costs the `--project` shorthand and nothing else.
+
+## There is no "active brain"
+
+`vitruvio brain use` still exists, and it is now scoped to **one project**:
+
+```console
+vitruvio --project facultad brain use analisis-numerico
+vitruvio --project facultad search "..."            # that brain, by default
+vitruvio --project eticompass search "..."          # still asks: metrica-a or metrica-b?
+```
+
+A choice made in `facultad` reaches no other project. This used to be a single machine-wide pointer, which had two
+problems: two terminals could not disagree about which brain they were on, and worse, a pointer left behind in one
+project answered for a *different* project whose brains were all addressed by name — a write into the wrong subject,
+in silence, with no undo.
+
+So it is a per-project convenience for a shell, and nothing more. In a script or an agent, pass `--project` and
+`--brain`: they are the only layers that survive being read by somebody else.
+
 ## Publishing: log in once
 
 ```console

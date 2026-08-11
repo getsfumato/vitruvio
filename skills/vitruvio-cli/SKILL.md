@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Fourteen groups, seventy-six commands. This skill is the map: which group owns a task, which command inside it, and
+Fourteen groups, seventy-nine commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -36,13 +36,41 @@ vitruvio query search "..." --json                     # also accepted, but --br
 | option | what it does |
 |---|---|
 | `--json` | one envelope on stdout, and nothing else. Implies `--quiet`. **Always pass it.** |
-| `--brain PATH-OR-NAME` | which brain. A project's brain *name* is tried before a path |
+| `--brain NAME-OR-PATH` | which brain. A project's brain *name* is tried before a path |
+| `--project NAME` | which project, by name, from any directory. **Pass it with `--brain`** |
 | `--config FILE` | use this `vitruvio.toml` verbatim, instead of discovering one |
 | `--actor ID` | who to attribute writes to |
 | `--actor-kind` | `human`, `agent`, `service`, `pipeline`. **Set `agent` when a model drives** |
 | `--quiet` / `-q` | suppress notes on stderr |
 | `--no-color` | plain output |
 | `-v`, `-vv` | more detail on stderr |
+
+## State the whole context on every invocation
+
+```bash
+vitruvio --json --project facultad --brain analisis-numerico query search "..."
+```
+
+`--project` and `--brain` together identify a brain completely. Nothing about that command depends on the working
+directory, and nothing another terminal does can change what it means — so several agents can drive several
+projects at once, which is the normal way vitruvio is used.
+
+Do **not** rely on a saved selection. `vitruvio brain use` records a default for one project, for a human in a
+shell; it is the weakest layer, and a project holding several brains refuses rather than guessing:
+
+```
+error: this project holds 2 brains and none was selected
+hint: pass --brain with one of: metrica-a, metrica-b
+```
+
+That refusal is the correct response to an under-specified command — fix the command, do not run `brain use` to
+make it pass, because that changes state other sessions read.
+
+`vitruvio project list` is how to discover what `--project` accepts. A project the CLI has never `init`ed on this
+machine — a clone — needs `vitruvio project register` once, from its directory.
+
+`$VITRUVIO_PROJECT` and `$VITRUVIO_BRAIN` are the same two answers for a whole session, if exporting once is
+better than passing flags every time.
 
 ## The groups
 
@@ -51,8 +79,8 @@ vitruvio query search "..." --json                     # also accepted, but --br
 |---|---|
 | `brain init PATH` | create a layout. Writes a `vitruvio.toml` beside it |
 | `brain state` | **run this first in a session**: which modules, which version, where it came from |
-| `brain use PATH` | remember a brain as the interactive default |
-| `brain list` | every brain vitruvio has seen |
+| `brain use NAME-OR-PATH` | a default for **this project only**. For a shell, not for you |
+| `brain list` | this project's brains, then every layout this machine has seen |
 | `brain verify` | every block against every module root |
 | `brain info` | per-module shape: roots, counts, registered indices |
 | `brain history` | the snapshot chain, newest first |
@@ -137,10 +165,13 @@ vitruvio query search "..." --json                     # also accepted, but --br
 ### `project` — several brains under one config
 | command | for |
 |---|---|
-| `project init NAME` | create one. `--namespace docker.io/you` |
+| `project init NAME` | create one, and register the name. `--namespace docker.io/you` |
 | `project add NAME` | add a brain. `--path`, `--reference`, `--no-publish`, `--no-create` |
-| `project remove NAME` | unregister it. The layout on disk is left alone |
+| `project remove NAME` | unregister a brain. The layout on disk is left alone |
 | `project show` | every brain, where it lives, where it publishes |
+| `project list` | **every project `--project` accepts**, and the brains in each |
+| `project register [NAME]` | make the project here addressable by `--project`. For a clone |
+| `project forget NAME` | drop the name. Touches no files |
 
 ### `inspect` — read-only questions
 | command | for |

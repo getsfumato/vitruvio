@@ -161,8 +161,8 @@ def test_the_counts_in_the_skill_are_the_real_ones() -> None:
     leaves = [command for command in commands if not any(other.startswith(f"{command} ") for other in commands)]
     groups = {command.split()[0] for command in commands if " " in command}
 
-    words = {14: "Fourteen", 76: "seventy-six"}
+    words = {14: "Fourteen", 79: "seventy-nine"}
     assert words[14] in text or str(len(groups)) in text, f"there are {len(groups)} groups"
-    assert words[76] in text, f"the skill does not state the command count; there are {len(leaves)}"
+    assert words[79] in text, f"the skill does not state the command count; there are {len(leaves)}"
     assert len(groups) == 14, f"the skill says fourteen groups; there are now {len(groups)}"
-    assert len(leaves) == 76, f"the skill says seventy-six commands; there are now {len(leaves)}"
+    assert len(leaves) == 79, f"the skill says seventy-nine commands; there are now {len(leaves)}"

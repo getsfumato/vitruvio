@@ -30,33 +30,54 @@ app = App(name="brain", help="Select a brain and inspect its state.", result_act
 
 
 @app.command(name="use")
-def use(path: Path) -> ExitCode:
-    """Record a brain as the interactive default.
+def use(brain: str) -> ExitCode:
+    """Record a brain as this project's default, for a shell.
 
-    This is the weakest layer of the four that select a brain: an explicit `--brain`, then
-    `$VITRUVIO_BRAIN`, then `[brain].path` in the nearest vitruvio.toml, then this. Committing the path in a
-    vitruvio.toml is the reproducible answer; this one is for a shell.
+    Takes a brain the project declares, by name, or a path to any layout. The weakest layer of the ones that
+    select a brain: an explicit `--brain`, then `$VITRUVIO_BRAIN`, then `[brain].path`, then a project's only
+    brain, then this.
+
+    **Scoped to the project**, and that is the important part. A name recorded here answers for this project and
+    reaches no other, so two terminals working in two projects do not overwrite each other's choice — and a
+    project that declares brains never resolves one from a pointer some other project left behind. A brain that
+    belongs to no project still records the machine-wide pointer, which is the one case it was always right for.
+
+    It remains the weakest answer for a reason: `--project` and `--brain` on the invocation are the ones that
+    survive being read by somebody else, and the only ones an agent should rely on.
 
     Parameters
     ----------
-    path
-        The brain's layout directory.
+    brain
+        A brain the project declares, or a path to a layout directory.
     """
+    from vitruvio.kernel import load_project, selection_key
+
     console = current().console
-    resolved = path.expanduser().resolve()
+    context = current()
+
+    document = load_project(context.config_file())
+    key = selection_key(document)
+
+    named = document.brain_path(brain)
+    resolved = named if named is not None else Path(brain).expanduser().resolve()
+    name = brain if named is not None else None
 
     if not is_layout(resolved):
         detail = "does not exist" if not resolved.exists() else "is not an OCI layout"
+        known = ", ".join(sorted(document.brains))
         raise BrainNotFoundError(
             f"{resolved} {detail}, so it is not a brain",
-            hint=f"run `vitruvio brain init {resolved}` to create one",
+            hint=(
+                f"this project declares: {known}" if known else f"run `vitruvio brain init {resolved}` to create one"
+            ),
         )
 
-    state = remember_brain(resolved)
+    state = remember_brain(resolved, project=key, name=name)
+    scope = f"in project {key}" if key and name else "on this machine"
     return console.emit(
         "brain.use",
-        {"brain": str(resolved), "state_file": str(state)},
-        view=render.fields([("using", str(resolved))]),
+        {"brain": str(resolved), "name": name, "project": key if name else None, "state_file": str(state)},
+        view=render.fields([("using", name or str(resolved)), ("scope", scope), ("path", str(resolved))]),
     )
 
 
@@ -65,26 +86,30 @@ def list_() -> ExitCode:
     """List this project's brains, then the ones this machine remembers.
 
     Two different lists, kept apart because they answer different questions. The project's brains are the ones
-    `--brain <name>` selects and `dist push --all` publishes; the remembered ones are wherever you happened to
-    run `brain use`, on any project. Merging them would make a name that works here look the same as a path that
-    worked somewhere else last week.
+    `--brain <name>` selects and `dist push --all` publishes; the remembered ones are layouts this machine has
+    seen, on any project. Merging them would make a name that works here look the same as a path that worked
+    somewhere else last week.
+
+    `vitruvio project list` is the list above this one: every project `--project` accepts, and their brains.
 
     A remembered path that no longer holds a layout is reported rather than hidden: a brain that moved is
     something to know about, and silently dropping it would make the next `--brain` failure look like it came
     from nowhere.
     """
-    from vitruvio.kernel import find_config_file, load_project
+    from vitruvio.kernel import load_project, selected_brain
 
     console = current().console
     context = current()
 
-    project = load_project(context.config or find_config_file())
+    project = load_project(context.config_file())
+    chosen = selected_brain(project)
     members = [
         {
             "name": name,
             "path": str(project.brain_path(name)),
             "present": is_layout(path) if (path := project.brain_path(name)) else False,
             "description": project.brains[name].description,
+            "selected": name == chosen,
         }
         for name in sorted(project.brains)
     ]
@@ -96,9 +121,14 @@ def list_() -> ExitCode:
 
     declared = None
     if members:
-        declared = render.table("brain", "description", "state", title=f"project {project.project.name or '(unnamed)'}")
+        declared = render.table(
+            "", "brain", "description", "state", title=f"project {project.project.name or '(unnamed)'}"
+        )
         for member in members:
             declared.add_row(
+                # Marks this project's saved choice, not a machine-wide one -- and only ever a *default*, since
+                # `--brain` on the invocation is what an agent is expected to pass.
+                Text("*", style="ok") if member["selected"] else "",
                 str(member["name"]),
                 Text(str(member["description"] or ""), style="muted"),
                 render.verdict(bool(member["present"]), yes="created", no="not created"),
@@ -109,8 +139,8 @@ def list_() -> ExitCode:
         remembered = render.table("", "brain", "state", title="remembered on this machine")
         for entry in entries:
             remembered.add_row(
-                # The current brain is marked rather than named twice: this list is scanned, and a column of
-                # identical paths with one asterisk is read faster than a repeated "current" label.
+                # Marks the machine-wide pointer, which now applies only to a brain in no project at all -- a
+                # column of identical paths with one asterisk is read faster than a repeated "current" label.
                 Text("*", style="ok") if entry["current"] else "",
                 str(entry["brain"]),
                 Text("", style="muted") if entry["present"] else Text("missing", style="bad"),
@@ -185,7 +215,11 @@ def init(
     from vitruvio.runtime import BrainService
 
     result = BrainService(config).init(force=force)
-    remember_brain(config.brain)
+    # Scoped when the brain belongs to a named project, machine-wide when it belongs to none. A fresh brain in a
+    # project must not become every *other* project's answer to "which brain", which is what an unscoped write did.
+    from vitruvio.kernel import selection_key
+
+    remember_brain(config.brain, project=selection_key(config.project), name=config.brain_name)
 
     head: list[tuple[str, object]] = [("created" if result["created"] else "opened", result["brain"])]
     if result["config_file"]:
