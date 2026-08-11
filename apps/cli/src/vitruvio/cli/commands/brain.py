@@ -11,6 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from cyclopts import App
+from rich.console import RenderableType
+from rich.text import Text
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
@@ -54,7 +56,7 @@ def use(path: Path) -> ExitCode:
     return console.emit(
         "brain.use",
         {"brain": str(resolved), "state_file": str(state)},
-        lines=[f"using {resolved}"],
+        view=render.fields([("using", str(resolved))]),
     )
 
 
@@ -92,20 +94,27 @@ def list_() -> ExitCode:
     known = [item for item in state.get("known", []) if isinstance(item, str)]
     entries = [{"brain": item, "current": item == current_brain, "present": is_layout(Path(item))} for item in known]
 
-    lines: list[str] = []
+    declared = None
     if members:
-        lines.append(f"project  {project.project.name or '(unnamed)'}")
-        lines += [
-            f"  {member['name']:<18} {member['description'] or ''}" + ("" if member["present"] else "   (not created)")
-            for member in members
-        ]
-        lines.append("")
+        declared = render.table("brain", "description", "state", title=f"project {project.project.name or '(unnamed)'}")
+        for member in members:
+            declared.add_row(
+                str(member["name"]),
+                Text(str(member["description"] or ""), style="muted"),
+                render.verdict(bool(member["present"]), yes="created", no="not created"),
+            )
+
+    remembered = None
     if entries:
-        lines.append("remembered on this machine")
-        lines += [
-            f"{'*' if entry['current'] else ' '} {entry['brain']}" + ("" if entry["present"] else "   (missing)")
-            for entry in entries
-        ]
+        remembered = render.table("", "brain", "state", title="remembered on this machine")
+        for entry in entries:
+            remembered.add_row(
+                # The current brain is marked rather than named twice: this list is scanned, and a column of
+                # identical paths with one asterisk is read faster than a repeated "current" label.
+                Text("*", style="ok") if entry["current"] else "",
+                str(entry["brain"]),
+                Text("", style="muted") if entry["present"] else Text("missing", style="bad"),
+            )
 
     if not members and not entries:
         console.warn("no brains recorded yet, and this project declares none")
@@ -118,7 +127,7 @@ def list_() -> ExitCode:
             "brains": entries,
             "current": current_brain,
         },
-        lines=lines,
+        view=render.stack(declared, "" if declared and remembered else None, remembered),
     )
 
 
@@ -178,10 +187,9 @@ def init(
     result = BrainService(config).init(force=force)
     remember_brain(config.brain)
 
-    lines = [
-        f"{'created' if result['created'] else 'opened'} {result['brain']}",
-        *(["", f"wrote {result['config_file']}"] if result["config_file"] else []),
-    ]
+    head: list[tuple[str, object]] = [("created" if result["created"] else "opened", result["brain"])]
+    if result["config_file"]:
+        head.append(("wrote", result["config_file"]))
     # From the context, not from a parameter of this function: `--actor` is a global option owned by the meta app, so
     # a local `actor` parameter here would stay None even when the flag was passed -- which is exactly how the check
     # below silently never fired the first time it was written.
@@ -207,7 +215,7 @@ def init(
             "no actor is configured, so writes will be refused: every write is attributed in provenance. "
             "Pass --actor, or set [actor] id in vitruvio.toml"
         )
-    return console.emit("brain.init", result, lines=lines)
+    return console.emit("brain.init", result, view=render.fields(head))
 
 
 @app.command(name="state")
@@ -215,18 +223,25 @@ def state() -> ExitCode:
     """Print what is installed, at which version, and where it came from."""
     console = current().console
     result = current().service().state()
-    lines = [
-        f"brain      {result['brain']}  (selected by {result['brain_origin']})",
-        f"actor      {result['actor']['id'] or '(not set)'} [{result['actor']['kind']}]",
-        "",
-        *render.snapshot(result["snapshot"]),
-    ]
-    if origin := result.get("origin"):
-        lines += [
-            "",
-            f"pulled from {origin['reference']}:{origin['tag']}" + ("  (partial)" if origin.get("partial") else ""),
+    head = render.fields(
+        [
+            ("brain", f"{result['brain']}  (selected by {result['brain_origin']})"),
+            ("actor", f"{result['actor']['id'] or '(not set)'} [{result['actor']['kind']}]"),
         ]
-    return console.emit("brain.state", result, lines=lines)
+    )
+    pulled = None
+    if origin := result.get("origin"):
+        pulled = render.fields(
+            [
+                ("pulled from", f"{origin['reference']}:{origin['tag']}"),
+                *([("install", Text("partial", style="warn"))] if origin.get("partial") else []),
+            ]
+        )
+    return console.emit(
+        "brain.state",
+        result,
+        view=render.stack(head, "", *render.snapshot(result["snapshot"]), "" if pulled else None, pulled),
+    )
 
 
 @app.command(name="verify")
@@ -243,8 +258,13 @@ def verify() -> ExitCode:
             "the brain does not verify: recomputed roots do not match the installed snapshot",
             hint="run `vitruvio inspect resolvability` to see which blocks are missing or tombstoned",
         )
-    lines = [f"ok  {result['block_count']} blocks verify against {len(result['roots'])} module roots"]
-    return console.emit("brain.verify", result, lines=lines)
+    view = Text.assemble(
+        (f"{result['block_count']} blocks", "count"),
+        " verify against ",
+        (f"{len(result['roots'])} module roots", "count"),
+        ("  ok", "ok"),
+    )
+    return console.emit("brain.verify", result, view=view)
 
 
 @app.command(name="history")
@@ -258,13 +278,16 @@ def history(*, limit: int | None = None) -> ExitCode:
     """
     console = current().console
     result = current().service().history(limit=limit)
-    lines = [
-        f"{render.short(item['digest'])}  {item['created_at']}  {item['block_count']:>6} blocks"
-        for item in result["snapshots"]
-    ]
-    if not lines:
-        lines = ["No snapshots yet. A brain with no canonical evidence has no version to retain."]
-    return console.emit("brain.history", result, lines=lines)
+    if not result["snapshots"]:
+        view: RenderableType = render.empty(
+            "No snapshots yet. A brain with no canonical evidence has no version to retain."
+        )
+    else:
+        table = render.table("snapshot", "created", ("blocks", "right"))
+        for item in result["snapshots"]:
+            table.add_row(render.digest(item["digest"]), item["created_at"], str(item["block_count"]))
+        view = table
+    return console.emit("brain.history", result, view=view)
 
 
 @app.command(name="info")
@@ -272,18 +295,31 @@ def info() -> ExitCode:
     """Print the per-module anatomy: roots, block counts, and which indices are registered."""
     console = current().console
     result = current().service().info()
-    lines = [
-        f"brain  {result['brain']}",
-        "",
-        *render.modules(result["modules"]),
-    ]
     travelling = result.get("travelling_indices") or []
-    lines += [
-        "",
-        f"travelling indices  {', '.join(travelling) if travelling else '(none)'}",
-    ]
-    if not travelling:
-        # Worth saying plainly: the vector index is the one derived structure a consumer cannot rebuild, so if
-        # none is vouched for, a `dist push` will publish a brain nobody else can search semantically.
-        lines.append("  no vector index will be published, so a consumer cannot search this brain semantically")
-    return console.emit("brain.info", result, lines=lines)
+    footer = render.fields(
+        [
+            (
+                "travelling indices",
+                Text(", ".join(travelling), style="ok") if travelling else Text("(none)", style="warn"),
+            )
+        ]
+    )
+    # Worth saying plainly: the vector index is the one derived structure a consumer cannot rebuild, so if
+    # none is vouched for, a `dist push` will publish a brain nobody else can search semantically.
+    caveat = (
+        None
+        if travelling
+        else render.empty("no vector index will be published, so a consumer cannot search this brain semantically")
+    )
+    return console.emit(
+        "brain.info",
+        result,
+        view=render.stack(
+            render.fields([("brain", result["brain"])]),
+            "",
+            *render.modules(result["modules"]),
+            "",
+            footer,
+            caveat,
+        ),
+    )

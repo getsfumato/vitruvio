@@ -16,6 +16,7 @@ from typing import Annotated
 
 from cyclopts import App, Parameter
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import ExitCode, VitruvioError
 
@@ -62,20 +63,34 @@ def bench(
     console = current().console
     result = current().service(require_brain=False).bench(tier=tier, seed=seed, queries=queries, limit=limit)
 
-    lines = [
-        f"blocks      {result['blocks']}",
-        f"queries     {result['queries']}",
-        f"embedder    {result['embedder']}",
-        "",
-        f"{'configuration':<14}{'r@1':>7}{'r@5':>7}{'r@10':>7}{'nDCG':>7}{'p50':>9}{'p95':>9}{'p99':>9}",
-    ]
+    head = render.fields(
+        [
+            ("blocks", str(result["blocks"])),
+            ("queries", str(result["queries"])),
+            ("embedder", result["embedder"]),
+        ]
+    )
+    table = render.table(
+        "configuration",
+        ("r@1", "right"),
+        ("r@5", "right"),
+        ("r@10", "right"),
+        ("nDCG", "right"),
+        ("p50", "right"),
+        ("p95", "right"),
+        ("p99", "right"),
+    )
     for row in result["measurements"]:
         recall = row["recall"]
-        lines.append(
-            f"{row['configuration']:<14}"
-            f"{recall.get('@1', 0):>7.2f}{recall.get('@5', 0):>7.2f}{recall.get('@10', 0):>7.2f}"
-            f"{row['ndcg@10']:>7.2f}"
-            f"{row['p50_ms']:>8.1f}m{row['p95_ms']:>8.1f}m{row['p99_ms']:>8.1f}m"
+        table.add_row(
+            str(row["configuration"]),
+            f"{recall.get('@1', 0):.2f}",
+            f"{recall.get('@5', 0):.2f}",
+            f"{recall.get('@10', 0):.2f}",
+            f"{row['ndcg@10']:.2f}",
+            f"{row['p50_ms']:.1f}ms",
+            f"{row['p95_ms']:.1f}ms",
+            f"{row['p99_ms']:.1f}ms",
         )
         if row["failure_count"]:
             console.warn(
@@ -84,18 +99,23 @@ def bench(
             )
 
     verdict = result["verdict"]
+    gates = None
     if verdict.get("gated"):
         recall = verdict["recall_at_10"]
         latency = verdict["p95_ms"]
-        recall_verdict = "ok" if recall["passed"] else "FAIL"
-        latency_verdict = "ok" if latency["passed"] else "FAIL"
-        lines += [
-            "",
-            f"recall@10   planner {recall['planner']:.3f} vs scan {recall['scan']:.3f}   {recall_verdict}",
-            f"p95         planner {latency['planner']:.1f}ms vs budget {latency['budget']:.1f}ms   {latency_verdict}",
-        ]
+        gates = render.table("gate", "measured", "")
+        gates.add_row(
+            "recall@10",
+            f"planner {recall['planner']:.3f} vs scan {recall['scan']:.3f}",
+            render.verdict(bool(recall["passed"]), yes="ok", no="FAIL"),
+        )
+        gates.add_row(
+            "p95",
+            f"planner {latency['planner']:.1f}ms vs budget {latency['budget']:.1f}ms",
+            render.verdict(bool(latency["passed"]), yes="ok", no="FAIL"),
+        )
 
-    console.emit("bench", result, lines=lines)
+    console.emit("bench", result, view=render.stack(head, "", table, "" if gates else None, gates))
     if gate and not verdict.get("passed", False):
         raise VitruvioError(
             "the planner did not clear both gates",
@@ -139,13 +159,17 @@ def corpus(
     target = Path(path).expanduser().resolve()
     built = generate(target, blocks=tier, seed=seed, queries=queries)
 
-    lines = [
-        f"brain       {target}",
-        f"blocks      {built.blocks}",
-        f"queries     {len(built.judgements)}",
+    view = render.stack(
+        render.fields(
+            [
+                ("brain", str(target)),
+                ("blocks", str(built.blocks)),
+                ("queries", str(len(built.judgements))),
+            ]
+        ),
         "",
-        *(f"  {item.query}" for item in built.judgements[:5]),
-    ]
+        render.lines((item.query for item in built.judgements[:5]), style="muted"),
+    )
     return console.emit(
         "bench.corpus",
         {
@@ -156,5 +180,5 @@ def corpus(
                 for item in built.judgements
             ],
         },
-        lines=lines,
+        view=view,
     )

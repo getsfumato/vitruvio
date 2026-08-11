@@ -13,12 +13,16 @@ driving the CLI to special-case forty outputs, which is how a machine-readable i
 Note that ``data`` is passed through unchanged. Rendering an ``EvidenceBundle`` is the runtime's job
 (``vitruvio.runtime.wire``), not this module's: the CLI and the future MCP server must serialize identical
 dictionaries or they will drift.
+
+**Human output goes through Rich, and only human output.** A command hands ``emit`` a renderable -- a table, a
+label-and-value block -- and this module decides whether anything is drawn at all. Rich is constructed lazily
+and never in ``--json`` mode, which is what keeps the envelope byte-identical to what it was before there was a
+renderer, and keeps ``config show`` from importing a rendering library to print one line.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +30,9 @@ from vitruvio.kernel import ExitCode, VitruvioError, __version__
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from rich.console import Console as RichConsole
+    from rich.console import RenderableType
 
 
 @dataclass
@@ -109,6 +116,41 @@ class Console:
         self.quiet = quiet or json_mode
         self.color = color and not json_mode
         self._warnings: list[str] = []
+        self._rich: RichConsole | None = None
+
+    def rich(self) -> RichConsole:
+        """
+        The Rich console human output is drawn with, built on first use.
+
+        Lazy for two reasons. Importing Rich costs a few milliseconds and the kernel-is-the-floor rule exists
+        because ``config show`` and ``brain use`` are measured in tens of them; and in ``--json`` mode nothing
+        here is ever reached, so a console constructed in ``__init__`` would be one built for every agent-driven
+        call that will never draw anything.
+
+        Returns:
+            RichConsole: The console, carrying ``--no-color``.
+        """
+        if self._rich is None:
+            from vitruvio.cli.render.theme import console
+
+            self._rich = console(color=self.color)
+        return self._rich
+
+    def _aside(self, message: str, style: str) -> None:
+        """
+        Write one styled line to stderr, without wrapping it.
+
+        ``soft_wrap`` is not a detail: a hint is usually a command to run, and a hint Rich broke across two
+        lines at column eighty is a command that no longer copies. The terminal may soft-wrap it, which puts the
+        decision where it belongs.
+
+        Args:
+            message (str): The line.
+            style (str): A style from the theme.
+        """
+        from vitruvio.cli.render.theme import console
+
+        console(color=self.color, stderr=True).print(message, style=style, soft_wrap=True)
 
     def warn(self, message: str) -> None:
         """
@@ -122,7 +164,7 @@ class Console:
         """
         self._warnings.append(message)
         if not self.json_mode:
-            print(f"warning: {message}", file=sys.stderr)
+            self._aside(f"warning: {message}", "warn")
 
     def note(self, message: str) -> None:
         """
@@ -132,17 +174,28 @@ class Console:
             message (str): The line.
         """
         if not self.quiet:
-            print(message, file=sys.stderr)
+            self._aside(message, "muted")
 
-    def emit(self, command: str, data: Any = None, *, lines: Sequence[str] | None = None) -> ExitCode:
+    def emit(
+        self,
+        command: str,
+        data: Any = None,
+        *,
+        view: RenderableType | Sequence[RenderableType] | None = None,
+        lines: Sequence[str] | None = None,
+    ) -> ExitCode:
         """
         Write a successful result.
 
         Args:
             command (str): The dotted operation name.
             data (Any): The JSON-able payload.
-            lines (Sequence[str] | None): Human rendering. Falls back to the payload's own repr when a
-                command has not written one yet.
+            view (RenderableType | Sequence[RenderableType] | None): Human rendering, as one Rich renderable or
+                a sequence of them printed in order. This is what a command should pass.
+            lines (Sequence[str] | None): Human rendering as plain strings. Kept for output that is genuinely
+                lines -- a generated completion script, a rendered plan tree -- where wrapping it in a
+                renderable would only be ceremony.
+            The payload's own JSON is the fallback when a command has written neither.
 
         Returns:
             ExitCode: Always :data:`ExitCode.OK`, returned so a command body can ``return console.emit(...)``.
@@ -150,6 +203,12 @@ class Console:
         if self.json_mode:
             envelope = Envelope(command=command, data=data, warnings=self._warnings)
             print(json.dumps(envelope.to_dict(), indent=2, sort_keys=False, default=str))
+        elif view is not None:
+            # A str is a Sequence of str, so it would iterate into characters. Checked rather than assumed
+            # because the failure is silent and absurd: one character per line.
+            parts = [view] if isinstance(view, str) or not isinstance(view, (list, tuple)) else list(view)
+            for part in parts:
+                self.rich().print(part)
         elif lines is not None:
             for line in lines:
                 print(line)
@@ -173,7 +232,7 @@ class Console:
             envelope.warnings = self._warnings
             print(json.dumps(envelope.to_dict(), indent=2, default=str))
         else:
-            print(f"error: {error.message}", file=sys.stderr)
+            self._aside(f"error: {error.message}", "bad")
             if error.hint:
-                print(f"hint: {error.hint}", file=sys.stderr)
+                self._aside(f"hint: {error.hint}", "warn")
         return error.exit_code

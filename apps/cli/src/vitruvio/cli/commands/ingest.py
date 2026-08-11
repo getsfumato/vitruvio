@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
 from vitruvio.kernel import ExitCode
@@ -89,21 +91,21 @@ def run(
     )
 
     validation = result["validation"]
-    lines = [
-        f"source      {short(result['registration']['block_id'])}  ({resolved})",
-        f"pipeline    {result['pipeline'] or '(none -- no view applies)'}",
-        f"proposer    {result['proposer']}",
-        f"proposed    {result['proposed']} candidates",
-        f"committable {validation['committable']}",
-        f"already held {result['already_held']}",
+    pairs: list[tuple[str, object]] = [
+        ("source", Text.assemble((short(result["registration"]["block_id"]), "digest"), f"  ({resolved})")),
+        ("pipeline", result["pipeline"] or "(none -- no view applies)"),
+        ("proposer", result["proposer"]),
+        ("proposed", f"{result['proposed']} candidates"),
+        ("committable", render.count(validation["committable"])),
+        ("already held", str(result["already_held"])),
     ]
     if result["committed"] is not None:
-        lines += [
-            f"committed   {len(result['committed']['committed'])} blocks",
-            f"snapshot    {short(result['committed']['snapshot'])}",
+        pairs += [
+            ("committed", Text.assemble((str(len(result["committed"]["committed"])), "count"), " blocks")),
+            ("snapshot", render.digest(result["committed"]["snapshot"])),
         ]
     else:
-        lines.append("committed   nothing (dry run)")
+        pairs.append(("committed", Text("nothing (dry run)", style="warn")))
 
     for entry in validation["results"]:
         if entry["status"] != "validated":
@@ -114,7 +116,7 @@ def run(
             "the proposer found nothing to propose. For `structure` that means the document has no Markdown "
             "headings with content under them; a model proposer would read it differently"
         )
-    return console.emit("ingest.run", result, lines=lines)
+    return console.emit("ingest.run", result, view=render.fields(pairs))
 
 
 @app.command(name="pipelines")
@@ -130,12 +132,15 @@ def pipelines() -> ExitCode:
     """
     console = current().console
     result = current().service().pipelines()
-    lines = [
-        f"{item['name']:<16} {item['version']:<20} {'ok ' if item['available'] else '---'}  "
-        f"{', '.join(str(entry) for entry in item['accepts'])}"
-        for item in result["pipelines"]
-    ]
+    table = render.table("pipeline", "version", "", "accepts")
+    for item in result["pipelines"]:
+        table.add_row(
+            item["name"],
+            Text(item["version"], style="muted"),
+            render.verdict(bool(item["available"]), yes="ok", no="---"),
+            Text(", ".join(str(entry) for entry in item["accepts"]), style="muted"),
+        )
     missing = [item["name"] for item in result["pipelines"] if not item["available"]]
     if missing:
         console.warn(f"unavailable here: {', '.join(missing)} -- install the [vision] extra")
-    return console.emit("ingest.pipelines", result, lines=lines)
+    return console.emit("ingest.pipelines", result, view=table)

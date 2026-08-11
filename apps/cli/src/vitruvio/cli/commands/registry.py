@@ -18,7 +18,9 @@ import sys
 from typing import Annotated
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import ExitCode, VitruvioError
 
@@ -116,7 +118,7 @@ def login(
     return console.emit(
         "registry.login",
         {"host": resolved, "username": credential.username, "stored": where, "source": credential.source},
-        lines=[f"logged in to {resolved} as {credential.username} (stored in {where})"],
+        view=render.fields([("logged in to", resolved), ("as", credential.username), ("stored in", where)]),
     )
 
 
@@ -136,7 +138,11 @@ def logout(host: str) -> ExitCode:
     removed = forget(resolved)
     if not removed:
         console.warn(f"nothing was stored for {resolved}")
-    return console.emit("registry.logout", {"host": resolved, "removed": removed}, lines=[f"logged out of {resolved}"])
+    return console.emit(
+        "registry.logout",
+        {"host": resolved, "removed": removed},
+        view=render.fields([("logged out of", resolved)]),
+    )
 
 
 @app.command(name="whoami")
@@ -169,18 +175,23 @@ def whoami(host: str | None = None) -> ExitCode:
         "can_write": not credential.anonymous,
         "docker_hub": is_docker_hub(reference),
     }
-    lines = [
-        f"host      {payload['host']}",
-        f"username  {payload['username'] or '(none -- anonymous)'}",
-        f"token     {payload['token'] or '(none)'}",
-        f"source    {payload['source']}",
-    ]
-    if credential.anonymous:
-        lines.append("")
-        lines.append(
+    head = render.fields(
+        [
+            ("host", payload["host"]),
+            ("username", payload["username"] or "(none -- anonymous)"),
+            ("token", payload["token"] or "(none)"),
+            # The source is what answers "why is it publishing as someone else", so it is never abbreviated away.
+            ("source", payload["source"]),
+        ]
+    )
+    advice = (
+        render.empty(
             "a prior `docker login` does not authenticate vitruvio: run `vitruvio registry login --from-docker`"
         )
-    return console.emit("registry.whoami", payload, lines=lines)
+        if credential.anonymous
+        else None
+    )
+    return console.emit("registry.whoami", payload, view=render.stack(head, "" if advice else None, advice))
 
 
 @app.command(name="list")
@@ -192,10 +203,12 @@ def list_() -> ExitCode:
     console = current().console
     hosts = sorted(set(_read_usernames()) | set(_read_file(credentials_file())))
     rows = [{"host": host, "username": _read_usernames().get(host)} for host in hosts]
-    lines = [f"{row['host']:<32} {row['username'] or ''}" for row in rows]
+    table = render.table("host", "username")
+    for row in rows:
+        table.add_row(str(row["host"]), Text(str(row["username"] or ""), style="muted"))
     if not rows:
         console.warn("no credentials stored; run `vitruvio registry login <host>`")
-    return console.emit("registry.list", {"hosts": rows}, lines=lines)
+    return console.emit("registry.list", {"hosts": rows}, view=table if rows else render.stack())
 
 
 @app.command(name="check")
@@ -239,10 +252,13 @@ def check(
     for warning in result.get("warnings", []):
         console.warn(warning)
 
-    lines = [
-        f"{'ok ' if check['ok'] else 'FAIL'}  {check['check']:<20} {check['detail']}" for check in result["checks"]
-    ]
+    table = render.table("", "check", "detail")
+    for probe in result["checks"]:
+        table.add_row(
+            render.verdict(bool(probe["ok"]), yes="ok", no="FAIL"),
+            str(probe["check"]),
+            Text(str(probe["detail"]), style="muted" if probe["ok"] else "warn"),
+        )
     if not result["ok"]:
-        lines += ["", f"hint: {result['hint']}"]
         raise VitruvioError(f"{result['reference']} cannot hold a Boltzmann brain as published", hint=result["hint"])
-    return console.emit("registry.check", result, lines=lines)
+    return console.emit("registry.check", result, view=table)

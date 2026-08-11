@@ -193,7 +193,7 @@ mypy_path = [
 # pypdfium2 and httpx sit behind extras, so they are absent from the default sync; the code that imports them
 # already reports unavailability rather than crashing, and mypy must not fail a lint the runtime survives.
 [[tool.mypy.overrides]]
-module = ["oras.*", "snowballstemmer.*", "pyroaring.*", "keyring.*", "pypdfium2.*", "httpx.*"]
+module = ["oras.*", "snowballstemmer.*", "pyroaring.*", "keyring.*", "pypdfium2.*", "PIL.*", "httpx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

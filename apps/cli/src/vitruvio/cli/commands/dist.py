@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
 from vitruvio.kernel import ExitCode
@@ -65,12 +67,25 @@ def pack(
     result = current().service().pack(tag=tag, modules=module)
     _warn(result)
 
-    lines = [f"manifest    {result['digest']}", f"artifact    {result['artifact_type']}", ""]
+    head = render.fields(
+        [
+            ("manifest", render.digest(result["digest"], full=True)),
+            ("artifact", result["artifact_type"]),
+        ]
+    )
+    table = render.table("module", "layer", ("bytes", "right"), "digest")
     for layer in result["layers"]:
         kind = (layer.get("annotations") or {}).get("ai.gaussia.boltzmann.memory-type", "?")
-        vector = "vector index" if "index.vector" in layer["media_type"] else "module"
-        lines.append(f"  {kind:<12} {vector:<14} {layer['size']:>9} bytes  {short(layer['digest'])}")
-    return console.emit("dist.pack", result, lines=lines)
+        # Whether the vector index made it in is the question this command is usually run to answer, so the layer
+        # kind is a column rather than a suffix on the media type nobody reads.
+        vector = "index.vector" in layer["media_type"]
+        table.add_row(
+            render.kind(kind),
+            Text("vector index", style="ok") if vector else Text("module", style="muted"),
+            str(layer["size"]),
+            render.digest(layer["digest"]),
+        )
+    return console.emit("dist.pack", result, view=render.stack(head, "", table))
 
 
 @app.command(name="push")
@@ -125,12 +140,14 @@ def push(
         .push(reference, tag=tag, modules=module, force=force, anonymous=anonymous, insecure=insecure, local=local)
     )
     _warn(result)
-    lines = [
-        f"pushed      {result['reference']}:{result['tag']}",
-        f"endpoint    {result['effective']}",
-        f"digest      {result['digest']}",
-    ]
-    return console.emit("dist.push", result, lines=lines)
+    view = render.fields(
+        [
+            ("pushed", f"{result['reference']}:{result['tag']}"),
+            ("endpoint", result["effective"]),
+            ("digest", render.digest(result["digest"], full=True)),
+        ]
+    )
+    return console.emit("dist.push", result, view=view)
 
 
 def _push_all(
@@ -207,7 +224,9 @@ def _push_all(
     skipped = [item for item in results if item["skipped"]]
     failed = [item for item in results if not item["ok"]]
 
-    lines = [f"published   {len(published)} of {len(results)} brains"]
+    pairs: list[tuple[str, object]] = [
+        ("published", Text.assemble((str(len(published)), "count"), f" of {len(results)} brains"))
+    ]
     if skipped:
         # Counted by reason rather than lumped together. "skipped 1 with nothing committed yet" was printed for a
         # brain holding 326 blocks the moment a second reason to skip existed, and a summary that states something
@@ -216,12 +235,15 @@ def _push_all(
         for item in skipped:
             reason = str(item.get("reason") or "skipped")
             tally[reason] = tally.get(reason, 0) + 1
-        lines.append("skipped     " + ", ".join(f"{count} {reason}" for reason, count in sorted(tally.items())))
-    lines.append("")
+        pairs.append(("skipped", ", ".join(f"{count} {reason}" for reason, count in sorted(tally.items()))))
+    table = render.table("", "brain", "detail")
     for item in results:
-        state = "skip" if item["skipped"] else ("ok  " if item["ok"] else "FAIL")
+        if item["skipped"]:
+            state = Text("skip", style="warn")
+        else:
+            state = render.verdict(bool(item["ok"]), yes="ok", no="FAIL")
         detail = item.get("reference") or item.get("error") or item.get("reason") or ""
-        lines.append(f"  {state}  {item['brain']:<18} {detail}")
+        table.add_row(state, str(item["brain"]), Text(str(detail), style="muted" if item["ok"] else "warn"))
 
     if failed:
         raise VitruvioError(
@@ -231,7 +253,7 @@ def _push_all(
     return console.emit(
         "dist.push-all",
         {"brains": results, "published": len(published), "skipped": len(skipped)},
-        lines=lines,
+        view=render.stack(render.fields(pairs), "", table),
     )
 
 
@@ -295,21 +317,20 @@ def plan_pull(
     _warn(result)
 
     size = result.get("fetch_bytes")
-    lines = [
-        f"reference   {result['reference']}:{result['tag']}",
-        f"modules     {', '.join(result['modules']) or '(none)'}",
-        f"fetch       {', '.join(result['fetch_layers']) or '(nothing -- already current)'}",
-        f"reuse       {', '.join(result['reuse_layers']) or '(none)'}",
-        f"vectors     {', '.join(result['fetch_vector_indices']) or '(none)'}",
-        f"transfer    {f'{size / 1024:.1f} KiB' if size is not None else '(unknown)'}",
+    pairs: list[tuple[str, object]] = [
+        ("reference", f"{result['reference']}:{result['tag']}"),
+        ("modules", ", ".join(result["modules"]) or "(none)"),
+        ("fetch", ", ".join(result["fetch_layers"]) or "(nothing -- already current)"),
+        ("reuse", ", ".join(result["reuse_layers"]) or "(none)"),
+        ("vectors", ", ".join(result["fetch_vector_indices"]) or "(none)"),
+        # The one number worth paying attention to before agreeing to a transfer that can be gigabytes.
+        ("transfer", render.count(f"{size / 1024:.1f} KiB") if size is not None else "(unknown)"),
     ]
     if (discards := _local_work_line(result)) is not None:
-        lines.append(f"discards    {discards.removeprefix('this pull discards ')}")
+        pairs.append(("discards", Text(discards.removeprefix("this pull discards "), style="warn")))
         console.warn(discards)
-    if result["is_noop"]:
-        lines.append("")
-        lines.append("this brain is already at the published state")
-    return console.emit("dist.plan-pull", result, lines=lines)
+    noop = render.empty("this brain is already at the published state") if result["is_noop"] else None
+    return console.emit("dist.plan-pull", result, view=render.stack(render.fields(pairs), "" if noop else None, noop))
 
 
 @app.command(name="pull")
@@ -346,8 +367,6 @@ def pull(
     insecure
         Allow plain HTTP.
     """
-    from vitruvio.cli import render
-
     console = current().console
     result = (
         current()
@@ -358,7 +377,7 @@ def pull(
     if result["partial"]:
         console.warn("a selective install leaves the other modules missing; `inspect resolvability` reports which")
 
-    lines = [f"pulled      {result['reference']}:{result['tag']}"]
+    pairs: list[tuple[str, object]] = [("pulled", f"{result['reference']}:{result['tag']}")]
     if discarded := int(result["discarded"]):
         # Counted exactly here rather than estimated: this is the one moment both compositions are known, so the
         # report says what happened instead of what was likely to. Stated after the fact because a pull is a
@@ -367,9 +386,14 @@ def pull(
             f"{discarded} block{'' if discarded == 1 else 's'} committed here are no longer in the composition; "
             f"the snapshot that held them is still in `brain history`"
         )
-        lines.append(f"discarded   {discarded} blocks committed here, now outside the composition")
-    lines += ["", *render.snapshot(result["snapshot"])]
-    return console.emit("dist.pull", result, lines=lines)
+        pairs.append(
+            ("discarded", Text(f"{discarded} blocks committed here, now outside the composition", style="warn"))
+        )
+    return console.emit(
+        "dist.pull",
+        result,
+        view=render.stack(render.fields(pairs), "", *render.snapshot(result["snapshot"])),
+    )
 
 
 @app.command(name="tags")
@@ -400,5 +424,5 @@ def tags(
     console = current().console
     result = current().service().tags(reference, anonymous=anonymous, insecure=insecure, local=local)
     _warn(result)
-    lines = list(result["tags"]) or ["(no tags)"]
-    return console.emit("dist.tags", result, lines=lines)
+    view = render.lines(result["tags"]) if result["tags"] else render.empty("(no tags)")
+    return console.emit("dist.tags", result, view=view)

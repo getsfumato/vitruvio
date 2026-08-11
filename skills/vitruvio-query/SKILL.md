@@ -59,6 +59,20 @@ large divergence on one operator is the honest way to find out the cost model is
 no command that refits it: the constants are measured defaults, and `[planner]` in `vitruvio.toml` overrides them by
 hand.
 
+## When the question is not a query
+
+"What is in this brain" is not a retrieval problem and `search` is the wrong tool for it: a search ranks against a
+query, so anything the query does not reach comes back looking absent. Read the module instead:
+
+```bash
+vitruvio inspect blocks canonical --json          # every block, in the module's own order
+vitruvio inspect blocks semantic --contains fourier --limit 50 --json
+```
+
+No score column, because nothing was ranked. `--contains` filters rows that were already read — it names no index
+and cannot rank — so never present its rows as relevance. `inspect content DIGEST --out FILE` gets the bytes a
+canonical block names, and `inspect links BLOCK_ID` gets the provenance records about a block.
+
 ## A small brain legitimately scans
 
 Below roughly 500 blocks, an exhaustive scan usually beats any index — embedding a query costs about 4.5 ms, which

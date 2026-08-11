@@ -14,9 +14,30 @@ from __future__ import annotations
 from typing import Annotated
 
 from cyclopts import App, Parameter
+from rich.console import RenderableType
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import ExitCode
+
+STATE_STYLES = {"ready": "ok", "empty": "warn", "stale": "warn", "unavailable": "bad", "absent": "muted"}
+"""How an index's state is coloured. An empty registered index is yellow rather than green: the planner treats
+one as unusable, and it looks identical to a built index in every column except this one."""
+
+
+def _state(value: str) -> Text:
+    """
+    An index state, styled by what it means for retrieval.
+
+    Args:
+        value (str): The state the service reported.
+
+    Returns:
+        Text: The styled state.
+    """
+    return Text(value, style=STATE_STYLES.get(value, "value"))
+
 
 app = App(
     name="index",
@@ -37,18 +58,20 @@ def list_() -> ExitCode:
     console = current().console
     result = current().service().index_list()
 
-    lines = [
-        f"{'module':<12} {'kind':<10} {'blocks':>7} {'size':>9} {'state':<16} engine",
-        f"{'-' * 12} {'-' * 10} {'-' * 7} {'-' * 9} {'-' * 16} {'-' * 14}",
-    ]
-    for row in result["indices"]:
-        size = f"{row['size_bytes'] / 1024:.1f}K" if row["size_bytes"] else "-"
-        lines.append(
-            f"{row['memory_type']:<12} {row['kind']:<10} {row['population']:>7} {size:>9} "
-            f"{row['state']:<16} {row['engine']}"
-        )
     if not result["indices"]:
-        lines = ["No indices registered."]
+        view: RenderableType = render.empty("No indices registered.")
+    else:
+        table = render.table("module", "kind", ("blocks", "right"), ("size", "right"), "state", "engine")
+        for row in result["indices"]:
+            table.add_row(
+                render.kind(row["memory_type"]),
+                row["kind"],
+                str(row["population"]),
+                Text(f"{row['size_bytes'] / 1024:.1f}K" if row["size_bytes"] else "-", style="muted"),
+                _state(row["state"]),
+                Text(row["engine"], style="muted"),
+            )
+        view = table
 
     if unavailable := result["unavailable"]:
         # One line rather than one per entry. The per-index detail stays in the JSON envelope, where whatever is
@@ -58,7 +81,7 @@ def list_() -> ExitCode:
             f"{len(unavailable)} declared index(es) are not available in this build: {', '.join(kinds)} "
             f"(pass --json for the full list)"
         )
-    return console.emit("index.list", result, lines=lines)
+    return console.emit("index.list", result, view=view)
 
 
 @app.command(name="build")
@@ -82,26 +105,31 @@ def build(
     console = current().console
     result = current().service().index_build(memory_types=memory_type, force=force)
 
-    lines = [
-        f"{'module':<12} {'kind':<10} {'blocks':>7}  {'root':<18}",
-        f"{'-' * 12} {'-' * 10} {'-' * 7}  {'-' * 18}",
-    ]
-    from vitruvio.cli.render import short
-
+    table = render.table("module", "kind", ("blocks", "right"), "root")
     for row in result["indices"]:
-        lines.append(
-            f"{row['memory_type']:<12} {row['kind']:<10} {row['population']:>7}  {short(row['bound_root']):<18}"
+        table.add_row(
+            render.kind(row["memory_type"]),
+            row["kind"],
+            str(row["population"]),
+            render.digest(row["bound_root"]),
         )
-    lines += ["", f"{result['written']} index files written to {result['home']}"]
 
     travelling = result.get("travelling") or []
-    lines.append(f"travelling  {', '.join(travelling) if travelling else '(none)'}")
+    footer = render.fields(
+        [
+            ("written", f"{result['written']} index files to {result['home']}"),
+            (
+                "travelling",
+                Text(", ".join(travelling), style="ok") if travelling else Text("(none)", style="warn"),
+            ),
+        ]
+    )
     for module, outcome in sorted((result.get("vouched") or {}).items()):
         if outcome != "vouched":
             # A warning rather than a line: an unvouched vector index means a publish that silently omits the one index
             # a consumer cannot rebuild for itself.
             console.warn(f"{module}: the vector index will not be published -- {outcome}")
-    return console.emit("index.build", result, lines=lines)
+    return console.emit("index.build", result, view=render.stack(table, footer))
 
 
 @app.command(name="stats")
@@ -123,28 +151,46 @@ def stats(
     console = current().console
     result = current().service().index_stats(memory_type=memory_type)
 
-    lines: list[str] = []
+    parts: list[RenderableType] = []
     for entry in result["statistics"]:
-        lines += [
-            f"{entry['memory_type']}",
-            f"  freshness    {entry['freshness']}" + (f"  ({entry['reason']})" if entry.get("reason") else ""),
-            f"  blocks       {entry['cardinality']} ({entry['resolvable']} resolvable)",
-            f"  indices      {', '.join(entry['indices']) or '(none)'}",
-            f"  built at     {entry['built_at'] or '-'}",
+        fresh = entry["freshness"]
+        pairs: list[tuple[str, object]] = [
+            # Freshness first, and coloured: stale does not mean wrong, it means the planner stops trusting the
+            # catalogue and estimates pessimistically instead. That is a slower brain, and it is the one line here
+            # that tells you so.
+            (
+                "freshness",
+                Text(
+                    fresh + (f"  ({entry['reason']})" if entry.get("reason") else ""),
+                    style="ok" if fresh == "fresh" else "warn",
+                ),
+            ),
+            ("blocks", f"{entry['cardinality']} ({entry['resolvable']} resolvable)"),
+            ("indices", ", ".join(entry["indices"]) or "(none)"),
+            ("built at", entry["built_at"] or "-"),
         ]
         if entry["columns"]:
             distinct = ", ".join(f"{name}={count}" for name, count in entry["columns"].items() if count)
-            lines.append(f"  facets       {distinct or '(none populated)'}")
+            pairs.append(("facets", distinct or "(none populated)"))
         if entry["vocabulary"]:
-            lines.append(f"  vocabulary   {entry['vocabulary']} terms, {entry['postings']} postings")
+            pairs.append(("vocabulary", f"{entry['vocabulary']} terms, {entry['postings']} postings"))
         if entry["graph_edges"]:
-            lines.append(f"  graph        {entry['graph_edges']} edges")
-        if entry["vectors"]:
-            lines.append(f"  vectors      {entry['vectors']}")
-        lines.append("")
-    if not lines:
-        lines = ["No statistics yet. Run `vitruvio index build`."]
-    return console.emit("index.stats", result, lines=lines)
+            pairs.append(("graph", f"{entry['graph_edges']} edges"))
+        if vectors := entry["vectors"]:
+            # A mapping of space to population, written the way `facets` above is rather than as a Python repr:
+            # `{'text': 1}` was what this printed, and a dict literal in human output is a renderer that gave up.
+            pairs.append(
+                (
+                    "vectors",
+                    ", ".join(f"{space}={count}" for space, count in sorted(vectors.items()))
+                    if isinstance(vectors, dict)
+                    else str(vectors),
+                )
+            )
+        parts += [render.fields(pairs, title=entry["memory_type"]), ""]
+    if not parts:
+        parts = [render.empty("No statistics yet. Run `vitruvio index build`.")]
+    return console.emit("index.stats", result, view=parts)
 
 
 @app.command(name="verify")
@@ -157,14 +203,18 @@ def verify() -> ExitCode:
     console = current().console
     result = current().service().index_verify()
 
-    lines = [
-        f"{'module':<12} {'kind':<10} {'state':<16} detail",
-        f"{'-' * 12} {'-' * 10} {'-' * 16} {'-' * 30}",
-    ]
-    for row in result["capabilities"]:
-        lines.append(f"{row['memory_type']:<12} {row['kind']:<10} {row['state']:<16} {row['detail'] or ''}")
     if not result["capabilities"]:
-        lines = ["No indices registered."]
+        view: RenderableType = render.empty("No indices registered.")
+    else:
+        table = render.table("module", "kind", "state", "detail")
+        for row in result["capabilities"]:
+            table.add_row(
+                render.kind(row["memory_type"]),
+                row["kind"],
+                _state(row["state"]),
+                Text(row["detail"] or "", style="muted"),
+            )
+        view = table
 
     if result["stale"]:
         from vitruvio.kernel import VitruvioError
@@ -173,7 +223,7 @@ def verify() -> ExitCode:
             f"{result['stale']} index(es) describe a different composition than the one installed",
             hint="run `vitruvio index build` -- an index is derived, so rebuilding it is always safe",
         )
-    return console.emit("index.verify", result, lines=lines)
+    return console.emit("index.verify", result, view=view)
 
 
 @app.command(name="gc")
@@ -189,9 +239,11 @@ def gc(*, apply: bool = False) -> ExitCode:
     """
     console = current().console
     result = current().service().index_gc(apply=apply)
-    lines = [f"{'removed' if apply else 'would remove'}: {len(result['removed'])} file(s)"]
-    lines += [f"  {path}" for path in result["removed"]]
+    head = render.fields(
+        [(("removed" if apply else "would remove"), f"{len(result['removed'])} file(s)")],
+    )
+    listing = render.lines(result["removed"], style="muted") if result["removed"] else None
+    advice = None
     if not apply and result["removed"]:
-        lines.append("")
-        lines.append("pass --apply to delete them")
-    return console.emit("index.gc", result, lines=lines)
+        advice = Text("pass --apply to delete them", style="warn")
+    return console.emit("index.gc", result, view=render.stack(head, listing, advice))

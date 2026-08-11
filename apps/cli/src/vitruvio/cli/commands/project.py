@@ -32,7 +32,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import ExitCode, VitruvioError
 
@@ -107,17 +109,21 @@ def init(
     if actor := context.actor_id:
         update_config(target, "actor.id", actor)
 
-    lines = [
-        f"project     {name}",
-        f"config      {target}",
-        f"namespace   {namespace or '(from your registry login)'}",
+    view = render.stack(
+        render.fields(
+            [
+                ("project", name),
+                ("config", str(target)),
+                ("namespace", namespace or "(from your registry login)"),
+            ]
+        ),
         "",
-        "add a brain with `vitruvio project add <name>`",
-    ]
+        render.empty("add a brain with `vitruvio project add <name>`"),
+    )
     return console.emit(
         "project.init",
         {"name": name, "description": description, "namespace": namespace, "config_file": str(target)},
-        lines=lines,
+        view=view,
     )
 
 
@@ -141,32 +147,40 @@ def show() -> ExitCode:
     else:
         destination = "(nowhere: no namespace, and no registry login)"
 
-    lines = [
-        f"project     {result['name'] or '(unnamed)'}",
-        f"config      {result['config_file'] or '(none)'}",
-        f"publishes   {destination}",
-        f"tag         {result['tag']}",
-        "",
-    ]
+    head = render.fields(
+        [
+            ("project", result["name"] or "(unnamed)"),
+            ("config", result["config_file"] or "(none)"),
+            ("publishes", destination),
+            ("tag", result["tag"]),
+        ]
+    )
     if not result["brains"]:
         console.warn("this project holds no brains yet; add one with `vitruvio project add <name>`")
+
+    table = render.table("", "brain", "repository", "state", "description")
     for brain in result["brains"]:
-        marker = "*" if brain["selected"] else " "
-        state = "" if brain["exists"] else "   (not created)"
+        states = []
         # Shown, because a prohibition nobody can see is one somebody works around by accident: the reader would
         # otherwise take the repository column as a statement that a push goes there.
         if not brain["publish"]:
-            state = "   (publish = false)" + state
-        lines.append(f"{marker} {brain['name']:<18} {brain['repository'] or '(no repository)'}{state}")
-        if brain["description"]:
-            lines.append(f"    {brain['description']}")
+            states.append("publish = false")
+        if not brain["exists"]:
+            states.append("not created")
+        table.add_row(
+            Text("*", style="ok") if brain["selected"] else "",
+            brain["name"],
+            Text(brain["repository"] or "(no repository)", style="muted" if not brain["repository"] else "value"),
+            Text(", ".join(states), style="warn"),
+            Text(brain["description"] or "", style="muted"),
+        )
 
     if result["namespace"] is None and result["account"] is None and result["brains"]:
         console.warn(
             "no registry namespace is configured and no registry login was found, so these brains have nowhere to "
             "publish. Run `vitruvio registry login docker.io --from-docker`, or set [registry] namespace"
         )
-    return console.emit("project.show", result, lines=lines)
+    return console.emit("project.show", result, view=render.stack(head, "", table if result["brains"] else None))
 
 
 @app.command(name="add")
@@ -214,14 +228,18 @@ def add(
             publish=not no_publish,
         )
     )
-    lines = [
-        f"added       {result['name']}",
-        f"path        {result['path']}{'  (created)' if result['created'] else ''}",
-        *([] if result["publish"] else ["publish     false -- `dist push` will refuse this brain"]),
-        "",
-        f"use it with `vitruvio --brain {result['name']} ...`",
+    pairs: list[tuple[str, object]] = [
+        ("added", result["name"]),
+        ("path", f"{result['path']}{'  (created)' if result['created'] else ''}"),
     ]
-    return console.emit("project.add", result, lines=lines)
+    if not result["publish"]:
+        pairs.append(("publish", Text("false -- `dist push` will refuse this brain", style="warn")))
+    view = render.stack(
+        render.fields(pairs),
+        "",
+        render.empty(f"use it with `vitruvio --brain {result['name']} ...`"),
+    )
+    return console.emit("project.add", result, view=view)
 
 
 @app.command(name="remove")
@@ -239,10 +257,9 @@ def remove(name: str) -> ExitCode:
     """
     console = current().console
     result = current().service(require_brain=False).remove_brain(name)
-    lines = [
-        f"removed     {result['name']} from the project",
-        f"still at    {result['path']}",
+    view = render.stack(
+        render.fields([("removed", f"{result['name']} from the project"), ("still at", result["path"])]),
         "",
-        "nothing was deleted; remove the directory yourself if that is what you meant",
-    ]
-    return console.emit("project.remove", result, lines=lines)
+        render.empty("nothing was deleted; remove the directory yourself if that is what you meant"),
+    )
+    return console.emit("project.remove", result, view=view)

@@ -26,13 +26,18 @@ personal data, credentials, or licensed material -- not for cleanup. Wrong knowl
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
 from vitruvio.kernel import ExitCode, VitruvioError
+
+if TYPE_CHECKING:
+    from rich.console import RenderableType
 
 app = App(
     name="retain",
@@ -44,7 +49,11 @@ app = App(
 
 def _cascade_lines(cascade: dict[str, object]) -> list[str]:
     """
-    Render a cascade plan.
+    Render a cascade plan as lines.
+
+    Lines rather than a table, and deliberately: `drop` prints this plan to **stderr**, one line at a time
+    through ``console.note``, before it asks for confirmation -- so what the reader is about to consent to is
+    beside the prompt rather than mixed into the result on stdout. A renderable cannot be noted.
 
     Args:
         cascade (dict[str, object]): The plan.
@@ -68,6 +77,39 @@ def _cascade_lines(cascade: dict[str, object]) -> list[str]:
             ),
         ]
     return lines
+
+
+def _cascade(cascade: dict[str, object]) -> list[RenderableType]:
+    """
+    Render a cascade plan for stdout.
+
+    Args:
+        cascade (dict[str, object]): The plan.
+
+    Returns:
+        list[RenderableType]: The renderables, dependents grouped by module.
+    """
+    # The cascade size carries the decision: dropping one block that takes forty with it is not the operation the
+    # reader thought they were asking for, and that number is the only place it says so.
+    head = render.fields([("cascade", Text.assemble((str(cascade["size"]), "count"), " blocks in total"))])
+    dependents = cascade.get("dependents") or {}
+    table = None
+    if isinstance(dependents, dict) and dependents:
+        table = render.table("module", ("blocks", "right"), "identities")
+        for memory_type, blocks in sorted(dependents.items()):
+            table.add_row(
+                render.kind(memory_type),
+                str(len(blocks)),
+                Text(", ".join(short(str(item)) for item in blocks), style="digest"),
+            )
+    advice = None
+    if rederivable := cascade.get("rederivable"):
+        count = len(rederivable) if isinstance(rederivable, list) else rederivable
+        advice = Text(
+            f"{count} of them could be re-derived from newer evidence instead of dropped (--rederive-against)",
+            style="warn",
+        )
+    return render.stack(head, table, advice)
 
 
 def _confirm(prompt: str, yes: bool) -> None:
@@ -123,7 +165,7 @@ def plan_drop(
             "this cascade exceeds the policy's review threshold, so `drop` will refuse it: a removal this wide is a "
             "decision for a person, not a command"
         )
-    return console.emit("retain.plan-drop", result, lines=_cascade_lines(result))
+    return console.emit("retain.plan-drop", result, view=_cascade(result))
 
 
 @app.command(name="drop")
@@ -166,14 +208,17 @@ def drop(
 
     result = service.drop(blocks, memory_type=memory_type, reason=reason, rederive_against=rederive_against)
     dropped = sum(len(items) for items in result["dropped"].values())
-    lines = [
-        f"dropped     {dropped} blocks",
-        f"snapshot    {short(result['snapshot'])}",
-        "",
-        *(f"  {memory:<12} {short(root)}" for memory, root in sorted(result["roots"].items())),
-    ]
+    head = render.fields(
+        [
+            ("dropped", Text.assemble((str(dropped), "count"), " blocks")),
+            ("snapshot", render.digest(result["snapshot"])),
+        ]
+    )
+    roots = render.table("module", "root")
+    for memory, root in sorted(result["roots"].items()):
+        roots.add_row(render.kind(memory), render.digest(root))
     console.note("the bytes are still on disk; `vitruvio retain prune` reclaims what no retained root needs")
-    return console.emit("retain.drop", result, lines=lines)
+    return console.emit("retain.drop", result, view=render.stack(head, "", roots))
 
 
 @app.command(name="drop-producer")
@@ -218,17 +263,19 @@ def drop_producer(
         .drop_by_producer(producer, kind=kind, version=producer_version, memory_types=memory_type, reason=reason)
     )
     dropped = sum(len(items) for items in result["dropped"].values())
-    lines = [
-        f"producer    {label}",
-        f"dropped     {dropped} blocks",
-        f"snapshot    {short(result['snapshot'])}",
-    ]
+    view = render.fields(
+        [
+            ("producer", label),
+            ("dropped", Text.assemble((str(dropped), "count"), " blocks")),
+            ("snapshot", render.digest(result["snapshot"])),
+        ]
+    )
     if dropped == 0:
         console.warn(
             f"nothing was derived by {label}. Check `kind` and the exact id: a producer is matched exactly, and a "
             f"typo looks identical to a clean brain"
         )
-    return console.emit("retain.drop-producer", result, lines=lines)
+    return console.emit("retain.drop-producer", result, view=view)
 
 
 @app.command(name="supersede")
@@ -258,13 +305,25 @@ def supersede(
     """
     console = current().console
     result = current().service().supersede(block, superseded=supersedes, memory_type=memory_type, reason=reason)
-    lines = [
-        f"{short(block)} now supersedes {short(supersedes)} in {memory_type}",
-        f"snapshot    {short(result['snapshot'])}",
+    view = render.stack(
+        render.fields(
+            [
+                (
+                    "supersedes",
+                    Text.assemble(
+                        (short(block), "digest"),
+                        " now supersedes ",
+                        (short(supersedes), "digest"),
+                        f" in {memory_type}",
+                    ),
+                ),
+                ("snapshot", render.digest(result["snapshot"])),
+            ]
+        ),
         "",
-        "the superseded block is still a verifiable member; a search holds it back unless asked for it",
-    ]
-    return console.emit("retain.supersede", result, lines=lines)
+        render.empty("the superseded block is still a verifiable member; a search holds it back unless asked for it"),
+    )
+    return console.emit("retain.supersede", result, view=view)
 
 
 @app.command(name="demote")
@@ -290,8 +349,13 @@ def demote(
     """
     console = current().console
     result = current().service().demote(block, memory_type=memory_type, reason=reason)
-    lines = [f"demoted     {short(block)} in {memory_type}", f"snapshot    {short(result['snapshot'])}"]
-    return console.emit("retain.demote", result, lines=lines)
+    view = render.fields(
+        [
+            ("demoted", Text.assemble((short(block), "digest"), f" in {memory_type}")),
+            ("snapshot", render.digest(result["snapshot"])),
+        ]
+    )
+    return console.emit("retain.demote", result, view=view)
 
 
 @app.command(name="prune")
@@ -309,14 +373,16 @@ def prune(*, apply: bool = False) -> ExitCode:
     """
     console = current().console
     result = current().service().prune(apply=apply)
-    lines = [
-        f"reclaimable {len(result.get('reclaimed') or [])} blobs",
-        f"bytes       {result.get('bytes', 0)}",
-        f"applied     {'yes' if result['applied'] else 'no (dry run)'}",
-    ]
+    view = render.fields(
+        [
+            ("reclaimable", Text.assemble((str(len(result.get("reclaimed") or [])), "count"), " blobs")),
+            ("bytes", str(result.get("bytes", 0))),
+            ("applied", render.verdict(bool(result["applied"]), no="no (dry run)")),
+        ]
+    )
     if not result["applied"] and result.get("reclaimed"):
         console.note("re-run with --apply to delete them")
-    return console.emit("retain.prune", result, lines=lines)
+    return console.emit("retain.prune", result, view=view)
 
 
 @app.command(name="redact")
@@ -359,17 +425,20 @@ def redact(
     )
     result = current().service().redact(block, memory_type=memory_type, reason=reason)
     destroyed = result.get("redacted") or []
-    lines = [
-        f"redacted    {short(block)} in {memory_type}",
-        f"destroyed   {len(destroyed)} blobs",
-        f"snapshot    {short(result['snapshot'])}",
-    ]
+    view = render.fields(
+        [
+            ("redacted", Text.assemble((short(block), "digest"), f" in {memory_type}")),
+            # Red, because this is the one operation in the protocol that destroys something no root can recover.
+            ("destroyed", Text(f"{len(destroyed)} blobs", style="bad")),
+            ("snapshot", render.digest(result["snapshot"])),
+        ]
+    )
     if held := result.get("retained"):
         console.warn(
             f"{len(held)} blobs were kept because another block still names them; destroying them would take that "
             f"block's evidence with it, and nothing would report the loss"
         )
-    return console.emit("retain.redact", result, lines=lines)
+    return console.emit("retain.redact", result, view=view)
 
 
 @app.command(name="policy")
@@ -382,14 +451,22 @@ def policy() -> ExitCode:
     console = current().console
     result = current().service().policy()
     document = result["policy"]
-    lines = [
-        f"profile     {result['profile']}",
-        f"from        {result['config_file'] or '(defaults)'}",
+    view = render.stack(
+        render.fields([("profile", result["profile"]), ("from", result["config_file"] or "(defaults)")]),
         "",
-        f"droppable   {', '.join(document.get('droppable_modules') or []) or '(none)'}",
-        f"canonical   {'droppable' if document.get('canonical_drop_allowed') else 'never dropped'}",
-        f"review at   {document.get('cascade_review_threshold') or '(no threshold)'} cascaded blocks",
-        f"roots kept  {document.get('retained_roots')}",
-        f"mechanisms  {', '.join(document.get('allowed_mechanisms') or []) or '(all)'}",
-    ]
-    return console.emit("retain.policy", result, lines=lines)
+        render.fields(
+            [
+                ("droppable", ", ".join(document.get("droppable_modules") or []) or "(none)"),
+                (
+                    "canonical",
+                    Text("droppable", style="warn")
+                    if document.get("canonical_drop_allowed")
+                    else Text("never dropped", style="ok"),
+                ),
+                ("review at", f"{document.get('cascade_review_threshold') or '(no threshold)'} cascaded blocks"),
+                ("roots kept", str(document.get("retained_roots"))),
+                ("mechanisms", ", ".join(document.get("allowed_mechanisms") or []) or "(all)"),
+            ]
+        ),
+    )
+    return console.emit("retain.policy", result, view=view)

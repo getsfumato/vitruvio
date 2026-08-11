@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Fourteen groups, seventy-two commands. This skill is the map: which group owns a task, which command inside it, and
+Fourteen groups, seventy-six commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -147,10 +147,29 @@ vitruvio query search "..." --json                     # also accepted, but --br
 |---|---|
 | `inspect doctor` | the whole install: config, indices, embedders, what is missing |
 | `inspect module KIND` | one module's shape and a sample of its blocks |
+| `inspect blocks KIND` | what the blocks *say*, one line each. `--contains`, `--limit`, `--offset` |
 | `inspect block ID` | one block without opening a query path |
+| `inspect content DIGEST` | the bytes a block names. `--open` hands them to the desktop's viewer, `--out FILE` exports them |
+| `inspect links ID` | the provenance records naming a block: where it came from, what was done to it |
 | `inspect roots` | every module root and the snapshot that pins them |
 | `inspect resolvability` | readable vs **tombstoned** vs simply absent — three different things |
 | `inspect prove BLOCK` | an inclusion proof |
+
+`inspect blocks` is **not** retrieval. It lists a module in its own order and `--contains` filters rows that were
+already read: no index is consulted and nothing is ranked. When relevance is what you want, that is `search`.
+
+### `browse` — the interactive interface
+| command | for |
+|---|---|
+| `browse` | open the brain in a terminal UI. `--memory-type` to land on a module |
+
+For a person, not for you: it needs a terminal and refuses `--json`. `inspect blocks`, `inspect content` and
+`inspect links` are the same three reads it is built on, with an envelope.
+
+If you are telling a user how to drive it: arrows walk the blocks, `left`/`m` reaches the module sidebar and
+`right`/`enter` comes back, `i` says which brain is open and why, `t` swaps a PDF for its extracted text, `o`
+opens the bytes in the desktop's own viewer, `?` lists every key. A preview is a thumbnail — a page in a
+60-column pane is 60x80 pixels — so `t` and `o` are how a document actually gets read.
 
 ### `config` — the configuration
 | command | for |

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from cyclopts import App, Parameter
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import (
     ConfigError,
@@ -28,6 +29,8 @@ from vitruvio.kernel import (
 )
 
 if TYPE_CHECKING:
+    from rich.table import Table
+
     from vitruvio.kernel import ProjectConfig
 
 app = App(
@@ -87,7 +90,7 @@ def _redact(document: dict[str, Any]) -> dict[str, Any]:
     return walked
 
 
-def _describe(project: ProjectConfig, source: Path | None) -> list[str]:
+def _describe(project: ProjectConfig, source: Path | None) -> Table:
     """
     Render the configuration for a human.
 
@@ -96,40 +99,47 @@ def _describe(project: ProjectConfig, source: Path | None) -> list[str]:
         source (Path | None): Where it came from.
 
     Returns:
-        list[str]: Lines to print.
+        Table: The label-and-value block to print.
     """
+    from rich.text import Text
+
     actor = project.actor
     text = project.text_embedder
     vision = project.vision_embedder
     username, token = registry_credentials()
 
-    lines = [
-        f"config file   {source or '(none -- using defaults)'}",
-        f"brain         {project.brain.path or '(not set)'}",
-        f"actor         {actor.id or '(not set)'} [{actor.kind.value}]",
+    pairs: list[tuple[str, Any]] = [
+        ("config file", source or "(none -- using defaults)"),
+        ("brain", project.brain.path or "(not set)"),
+        ("actor", f"{actor.id or '(not set)'} [{actor.kind.value}]"),
         (
-            f"policy        {project.policy.profile.value}"
-            f"  canonical drops: {'allowed' if project.policy.build().canonical_drop_allowed else 'refused'}"
+            "policy",
+            (
+                f"{project.policy.profile.value}"
+                f"  canonical drops: {'allowed' if project.policy.build().canonical_drop_allowed else 'refused'}"
+            ),
         ),
-        f"text embed    {text.uri}" + (f" @{text.revision}" if text.revision else ""),
-        f"vision embed  {vision.uri if vision else '(none -- images are not embedded)'}",
-        f"indices       {len(project.indices)} registered{' (defaults)' if not project.index else ''}",
+        ("text embed", text.uri + (f" @{text.revision}" if text.revision else "")),
+        ("vision embed", vision.uri if vision else "(none -- images are not embedded)"),
+        ("indices", f"{len(project.indices)} registered{' (defaults)' if not project.index else ''}"),
         (
-            f"registry      {project.registry.reference or '(not set)'}:{project.registry.tag}"
-            f"{'  [insecure]' if project.registry.insecure else ''}"
+            "registry",
+            f"{project.registry.reference or '(not set)'}:{project.registry.tag}"
+            + ("  [insecure]" if project.registry.insecure else ""),
         ),
         (
-            f"credentials   {username or '(none)'} / {token.masked() if token else '(none)'}"
-            f"{f'  from {token.source}' if token else ''}"
+            "credentials",
+            f"{username or '(none)'} / {token.masked() if token else '(none)'}"
+            + (f"  from {token.source}" if token else ""),
         ),
-        f"state file    {paths.state_file()}",
-        f"model cache   {paths.model_cache()}",
+        ("state file", str(paths.state_file())),
+        ("model cache", str(paths.model_cache())),
     ]
 
     missing = [name for name in ("openai", "voyage", "cohere", "anthropic") if provider_key(name) is None]
     if missing:
-        lines.append(f"absent keys   {', '.join(missing)} (only needed for those providers)")
-    return lines
+        pairs.append(("absent keys", Text(f"{', '.join(missing)} (only needed for those providers)", style="muted")))
+    return render.fields(pairs)
 
 
 @app.command(name="show")
@@ -160,7 +170,7 @@ def show(*, effective: bool = False) -> ExitCode:
         }
         return console.emit("config.show", payload)
 
-    return console.emit("config.show", lines=_describe(project, source))
+    return console.emit("config.show", view=_describe(project, source))
 
 
 @app.command(name="path")
@@ -196,6 +206,8 @@ def get(key: str) -> ExitCode:
             )
         cursor = cursor[part]
 
+    # A bare value on stdout, unstyled and unwrapped: `vitruvio config get actor.id` is the one command here
+    # whose output is *meant* to land in a shell variable, so it stays a line rather than becoming a renderable.
     rendered = cursor if isinstance(cursor, str) else jsonlib.dumps(cursor, default=str)
     return console.emit("config.get", {"key": key, "value": cursor}, lines=[rendered])
 
@@ -239,7 +251,7 @@ def set_(
     return console.emit(
         "config.set",
         {"config_file": str(written), "key": key, "value": parsed},
-        lines=[f"set {key} in {written}"],
+        view=render.fields([("set", key), ("in", str(written))]),
     )
 
 
@@ -253,7 +265,11 @@ def validate() -> ExitCode:
     source = _target()
     if source is None:
         console.warn("no vitruvio.toml found; nothing to validate")
-        return console.emit("config.validate", {"config_file": None, "valid": True}, lines=["ok (defaults)"])
+        return console.emit(
+            "config.validate",
+            {"config_file": None, "valid": True},
+            view=render.verdict(True, yes="ok (defaults)"),
+        )
 
     project = load_project(source)
     payload = {
@@ -262,7 +278,7 @@ def validate() -> ExitCode:
         "index_count": len(project.indices),
         "policy_profile": project.policy.profile.value,
     }
-    return console.emit("config.validate", payload, lines=[f"ok  {source}"])
+    return console.emit("config.validate", payload, view=render.fields([("ok", str(source))]))
 
 
 embedder_app = App(
@@ -284,22 +300,33 @@ def embedder_list() -> ExitCode:
     console = current().console
     result = current().service(require_brain=False).embedders()
 
+    from rich.text import Text
+
     text = result["text"]
     vision = result["vision"]
     configured = f"{vision['provider']}:{vision['model']}" if vision else "(none)"
-    lines = [
-        f"text     {text['provider']}:{text['model']}"
-        + ("" if result["semantic"] else "   (hashed features, not semantics)"),
-        f"vision   {configured}",
-        "",
-    ]
+    head = render.fields(
+        [
+            (
+                "text",
+                Text(
+                    f"{text['provider']}:{text['model']}",
+                    style="value" if result["semantic"] else "warn",
+                ).append("" if result["semantic"] else "   (hashed features, not semantics)"),
+            ),
+            ("vision", configured),
+        ]
+    )
+    table = render.table("", "provider", "ranks by", "detail")
     for row in result["providers"]:
-        state = "ok " if row["installed"] else "---"
-        detail = "" if row["installed"] else f"   install {row['extra']}"
-        meaning = "semantic" if row["semantic"] else "hashed"
-        lines.append(f"{state}  {row['provider']:<16} {meaning:<9}{detail}")
+        table.add_row(
+            render.verdict(bool(row["installed"]), yes="ok", no="---"),
+            row["provider"],
+            Text("semantic" if row["semantic"] else "hashed", style="value" if row["semantic"] else "warn"),
+            Text("" if row["installed"] else f"install {row['extra']}", style="muted"),
+        )
 
-    return console.emit("config.embedder.list", result, lines=lines)
+    return console.emit("config.embedder.list", result, view=render.stack(head, "", table))
 
 
 @embedder_app.command(name="test")
@@ -325,13 +352,17 @@ def embedder_test(
     console = current().console
     result = current().service(require_brain=False).test_embedder(which=which, text=text)
 
-    lines = [
-        f"provider    {result['provider']}:{result['model']}",
-        f"width       {result['measured_dimensions']}",
-        f"normalized  {'yes' if result['normalized'] else 'no'}",
-        f"elapsed     {result['elapsed_ms']} ms",
-        f"tag         {result['tag']}",
-    ]
+    view = render.fields(
+        [
+            ("provider", f"{result['provider']}:{result['model']}"),
+            # The width is what a caller came here for -- it is the value to put in `dims` -- so it is the one
+            # field with weight on it.
+            ("width", render.count(result["measured_dimensions"])),
+            ("normalized", render.verdict(bool(result["normalized"]))),
+            ("elapsed", f"{result['elapsed_ms']} ms"),
+            ("tag", result["tag"]),
+        ]
+    )
     if not result["semantic"]:
         console.warn(
             "this embedder hashes features rather than modelling meaning: it will match a plural to its singular "
@@ -342,4 +373,4 @@ def embedder_test(
             f"the model returned {result['measured_dimensions']} dimensions and the tag claims "
             f"{result['declared_dimensions']}; set dims = {result['measured_dimensions']}"
         )
-    return console.emit("config.embedder.test", result, lines=lines)
+    return console.emit("config.embedder.test", result, view=view)

@@ -26,6 +26,12 @@ dependencies = [
     "vitruvio-runtime",
     "cyclopts>=4.0.0",
     "rich>=13.7.0",
+    # Textual is a hard dependency rather than an extra. `vitruvio browse` is not a side feature -- it is how a
+    # person reads a brain -- and an interface that is only present when someone guessed the right extra is an
+    # interface nobody finds. It costs no import time either: nothing under vitruvio.cli.tui is imported until
+    # `browse` runs, so `config show` still starts in tens of milliseconds. The wheel cost is small and pure
+    # Python (rich, markdown-it-py, platformdirs), unlike torch, which is why *that* is an extra and this is not.
+    "textual>=1.0.0",
 ]
 
 [project.optional-dependencies]

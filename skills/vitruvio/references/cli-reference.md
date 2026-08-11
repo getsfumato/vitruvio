@@ -178,6 +178,10 @@ Produce a verified Merkle inclusion proof for one block.
 
 Show how a query would be answered, and what the alternatives cost.
 
+## `vitruvio browse` `--memory-type`
+
+Read the brain: modules on the left, their blocks in the middle, the selected block on the right.
+
 ## `vitruvio retain`
 
 Drop, supersede, demote, prune and redact -- the five removal mechanisms.
@@ -264,7 +268,7 @@ Push a probe artifact shaped exactly like a brain, and report what the registry 
 
 ## `vitruvio inspect`
 
-Read the brain's structure: roots, modules, blocks, resolvability.
+Read the brain's structure: roots, modules, blocks, content, resolvability.
 
 ### `vitruvio inspect resolvability`
 
@@ -277,6 +281,18 @@ Print every installed module's Merkle root, and the snapshot digest that pins th
 ### `vitruvio inspect module` `memory-type` `--limit`
 
 Print one module's shape and a sample of its block identities.
+
+### `vitruvio inspect blocks` `memory-type` `--limit` `--offset` `--contains`
+
+List what a module holds, one line per block, in the module's own order.
+
+### `vitruvio inspect content` `digest` `--out` `--open` `--media-type` `--page` `--width`
+
+Show, open or export the bytes a block names.
+
+### `vitruvio inspect links` `block-id` `--limit`
+
+Print the provenance records that name a block: where it came from, and what has been done to it.
 
 ### `vitruvio inspect block` `block-id`
 

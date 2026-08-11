@@ -19,9 +19,10 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
-from vitruvio.cli.render import short
 from vitruvio.ingest.media import EXTRA_MEDIA_TYPES, FALLBACK_MEDIA_TYPE, media_type_for
 from vitruvio.kernel import ExitCode, UsageError, VitruvioError
 
@@ -94,11 +95,13 @@ def register(
 
     if result["duplicate"]:
         console.warn("identical bytes were already registered; no new version was created")
-    lines = [
-        f"block      {result['block_id']}",
-        f"snapshot   {short(result['snapshot'])}",
-    ]
-    return console.emit("source.register", result, lines=lines)
+    view = render.fields(
+        [
+            ("block", render.digest(result["block_id"], full=True)),
+            ("snapshot", render.digest(result["snapshot"])),
+        ]
+    )
+    return console.emit("source.register", result, view=view)
 
 
 @app.command(name="replace")
@@ -147,12 +150,14 @@ def replace(
             normalize_with=normalize_with,
         )
     )
-    lines = [
-        f"block      {result['block_id']}",
-        f"supersedes {result['supersedes']}",
-        f"snapshot   {short(result['snapshot'])}",
-    ]
-    return console.emit("source.replace", result, lines=lines)
+    view = render.fields(
+        [
+            ("block", render.digest(result["block_id"], full=True)),
+            ("supersedes", render.digest(result["supersedes"], full=True)),
+            ("snapshot", render.digest(result["snapshot"])),
+        ]
+    )
+    return console.emit("source.replace", result, view=view)
 
 
 @app.command(name="put")
@@ -179,7 +184,13 @@ def put(
     return console.emit(
         "source.put",
         result,
-        lines=[f"blob   {result['blob']}", f"size   {result['size']} bytes", f"type   {result['media_type']}"],
+        view=render.fields(
+            [
+                ("blob", render.digest(result["blob"], full=True)),
+                ("size", f"{result['size']} bytes"),
+                ("type", result["media_type"]),
+            ]
+        ),
     )
 
 
@@ -239,8 +250,13 @@ def pull(
                 console.note(f"ok    {entry['source']!s:<18} {counts}")
             else:
                 console.warn(f"{entry['source']}: {entry['error']}")
-        lines = [f"registered  {result['registered']}", f"sources     {len(result['sources'])}"]
-        code = console.emit("source.pull", result, lines=lines)
+        view = render.fields(
+            [
+                ("registered", render.count(result["registered"])),
+                ("sources", str(len(result["sources"]))),
+            ]
+        )
+        code = console.emit("source.pull", result, view=view)
         return code if result["ok"] else ExitCode.SOURCE
 
     if name is None:
@@ -252,13 +268,21 @@ def pull(
             console.warn(f"{item['title'] or item['id']}: {item['reason']}")
         elif item["outcome"] == "skipped":
             console.note(f"skip  {item['title'] or item['id']!s:<28} {item['reason']}")
-    lines = [
-        f"source      {result['source']} ({result['kind']})",
-        f"listed      {result['listed']}",
-        f"registered  {result['registered']}" + ("  (dry run)" if result["dry_run"] else ""),
-    ]
+    view = render.fields(
+        [
+            ("source", f"{result['source']} ({result['kind']})"),
+            ("listed", str(result["listed"])),
+            (
+                "registered",
+                Text.assemble(
+                    (str(result["registered"]), "count"),
+                    ("  (dry run)", "warn") if result["dry_run"] else "",
+                ),
+            ),
+        ]
+    )
     failed = result["counts"].get("failed", 0)
-    code = console.emit("source.pull", result, lines=lines)
+    code = console.emit("source.pull", result, view=view)
     return ExitCode.SOURCE if failed else code
 
 
@@ -274,15 +298,18 @@ def status() -> ExitCode:
     """
     console = current().console
     result = current().service(require_brain=False).sources()
-    lines = []
+    if not result["sources"]:
+        return console.emit("source.status", result, view=render.empty("no sources declared"))
+    table = render.table("", "source", "kind", "brain", "detail")
     for row in result["sources"]:
-        mark = "ok  " if row["available"] else "--  "
-        detail = row["reason"] or row["path"] or ""
-        brain = f"-> {row['brain']}" if row["brain"] else ""
-        lines.append(f"{mark}{row['name']!s:<18} {row['kind']!s:<14} {brain:<16} {detail}")
-    if not lines:
-        lines = ["no sources declared"]
-    return console.emit("source.status", result, lines=lines)
+        table.add_row(
+            render.verdict(bool(row["available"]), yes="ok", no="--"),
+            str(row["name"]),
+            Text(str(row["kind"]), style="muted"),
+            Text(f"-> {row['brain']}" if row["brain"] else "", style="muted"),
+            Text(row["reason"] or row["path"] or "", style="warn" if row["reason"] else "muted"),
+        )
+    return console.emit("source.status", result, view=table)
 
 
 @app.command(name="kinds")
@@ -295,9 +322,17 @@ def kinds() -> ExitCode:
     """
     console = current().console
     result = current().service(require_brain=False).source_kinds()
-    lines = [f"{row['kind']!s:<20} {row['provenance']}" for row in result["kinds"]]
-    lines.append(f"\nwrite your own in {result['plugin_dir']} -- `vitruvio source scaffold <kind>`")
-    return console.emit("source.kinds", result, lines=lines)
+    table = render.table("kind", "from")
+    for row in result["kinds"]:
+        table.add_row(str(row["kind"]), Text(str(row["provenance"]), style="muted"))
+    return console.emit(
+        "source.kinds",
+        result,
+        view=render.stack(
+            table,
+            render.empty(f"write your own in {result['plugin_dir']} -- `vitruvio source scaffold <kind>`"),
+        ),
+    )
 
 
 @app.command(name="scaffold")
@@ -318,11 +353,11 @@ def scaffold(kind: str, *, force: bool = False) -> ExitCode:
     """
     console = current().console
     result = current().service(require_brain=False).scaffold_source(kind, force=force)
-    lines = [
-        f"wrote   {result['path']}",
-        f'declare [sources.<name>] kind = "{result["kind"]}" in vitruvio.toml',
-    ]
-    return console.emit("source.scaffold", result, lines=lines)
+    view = render.stack(
+        render.fields([("wrote", result["path"])]),
+        render.empty(f'declare [sources.<name>] kind = "{result["kind"]}" in vitruvio.toml'),
+    )
+    return console.emit("source.scaffold", result, view=view)
 
 
 @app.command(name="add")
@@ -383,10 +418,11 @@ def add(
     )
     if result["warning"]:
         console.warn(result["warning"])
-    lines = [f"declared    {result['name']} ({result['kind']})", f"in          {result['config_file']}"]
+    pairs: list[tuple[str, object]] = [("declared", f"{result['name']} ({result['kind']})")]
     if result["path"]:
-        lines.insert(1, f"path        {result['path']}")
-    return console.emit("source.add", result, lines=lines)
+        pairs.append(("path", result["path"]))
+    pairs.append(("in", result["config_file"]))
+    return console.emit("source.add", result, view=render.fields(pairs))
 
 
 @app.command(name="remove")
@@ -400,7 +436,7 @@ def remove(name: str) -> ExitCode:
     """
     console = current().console
     result = current().service(require_brain=False).remove_source(name)
-    return console.emit("source.remove", result, lines=[f"removed   {result['name']}"])
+    return console.emit("source.remove", result, view=render.fields([("removed", result["name"])]))
 
 
 def _typed(value: str) -> object:

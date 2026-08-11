@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
 from vitruvio.kernel import ExitCode, VitruvioError
@@ -124,15 +126,19 @@ def define(
             replacing=replacing,
         )
     )
-    lines = [
-        f"operation   {result['operation']}",
-        f"source      {short(result['source'])}",
-        f"allowed     {', '.join(result['allowed_memory_types'])}",
-        f"schema      {result['output_schema']}",
+    view = render.stack(
+        render.fields(
+            [
+                ("operation", result["operation"]),
+                ("source", render.digest(result["source"])),
+                ("allowed", ", ".join(result["allowed_memory_types"])),
+                ("schema", result["output_schema"]),
+            ]
+        ),
         "",
-        *(f"  - {item}" for item in result["requirements"]),
-    ]
-    return console.emit("task.define", result, lines=lines)
+        render.lines((f"- {item}" for item in result["requirements"]), style="muted"),
+    )
+    return console.emit("task.define", result, view=view)
 
 
 @app.command(name="rederive")
@@ -175,15 +181,19 @@ def rederive(
         origin = str(evidence[0])
 
     result = context.service().define_task(origin, allowed=allowed, replacing=replacing)
-    lines = [
-        f"operation   {result['operation']}",
-        f"source      {short(result['source'])}",
-        f"replacing   {short(replacing)}",
-        f"allowed     {', '.join(result['allowed_memory_types'])}",
+    view = render.stack(
+        render.fields(
+            [
+                ("operation", result["operation"]),
+                ("source", render.digest(result["source"])),
+                ("replacing", render.digest(replacing)),
+                ("allowed", ", ".join(result["allowed_memory_types"])),
+            ]
+        ),
         "",
-        *(f"  - {item}" for item in result["requirements"]),
-    ]
-    return console.emit("task.rederive", result, lines=lines)
+        render.lines((f"- {item}" for item in result["requirements"]), style="muted"),
+    )
+    return console.emit("task.rederive", result, view=view)
 
 
 @app.command(name="schema")
@@ -236,18 +246,28 @@ def validate(
             _read(task, "a processing task from `vitruvio task define`"),
         )
     )
-    lines = [
-        f"candidates  {len(result['results'])}",
-        f"committable {result['committable']}",
-        f"clean       {'yes' if result['is_clean'] else 'no'}",
-        "",
-    ]
+    head = render.fields(
+        [
+            ("candidates", str(len(result["results"]))),
+            ("committable", render.count(result["committable"])),
+            ("clean", render.verdict(bool(result["is_clean"]))),
+        ]
+    )
+    table = render.table("", "status", "memory", "candidate")
     for entry in result["results"]:
         # `validated` is the verdict that earns a commit -- not "accepted", which is nothing the protocol says.
-        marker = "ok  " if entry["status"] == VALIDATED else "FAIL"
-        label = entry["candidate"]["payload"].get("label") or entry["candidate"]["memory_type"]
-        lines.append(f"{marker}  {entry['status']:<15} {entry['candidate']['memory_type']:<11} {label}")
-        lines.extend(f"        {issue['code']}: {issue['detail']}" for issue in entry.get("issues", []))
+        passed = entry["status"] == VALIDATED
+        label = Text(str(entry["candidate"]["payload"].get("label") or entry["candidate"]["memory_type"]))
+        for issue in entry.get("issues", []):
+            # The issues sit under the candidate they belong to rather than in a column of their own: a rejection
+            # is only actionable with its code, and a code beside a truncated detail is neither.
+            label.append_text(Text(f"\n{issue['code']}: {issue['detail']}", style="warn"))
+        table.add_row(
+            render.verdict(passed, yes="ok", no="FAIL"),
+            Text(entry["status"], style="ok" if passed else "warn"),
+            render.kind(entry["candidate"]["memory_type"]),
+            label,
+        )
     if review := [entry for entry in result["results"] if entry["status"] == PENDING_REVIEW]:
         # Not a repair. The protocol is saying it cannot decide, which is a question for a person.
         console.warn(
@@ -256,7 +276,7 @@ def validate(
         )
     if not result["is_clean"]:
         console.warn("nothing was committed; repair the payloads and re-validate before `task commit`")
-    return console.emit("task.validate", result, lines=lines)
+    return console.emit("task.validate", result, view=render.stack(head, "", table))
 
 
 @app.command(name="commit")
@@ -290,13 +310,15 @@ def commit(
     if result["already_held"]:
         # Not a failure. Re-submitting a set after repairing one member of it is how this is meant to be used.
         console.note(f"{result['already_held']} candidates were already held and were skipped")
-    lines = [
-        f"committed   {len(result['committed'])} blocks",
-        f"provenance  {len(result['provenance'])} records",
-        f"snapshot    {short(result['snapshot'])}",
-        "",
-        *(f"  {memory_type:<12} {short(root)}" for memory_type, root in sorted(result["roots"].items())),
-        "",
-        *(f"  {short(item)}" for item in result["committed"]),
-    ]
-    return console.emit("task.commit", result, lines=lines)
+    head = render.fields(
+        [
+            ("committed", Text.assemble((str(len(result["committed"])), "count"), " blocks")),
+            ("provenance", f"{len(result['provenance'])} records"),
+            ("snapshot", render.digest(result["snapshot"])),
+        ]
+    )
+    roots = render.table("module", "root")
+    for memory_type, root in sorted(result["roots"].items()):
+        roots.add_row(render.kind(memory_type), render.digest(root))
+    committed = render.lines((short(item) for item in result["committed"]), style="digest")
+    return console.emit("task.commit", result, view=render.stack(head, "", roots, committed))

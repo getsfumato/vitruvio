@@ -94,7 +94,7 @@ def search(
     )
     if result.get("truncated"):
         console.warn("the result is truncated: candidates were dropped, so there may be more")
-    return console.emit("query.search", result, lines=render.bundle(result, content=content))
+    return console.emit("query.search", result, view=render.bundle(result, content=content))
 
 
 @app.command(name="resolve")
@@ -106,17 +106,15 @@ def resolve(block_id: str) -> ExitCode:
     block_id
         A `sha256:...` block identity.
     """
-    import json
-
     console = current().console
     result = current().service().resolve(block_id)
-    lines = [
-        f"block        {result['block_id']}",
-        f"memory type  {result['memory_type']}",
-        "",
-        *json.dumps(result["payload"], indent=2, ensure_ascii=False).splitlines(),
-    ]
-    return console.emit("query.resolve", result, lines=lines)
+    head = render.fields(
+        [
+            ("block", render.digest(result["block_id"], full=True)),
+            ("memory type", render.kind(result["memory_type"])),
+        ]
+    )
+    return console.emit("query.resolve", result, view=render.stack(head, "", render.payload(result["payload"])))
 
 
 @app.command(name="prove")
@@ -136,14 +134,15 @@ def prove(
     """
     console = current().console
     result = current().service().prove(block_id, memory_type)
-    lines = [
-        f"block       {result['block_id']}",
-        f"root        {result['root']}",
-        f"leaf index  {result['leaf_index']} of {result['tree_size']}",
-        "",
-        f"verified: {'yes' if result['verified'] else 'NO'}",
-    ]
-    return console.emit("query.prove", result, lines=lines)
+    view = render.fields(
+        [
+            ("block", render.digest(result["block_id"], full=True)),
+            ("root", render.digest(result["root"], full=True)),
+            ("leaf index", f"{result['leaf_index']} of {result['tree_size']}"),
+            ("verified", render.verdict(result["verified"], no="NO")),
+        ]
+    )
+    return console.emit("query.prove", result, view=view)
 
 
 @app.command(name="explain")

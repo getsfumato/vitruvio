@@ -38,7 +38,26 @@ actually returned.
    `--brain <name>` then selects one. A project is several brains under one configuration — a subject per brain,
    a client per brain — and picking the wrong one is a mistake nothing downstream will report.
 
-4. **Never invent a `block_id`.** Not in a citation, not in an `evidence` list, not to fill a gap. If you need
+4. **To see what a brain holds, read it rather than searching it.** `vitruvio inspect blocks <module> --json`
+   lists a module in its own order, one row per block, with what each one says — and for canonical evidence, the
+   origin it was registered from. That is the answer to "what is in here", which a search cannot give you: a
+   search ranks against a query, so anything the query does not reach looks absent.
+
+   `--contains TEXT` filters those rows. It is a substring over rows already read, not retrieval: no index is
+   consulted and nothing is ranked. When relevance is what you want, that is `search`.
+
+   `vitruvio inspect content <DIGEST> --out FILE --json` writes the bytes a block names — pass the row's `blob`,
+   which is a content address and not a block id. Never draw a PDF or an image into your own output: the terminal
+   rendering is a thumbnail bounded by character cells, and what you want is the text. A canonical block carries a
+   `normalized_view` when it was registered with `--normalize-with`, and *that* blob is the extracted text.
+
+   `vitruvio inspect links <BLOCK_ID> --json` gives the provenance records naming a block: where it came from, and
+   what has been done to it since.
+
+   (`vitruvio browse` opens the same three reads as a terminal interface. It is for a person and refuses `--json`;
+   suggest it to the user, do not run it.)
+
+5. **Never invent a `block_id`.** Not in a citation, not in an `evidence` list, not to fill a gap. If you need
    one and do not have it, search for it or say you cannot cite.
 
 ## The five memory modules

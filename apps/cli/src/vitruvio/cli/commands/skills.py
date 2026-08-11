@@ -25,7 +25,9 @@ from pathlib import Path
 from typing import Annotated
 
 from cyclopts import App, Parameter
+from rich.text import Text
 
+from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import ExitCode, VitruvioError
 
@@ -105,15 +107,22 @@ def list_() -> ExitCode:
         references = sorted(item.name for item in (skill / "references").glob("*.md"))
         records.append({"name": skill.name, "description": description, "references": references})
 
-    lines = []
+    table = render.table("skill", "covers", "references")
     for record in records:
-        lines.append(f"{record['name']}")
-        lines.append(f"    {str(record['description'])[:110]}")
-        if record["references"]:
-            lines.append(f"    references: {', '.join(str(item) for item in record['references'])}")
+        table.add_row(
+            str(record["name"]),
+            # Not truncated any more. The description is what tells an agent whether the skill is the one it
+            # needs, and the 110-character cut was there only because a fixed-width column had to end somewhere.
+            Text(str(record["description"])),
+            Text(", ".join(str(item) for item in record["references"]), style="muted"),
+        )
     if not records:
         console.warn("this build ships no skills, which means the package data was not included in the wheel")
-    return console.emit("skills.list", {"skills": records, "source": str(SOURCE)}, lines=lines)
+    return console.emit(
+        "skills.list",
+        {"skills": records, "source": str(SOURCE)},
+        view=table if records else render.stack(),
+    )
 
 
 @app.command(name="install")
@@ -164,14 +173,18 @@ def install(
     if skipped:
         console.warn(f"already present, left untouched: {', '.join(skipped)} (use --force to overwrite)")
 
-    lines = [
-        f"target      {target}",
-        f"installed   {', '.join(installed) or '(nothing new)'}",
+    view = render.stack(
+        render.fields(
+            [
+                ("target", str(target)),
+                ("installed", ", ".join(installed) or "(nothing new)"),
+            ]
+        ),
         "",
-        "an agent should start from the `vitruvio` skill; the others are reached from it",
-    ]
+        render.empty("an agent should start from the `vitruvio` skill; the others are reached from it"),
+    )
     return console.emit(
         "skills.install",
         {"target": str(target), "installed": installed, "skipped": skipped},
-        lines=lines,
+        view=view,
     )

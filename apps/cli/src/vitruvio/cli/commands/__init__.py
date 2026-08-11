@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from vitruvio.cli.commands import (
     bench,
     brain,
+    browse,
     completion,
     config,
     dist,
@@ -38,6 +39,7 @@ GROUPS = (
     ingest,
     index,
     query,
+    browse,
     retain,
     dist,
     registry,
@@ -50,7 +52,11 @@ GROUPS = (
 """Every command-group module, in the order they are shown.
 
 Ordered by the order a user meets them: create a brain, put evidence in it, interpret that evidence, ask it
-something, publish it, look at how it is put together, and configure the whole thing.
+something, read it, publish it, look at how it is put together, and configure the whole thing.
+
+``browse`` sits beside ``query`` rather than under ``inspect``, where its data comes from, because the order
+here is editorial: it is what somebody reaches for right after their first search, and a reader looking for
+"show me what is in there" does not look inside a group called inspect.
 """
 
 
