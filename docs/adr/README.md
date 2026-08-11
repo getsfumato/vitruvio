@@ -20,3 +20,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0009](0009-retention-and-the-five-mechanisms.md) | Retention, and why there are five mechanisms |
 | [0010](0010-projects-and-derived-repositories.md) | Projects, and where a brain publishes |
 | [0011](0011-declarative-sources-and-plugins.md) | Declarative sources, plugins, and dedup without a cursor |
+| [0012](0012-the-terminal-interface.md) | The terminal interface, and one renderer for both of them |

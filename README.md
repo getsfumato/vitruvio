@@ -21,18 +21,21 @@ vitruvio brain init ./brain --actor you@example.com
 vitruvio ingest run notes.md --dry-run
 vitruvio index build
 vitruvio search "descomponer una función periódica en senos"
+vitruvio browse                      # read the brain: modules, blocks, and the PDFs and images inside them
 ```
 
-Every command takes `--json` and emits exactly one envelope on stdout. Notes and warnings go to stderr, so
-`vitruvio search q --json | jq` works unconditionally. **The brain returns evidence, never prose** — there is no
+Every command that returns data takes `--json` and emits exactly one envelope on stdout. Notes and warnings go to
+stderr, so `vitruvio search q --json | jq` works unconditionally. (`browse` is the one exception, and it says so:
+an interface for a person has no envelope, so it refuses the flag rather than printing something a caller cannot
+read.) **The brain returns evidence, never prose** — there is no
 `answer` field and there will not be one.
 
 ## Documentation
 
 | | |
 |---|---|
-| [Guide](docs/guide/README.md) | fourteen chapters, in order. Start at [what a brain is](docs/guide/01-what-a-brain-is.md) |
-| [Decisions](docs/adr/README.md) | eleven ADRs: what was chosen, what it cost, what was rejected |
+| [Guide](docs/guide/README.md) | fifteen chapters, in order. Start at [what a brain is](docs/guide/01-what-a-brain-is.md) |
+| [Decisions](docs/adr/README.md) | twelve ADRs: what was chosen, what it cost, what was rejected |
 | [Architecture](docs/architecture.md) | the workspace, the layering, and why an app may not import the SDK |
 | [Contributing](docs/contributing.md) | the dev loop and the gate every change passes |
 | [`skills/`](skills/README.md) | the agent-facing contracts, installable with `vitruvio skills install` |

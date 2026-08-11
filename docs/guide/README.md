@@ -16,5 +16,6 @@ In order. Each page assumes the ones before it.
 12. [Benchmarking](12-benchmarking.md) — measuring recall, and calibrating the cost model.
 13. [Projects](13-projects.md) — one project, many brains, and publishing each to its own repository.
 14. [Sources](14-sources.md) — declaring where material comes from, and why a pull cannot resurrect redacted bytes.
+15. [Browsing](15-browsing.md) — reading a brain rather than querying one: the interface, and what a preview can show.
 
 For the reasoning behind the design, read the [ADRs](../adr/README.md).

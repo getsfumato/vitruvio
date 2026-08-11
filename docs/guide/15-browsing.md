@@ -1,0 +1,134 @@
+# 15. Browsing
+
+```bash
+vitruvio browse                              # the interface
+vitruvio browse --memory-type semantic       # open on a module
+
+vitruvio inspect blocks canonical            # the same reading, as text
+vitruvio inspect blocks semantic --contains fourier
+vitruvio inspect content <DIGEST>            # what the bytes are
+vitruvio inspect content <DIGEST> --out apunte.pdf
+vitruvio inspect links <BLOCK_ID>            # where it came from
+```
+
+Everything up to here has been about *asking* a brain something. This chapter is about reading one — opening it
+and looking at what is in there, which is a different question and has a different answer.
+
+## Reading is not querying
+
+`search` ranks. The planner picks indices, fuses their results and returns an Evidence Bundle with a score on
+every match. That is what you want when you know what you are looking for.
+
+`inspect blocks` lists a module in **its own order**, one line per block, and consults no index. There is no
+score column because nothing was ranked. `--contains` filters the rows that were read — a substring over the
+title, the detail, the subject, the tags and the identity — and it is bounded by the same `--limit` an unfiltered
+page is.
+
+The distinction is worth keeping straight, because a filter that looked like retrieval would be a second and much
+worse retrieval path sitting next to the one with a cost model behind it. In the interface it is two different
+things in two different places: the filter box narrows what is on screen, and `s` opens the search screen.
+
+A canonical block carries no name — its identity must not depend on what anyone called the file — so a canonical
+row is titled by the **origin its registration recorded**, read back out of provenance. That is why a canonical
+module reads as the files that went into it, and why a brain pulled without its provenance layer shows media
+types instead.
+
+## The interface
+
+```
+┌────────────┬─────────────────────────┬──────────────────────────┐
+│ canonical 4│ filter …                │ preview payload links    │
+│ episodic  -│ block   title   type    │                    proof │
+│ semantic  2│ sha256… apunte… pdf     │ apunte.pdf               │
+│ …          │ sha256… pizarr… png     │ [the page, drawn]        │
+└────────────┴─────────────────────────┴──────────────────────────┘
+```
+
+Modules on the left — **every** module, including the ones this brain does not have, because a module absent from
+a selectively pulled brain is a fact about this brain rather than something to hide. What is in the selected
+module in the middle. The selected block on the right, in four tabs:
+
+| tab | what it holds |
+|---|---|
+| preview | the bytes the block names, drawn if a terminal can draw them |
+| payload | the block's document, as JSON. What it *is*, exactly |
+| links | the provenance records naming it: registration, derivation, supersession, removal |
+| proof | its Merkle inclusion proof, already checked against the module root |
+
+**Which brain am I looking at?** Four layers select one — `--brain`, `$VITRUVIO_BRAIN`, `[brain] path` in the
+nearest `vitruvio.toml`, and whatever `vitruvio brain use` last recorded, in that order — and only the first is
+visible in the command you typed. So the header names the brain and the layer that chose it (`algebra by file`,
+`demo/brain by state`), and `i` prints the whole path, the snapshot, which modules are installed and who writes
+are attributed to. `vitruvio brain state` answers the same question outside the interface.
+
+**Moving around.** The cursor starts in the blocks, because that is what you came to read: up and down walk the
+evidence. `left` (or `m`) goes to the sidebar, landing on the module you are already in; `right` or `enter` comes
+back into the blocks. In the sidebar, moving the cursor **opens** that module — there is no second keystroke to
+confirm. `tab` cycles the panes.
+
+Other keys: `/` filter, `s` search, `t` swap between original bytes and their normalized text view, `]` and `[`
+turn PDF pages, `o` open in whatever the desktop uses, `e` export into the working directory, `y` copy the block
+id, `n` and `b` page through a large module, `r` re-read, `?` every binding.
+
+`browse` needs a terminal and refuses `--json`. It has no output mode — the three `inspect` commands above are
+the same three reads with an envelope, which is what an agent should drive.
+
+## What a preview can and cannot show
+
+Previews route on the media type the **block** carries, never on sniffed bytes. The block says what it is, that
+claim is part of its identity, and a viewer of a verifiable store must not contradict it.
+
+| bytes | shown as |
+|---|---|
+| `text/*`, JSON, YAML, TOML | themselves; Markdown rendered, code highlighted |
+| `image/*` | half-block graphics, two pixels per character cell |
+| `application/pdf` | the page, rasterized, one at a time |
+| video, audio, anything else | its metadata, and `o` hands it to the desktop |
+
+With `--out` the same command writes the bytes somewhere permanent instead.
+
+Images and PDF pages need `vitruvio[vision]` — Pillow and pypdfium2. Without them the preview says which extra
+would draw it rather than pretending there is nothing there.
+
+**A preview is a thumbnail, and that is a ceiling rather than a defect.** Each character cell carries two pixels,
+so a page in a 60-column pane is 60x80 pixels for the whole page — enough to see where the diagram is, not enough
+to read the caption. The stored bytes are untouched: a canonical block is *named by their hash*, so nothing is
+recompressed or downscaled at rest, and `inspect content --out` gives you back a file identical to the one you
+registered. What is bounded is the drawing.
+
+To actually read it, in order of usefulness:
+
+- **`t`** — the normalized text view, if the block has one. Real text, reflowable and searchable. A PDF only has
+  one when it was registered with `--normalize-with pdf-text`, or through `ingest run`; a plain
+  `source register file.pdf` stores the bytes and extracts nothing.
+- **`o`**, or `inspect content DIGEST --open` — hands the bytes to whatever this desktop opens PDFs with, at full
+  resolution. Not a web browser: `open`, `xdg-open` or `startfile`, so a video goes to a player and a spreadsheet
+  to a spreadsheet program. The temporary file is named after the origin, so the viewer's title bar says
+  something.
+- **More cells** — a smaller terminal font is linearly more resolution.
+
+Sixel and the terminal-specific image protocols are deliberately not used. Each looks better in the one terminal
+that implements it and prints garbage in the rest, and a viewer that shows garbage half the time is not a viewer.
+
+## Content is not evidence
+
+`inspect content` takes a **content address** — a block's `blob`, or its `normalized_view.blob` — and not a block
+identity. `inspect blocks` prints both, and the difference is the protocol's: the block is the knowledge-level
+statement that certain bytes were incorporated, and other blocks cite *it*. The bytes are what that statement is
+about.
+
+So exporting content copies it out; it changes nothing and cites nothing. And a digest the store cannot produce
+is an error rather than empty bytes, because empty bytes are indistinguishable from an empty file.
+
+## What a row tells you when it cannot be read
+
+A block can be a verifiable member of a version and still not be readable: tombstoned by a redaction under an
+erasure policy, or never installed by a selective pull. Both still appear, marked, in the list and in the
+interface.
+
+That is not politeness about edge cases. A viewer that dropped those rows would make a redacted brain look like a
+smaller one, and the protocol is explicit that lawful erasure must stay distinguishable from a corrupt store.
+`inspect resolvability` counts them per module.
+
+The reasoning behind the interface, including what was rejected, is
+[ADR-0012](../adr/0012-the-terminal-interface.md).

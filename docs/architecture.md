@@ -12,7 +12,7 @@ packages/planner     the cost-based QueryPlanner and EXPLAIN
 packages/ingest      normalization pipelines, candidate proposers, declared sources
 packages/runtime     the service layer every interface shares
 packages/bench       synthetic corpora and the recall/latency harness  [unpublished]
-apps/cli             the CLI                                          [dist: vitruvio]
+apps/cli             the CLI, and the TUI it opens                        [dist: vitruvio]
 ```
 
 ## The two contracts that carry weight
