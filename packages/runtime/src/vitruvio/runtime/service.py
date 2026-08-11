@@ -31,7 +31,7 @@ from vitruvio.runtime.assembly import Capability, open_brain
 from vitruvio.runtime.mapping import translate
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
     from pathlib import Path
 
     from boltzmann.brain import Brain
@@ -1191,6 +1191,7 @@ class BrainService:
         dry_run: bool = False,
         limit: int | None = None,
         refetch: bool = False,
+        option_overrides: Mapping[str, object] | None = None,
     ) -> dict[str, Any]:
         """
         Acquire from one declared source and register what is new as canonical evidence.
@@ -1203,6 +1204,8 @@ class BrainService:
                 skips would do nothing on the second run, which is the run people repeat.
             refetch (bool): Ignore the origin index. For a source whose addresses turned out to be unstable, or to
                 bring back a block that was dropped.
+            option_overrides (Mapping[str, object] | None): Kind-specific values for this invocation. They override
+                the declaration's ``options`` without rewriting ``vitruvio.toml``.
 
         Returns:
             dict[str, Any]: A row per item with what happened to it, and the totals.
@@ -1212,12 +1215,14 @@ class BrainService:
         """
         from vitruvio.kernel import UsageError
 
-        spec = self.config.project.sources.get(name)
-        if spec is None:
+        declared = self.config.project.sources.get(name)
+        if declared is None:
             raise UsageError(
                 f"this project declares no source called {name!r}",
                 hint=f"declared: {', '.join(sorted(self.config.project.sources)) or '(none)'}",
             )
+        overrides = dict(option_overrides or {})
+        spec = declared.model_copy(update={"options": {**declared.options, **overrides}})
         self._require_declared_brain(name, spec)
         source = self._source(name, spec)
 
@@ -1246,6 +1251,7 @@ class BrainService:
             "listed": len(items),
             "registered": registered,
             "dry_run": dry_run,
+            "option_overrides": sorted(overrides),
             "counts": counts,
             "items": rows,
         }
@@ -1387,25 +1393,55 @@ class BrainService:
         The order is the whole point: the cheap checks come first, so a repeated pull over a hundred unchanged
         files performs a hundred hash-map probes and no downloads.
         """
+        from vitruvio.ingest.sources import FetchResult
         from vitruvio.kernel import SourceError, VitruvioError
 
         row = self._item_row(item)
-        media_type = spec.media_type or item.media_type or "application/octet-stream"
+        listed_media_type = spec.media_type or item.media_type
+        media_type = listed_media_type or "application/octet-stream"
 
         if not refetch:
             held = self._registered_as(brain, item.origin)
-            if held is not None and self._matches_declaration(held, media_type, spec.normalize_with):
-                return {**row, "outcome": "skipped", "reason": "origin already registered", "block": held["block"]}
+            if held is not None:
+                if listed_media_type is None:
+                    # A source whose cheap listing cannot name the type may discover it while fetching. A generic
+                    # old registration is therefore not enough to skip: fetch once so it can be corrected. Once a
+                    # specific type is held, origin dedup is cheap again on every later pull.
+                    held_media_type = held.get("media_type")
+                    matches = held_media_type not in (None, "application/octet-stream") and self._matches_declaration(
+                        held, str(held_media_type), spec.normalize_with
+                    )
+                else:
+                    matches = self._matches_declaration(held, media_type, spec.normalize_with)
+                if matches:
+                    return {
+                        **row,
+                        "media_type": held.get("media_type") or row["media_type"],
+                        "outcome": "skipped",
+                        "reason": "origin already registered",
+                        "block": held["block"],
+                    }
 
         if dry_run:
             return {**row, "outcome": "would-fetch"}
 
         try:
-            data = source.fetch(item)
+            fetched = source.fetch(item)
         except (SourceError, OSError) as error:
             # Per-item, and accumulated rather than fatal: one unreadable file in a folder of forty must not cost
             # the other thirty-nine their registration.
             return {**row, "outcome": "failed", "reason": str(error)}
+
+        if isinstance(fetched, FetchResult):
+            data = fetched.data
+            media_type = spec.media_type or fetched.media_type or item.media_type or "application/octet-stream"
+            row = {
+                **row,
+                "title": fetched.title or row["title"],
+                "media_type": media_type,
+            }
+        else:
+            data = fetched
 
         guarded = self._tombstoned(brain, data)
         if guarded is not None:

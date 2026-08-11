@@ -210,6 +210,7 @@ def pull(
     dry_run: Annotated[bool, Parameter(name=["--dry-run"])] = False,
     limit: int | None = None,
     refetch: bool = False,
+    option: Annotated[list[str] | None, Parameter(name=["--option"], negative=())] = None,
 ) -> ExitCode:
     """Acquire from a declared source and register what is new as canonical evidence.
 
@@ -235,13 +236,22 @@ def pull(
     refetch
         Ignore the origin index. For a source whose addresses turned out to be unstable, or to bring back a
         block that was dropped.
+    option
+        Override one kind-specific option for this invocation, as `key=value`. Repeatable. The declaration is not
+        changed. Only valid when pulling one named source; `--all` has no unambiguous source to apply it to.
     """
     console = current().console
+    option_overrides = _parse_options(option)
     if all_sources:
         if name is not None:
             raise UsageError(
                 "--all pulls every source and a name selects one",
                 hint="drop the name, or drop --all",
+            )
+        if option_overrides:
+            raise UsageError(
+                "--option overrides one named source and cannot be combined with --all",
+                hint="pull a source by name, or put persistent defaults in vitruvio.toml",
             )
         result = current().service(require_brain=False).pull_all(dry_run=dry_run, limit=limit, refetch=refetch)
         for entry in result["sources"]:
@@ -262,7 +272,13 @@ def pull(
     if name is None:
         raise UsageError("name which source to pull, or pass --all", hint="`vitruvio source status` lists them")
 
-    result = current().service().pull_source(name, dry_run=dry_run, limit=limit, refetch=refetch)
+    result = current().service().pull_source(
+        name,
+        dry_run=dry_run,
+        limit=limit,
+        refetch=refetch,
+        option_overrides=option_overrides,
+    )
     for item in result["items"]:
         if item["outcome"] == "failed":
             console.warn(f"{item['title'] or item['id']}: {item['reason']}")
@@ -370,7 +386,7 @@ def add(
     media_type: Annotated[str | None, Parameter(name=["--media-type"])] = None,
     normalize_with: Annotated[str | None, Parameter(name=["--normalize-with"])] = None,
     license_id: Annotated[str | None, Parameter(name=["--license"])] = None,
-    option: Annotated[list[str] | None, Parameter(name=["--option"])] = None,
+    option: Annotated[list[str] | None, Parameter(name=["--option"], negative=())] = None,
 ) -> ExitCode:
     """Declare a source in vitruvio.toml.
 
@@ -395,12 +411,7 @@ def add(
         A kind-specific field, as `key=value`. Repeatable.
     """
     console = current().console
-    options: dict[str, object] = {}
-    for entry in option or []:
-        if "=" not in entry:
-            raise UsageError(f"--option expects key=value, got {entry!r}", hint="e.g. --option glob='*.pdf'")
-        key, value = entry.split("=", 1)
-        options[key.strip()] = _typed(value.strip())
+    options = _parse_options(option)
 
     result = (
         current()
@@ -453,3 +464,17 @@ def _typed(value: str) -> object:
         return int(value)
     except ValueError:
         return value
+
+
+def _parse_options(entries: list[str] | None) -> dict[str, object]:
+    """Parse repeatable kind-specific ``key=value`` options for declarations and one-off pulls."""
+    options: dict[str, object] = {}
+    for entry in entries or []:
+        if "=" not in entry:
+            raise UsageError(f"--option expects key=value, got {entry!r}", hint="e.g. --option glob='*.pdf'")
+        key, value = entry.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise UsageError(f"--option expects a non-empty key, got {entry!r}")
+        options[key] = _typed(value.strip())
+    return options

@@ -65,6 +65,10 @@ actually returned.
    (`vitruvio browse` opens the same three reads as a terminal interface. It is for a person and refuses `--json`;
    suggest it to the user, do not run it.)
 
+   A declared source provides defaults. On one named pull, repeat `--option key=value` to override kind-specific
+   values without changing `vitruvio.toml`. For one declaration reused across brains, leave its `brain` unset and
+   pass `--project` and `--brain` explicitly; `--option` is refused with `--all`.
+
 5. **Never invent a `block_id`.** Not in a citation, not in an `evidence` list, not to fill a gap. If you need
    one and do not have it, search for it or say you cannot cite.
 

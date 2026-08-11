@@ -41,6 +41,21 @@ vitruvio cannot know a third-party plugin's fields. Validation happens in the su
 that does know. `path` stays first-class rather than living in `options`, because a relative path must resolve
 against **the configuration file's directory**, and that is a kernel rule a plugin author must not have to remember.
 
+A named `source pull` may supply repeatable `--option key=value` overrides. The runtime merges them over the
+declaration into an ephemeral `SourceSpec`, constructs the kind from that copy, and never rewrites
+`vitruvio.toml`. This lets one locally installed kind and one generic declaration serve several explicitly selected
+brains without turning invocation state into project state. `--all` refuses overrides: applying one kind's fields to
+every declared source would be ambiguous. A declaration that pins `brain` remains pinned; overrides do not weaken
+the conflicting-brain refusal.
+
+Because origin dedup runs before fetch, a kind must project every option that changes remote identity into
+`Item.origin`. `aula://<course>/<resource>` is safe; `aula://<resource>` is not when two courses may reuse ids.
+
+Some listings do not reveal the real filename or MIME type until a download redirects to the file. `Source.fetch`
+therefore accepts either bare bytes or `FetchResult(data, media_type, title)`. The latter carries metadata learned
+at acquisition time without making `list()` download content or making `--dry-run` impure. Configuration remains
+authoritative: a declared `media_type` wins over both listing and fetched metadata.
+
 ### 2. `BaseSource` exists to supply five bounds, not to save typing
 
 A source is the third kind of thing in `vitruvio.ingest`, and its rule is neither of the other two's. A pipeline must
@@ -87,6 +102,12 @@ origins differing only in case collide (worst case a spurious skip); an origin c
 and the *source* must canonicalise it; and a dropped block's registration record can survive, so a hit means
 "already decided about this" — overridable with `--refetch`.
 
+There is one conservative exception to the cheap origin hit. If neither the declaration nor the item listing knows
+the type, an existing `application/octet-stream` block is fetched again: a newer source may now return a specific
+type in `FetchResult`. After that correction, the specific held type makes origin dedup cheap again. A truly unknown
+binary remains generic and is re-fetched; correctness and a usable viewer are preferable to treating ignorance as
+stable metadata.
+
 **Layer 2 — the redaction guard, which is a safety property and not an optimisation.** `Brain.register` calls
 `store.put_bytes(data)` **before** its duplicate check, and `OciLayoutStore.has` returns `True` for a **tombstoned**
 digest while `tombstone()` unlinks the file. So re-fetching redacted bytes writes the destroyed bytes back onto disk
@@ -109,6 +130,10 @@ second implementation of that question is a second set of answers. Per-source fa
 accumulate inside one source. A source's declared brain wins over `--brain` and a conflict is an **error**, because
 registering one subject's material into another brain is the worst outcome available and content addressing has no
 undo for it.
+
+A source with no declared brain instead requires the ordinary explicit selection in a multi-brain project. That is
+the intentional reusable case: `--brain simulacion source pull aula --option course_id=30030` and another invocation
+may select another brain and course without mutating the declaration.
 
 ### 5. `ExitCode.SOURCE = 11`, and `UsageError`
 

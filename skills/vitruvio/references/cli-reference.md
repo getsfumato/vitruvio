@@ -86,7 +86,7 @@ Register a newer edition and record that it supersedes an older block.
 
 Store bytes addressably without registering a canonical block.
 
-### `vitruvio source pull` `[name]` `--all-sources` `--dry-run` `--limit` `--refetch`
+### `vitruvio source pull` `[name]` `--all-sources` `--dry-run` `--limit` `--refetch` `--option`
 
 Acquire from a declared source and register what is new as canonical evidence.
 

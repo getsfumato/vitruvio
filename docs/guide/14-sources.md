@@ -30,6 +30,31 @@ brain = "algebra"
 options = { materia = "77" }
 ```
 
+## Defaults in the declaration, overrides on one pull
+
+`options` is the open, kind-specific part of a source. The declaration provides defaults, and a named pull may
+override them for that invocation without rewriting `vitruvio.toml`:
+
+```console
+vitruvio --project facultad --brain simulacion source pull aula \
+  --option course_id=30030 --option 'sections=Teoría|Bibliografía' --dry-run
+vitruvio --project facultad --brain fisica source pull aula \
+  --option course_id=30110 --option 'sections=Teoría|Bibliografía' --dry-run
+```
+
+The kind receives the merged values through `self.options`; command-line values win. Its constructor validates the
+result exactly as it validates declared options. Values are parsed as booleans, integers or strings by the same rules
+as `source add`.
+
+This is the reusable-source shape: declare `aula` without `brain`, then select the destination brain explicitly on
+every pull. A source that declares `brain = "simulacion"` remains pinned to it, and a conflicting `--brain` is still
+refused. `--option` cannot be combined with `--all`, because one override set has no unambiguous meaning across
+different kinds.
+
+Overrides are acquisition parameters, not hidden state. A plugin must include every value that changes a remote
+item's identity in that item's stable `origin` — for example both `course_id` and `resource_id`. Otherwise two
+courses that reuse an id could cause a false origin skip.
+
 ## The config names a kind and cannot define one
 
 There is nowhere in `vitruvio.toml` to put a command line. That is deliberate, and it is the reason this feature has
@@ -55,7 +80,13 @@ vitruvio source pull algebra-aula
 ```
 
 Two methods: `list()` returns what is on offer without fetching any of it, and `fetch(item)` returns one item's
-bytes. They are separate so that a duplicate can be skipped *before* it is downloaded.
+bytes. They are separate so that a duplicate can be skipped *before* it is downloaded. When a remote listing omits
+the real filename or MIME type, return `FetchResult(data, media_type=..., title=...)` instead of bare bytes. The
+metadata discovered from the downloaded file is then recorded on the canonical block; a declared `media_type` still
+wins.
+
+`self.options` contains the effective merge for this pull, not necessarily only the committed defaults. Reject
+unknown keys in the constructor so a typo on either `source add` or `source pull` fails before fetching anything.
 
 Use what `BaseSource` gives you rather than the bare equivalents. Each carries a bound the naked call does not, and
 every one of them fails as a hang with nothing on screen:
@@ -91,6 +122,9 @@ Nothing is persisted for any of this. The origin index is derived state under `.
 
 Changing a source's `media_type` or `normalize_with` **re-registers** rather than being skipped. Both are part of a
 canonical block's identity, so a silent skip would make the correction do nothing and leave the wrong block in place.
+Likewise, an item listed without a type does not trust an existing `application/octet-stream` registration: it is
+fetched once so a `FetchResult` can replace that generic type. Once the origin holds a specific MIME type, later
+pulls skip it before downloading again.
 
 ### A pull can never restore redacted bytes
 

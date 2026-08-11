@@ -109,6 +109,38 @@ class TestOptionParsing:
         code = main(["--json", "source", "add", "x", "--kind", "directory", "--option", "glob"])
         assert code == ExitCode.USAGE
 
+    def test_pull_options_override_the_declaration_for_one_invocation(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        envelope(
+            capsys,
+            "source",
+            "add",
+            "papers",
+            "--kind",
+            "directory",
+            "--path",
+            "./incoming",
+            "--option",
+            "glob=*.txt",
+        )
+
+        code, payload = envelope(
+            capsys, "source", "pull", "papers", "--dry-run", "--option", "glob=*.md"
+        )
+        assert code == ExitCode.OK
+        assert payload["data"]["listed"] == 2
+        assert payload["data"]["option_overrides"] == ["glob"]
+
+        from vitruvio.kernel import load_project
+
+        assert load_project(project / "vitruvio.toml").sources["papers"].options == {"glob": "*.txt"}
+
+    def test_a_pull_option_without_an_equals_sign_is_a_usage_error(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        assert main(["--json", "source", "pull", "papers", "--option", "glob"]) == ExitCode.USAGE
+
 
 class TestPlugins:
     def test_a_scaffolded_plugin_is_found_and_pulled_from(
@@ -163,6 +195,11 @@ class TestExitCodes:
 
     def test_a_name_together_with_all_is_a_usage_error(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
         assert main(["--json", "source", "pull", "papers", "--all"]) == ExitCode.USAGE
+
+    def test_an_option_together_with_all_is_a_usage_error(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        assert main(["--json", "source", "pull", "--all", "--option", "course_id=77"]) == ExitCode.USAGE
 
     def test_neither_a_name_nor_all_is_a_usage_error(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
         assert main(["--json", "source", "pull"]) == ExitCode.USAGE

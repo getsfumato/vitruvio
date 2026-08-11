@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from vitruvio.ingest.sources import FetchResult, Item
 from vitruvio.kernel import ConfigError, ProjectConfig, SourceSpec, UsageError, resolve
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.assembly import Capability
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -85,6 +87,25 @@ class TestPull:
         assert set(outcomes(result).values()) == {"would-fetch"}
         assert project.state()["block_count"] == before
 
+    def test_one_pull_can_override_options_without_rewriting_the_declaration(
+        self, project: BrainService, tmp_path: Path
+    ) -> None:
+        """One kind can serve several invocations while the committed declaration remains a safe default."""
+        result = project.pull_source("papers", dry_run=True, option_overrides={"glob": "fourier.md"})
+
+        assert result["listed"] == 1
+        assert result["option_overrides"] == ["glob"]
+        assert [row["title"] for row in result["items"]] == ["fourier.md"]
+
+        from vitruvio.kernel import load_project
+
+        declared = load_project(tmp_path / "vitruvio.toml").sources["papers"]
+        assert declared.options == {"glob": "*.md"}, "a pull override must never become configuration"
+
+    def test_an_unknown_pull_override_is_validated_by_the_kind(self, project: BrainService) -> None:
+        with pytest.raises(ConfigError, match="does not know"):
+            project.pull_source("papers", dry_run=True, option_overrides={"typo": True})
+
     def test_a_limit_counts_registrations_and_not_items(self, project: BrainService) -> None:
         """A limit that counted skips would do nothing at all on the second run, which is the run people repeat."""
         result = project.pull_source("papers", limit=1)
@@ -138,6 +159,65 @@ class TestPull:
         second = BrainService(resolve(brain=tmp_path / "brain", config=config_file))
         result = second.pull_source("papers")
         assert result["registered"] == 2, "a declared media type that differs must produce new blocks"
+
+    def test_a_fetch_can_supply_metadata_the_listing_does_not_know(self, project: BrainService) -> None:
+        """Moodle-like listings often omit the filename until a download redirect reveals it."""
+
+        class DeferredMetadataSource:
+            fetches = 0
+
+            def fetch(self, item: Item) -> FetchResult:
+                self.fetches += 1
+                return FetchResult(b"%PDF-1.7\n", media_type="application/pdf", title="teoria.pdf")
+
+        source = DeferredMetadataSource()
+        item = Item(id="77", origin="aula://course/77", title="Teoria")
+        spec = project.config.project.sources["papers"]
+        brain = project.brain(Capability.WRITE)
+
+        first = project._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
+        reopened = BrainService(project.config)
+        second = reopened._pull_one(
+            reopened.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False
+        )
+
+        assert first["outcome"] == "registered"
+        assert first["media_type"] == "application/pdf"
+        assert first["title"] == "teoria.pdf"
+        assert second["outcome"] == "skipped"
+        assert second["media_type"] == "application/pdf"
+        assert source.fetches == 1, "specific fetched metadata restores cheap origin dedup"
+
+    def test_deferred_metadata_corrects_a_generic_registration(self, project: BrainService) -> None:
+        """An octet-stream registration must not hide a type a newer fetch implementation can now discover."""
+
+        class CorrectedSource:
+            specific = False
+            fetches = 0
+
+            def fetch(self, item: Item) -> bytes | FetchResult:
+                self.fetches += 1
+                if self.specific:
+                    return FetchResult(b"%PDF-1.7\n", media_type="application/pdf", title="teoria.pdf")
+                return b"%PDF-1.7\n"
+
+        source = CorrectedSource()
+        item = Item(id="88", origin="aula://course/88", title="Teoria")
+        spec = project.config.project.sources["papers"]
+        brain = project.brain(Capability.WRITE)
+
+        generic = project._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
+        source.specific = True
+        reopened = BrainService(project.config)
+        corrected = reopened._pull_one(
+            reopened.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False
+        )
+
+        assert generic["media_type"] is None
+        assert corrected["outcome"] == "registered"
+        assert corrected["media_type"] == "application/pdf"
+        assert corrected["block"] != generic["block"]
+        assert source.fetches == 2
 
 
 class TestRedactionGuard:
@@ -231,6 +311,43 @@ path = "./incoming"
         service.init()
         with pytest.raises(UsageError, match="feeds brain 'algebra'"):
             service.pull_source("papers")
+
+    def test_an_unpinned_source_can_be_parameterized_for_each_explicit_brain(self, tmp_path: Path) -> None:
+        """The reusable case: one declaration, while both destination and acquisition parameters stay explicit."""
+        config_file = tmp_path / "vitruvio.toml"
+        config_file.write_text(
+            """
+[actor]
+id = "tester@example.com"
+
+[brains.simulacion]
+path = "./brains/simulacion"
+
+[brains.fisica]
+path = "./brains/fisica"
+
+[sources.aula]
+kind = "directory"
+path = "./incoming"
+options = { glob = "nothing" }
+""",
+            encoding="utf-8",
+        )
+        incoming = tmp_path / "incoming"
+        incoming.mkdir()
+        (incoming / "simulacion.md").write_text("# Simulacion\n", encoding="utf-8")
+        (incoming / "fisica.md").write_text("# Fisica\n", encoding="utf-8")
+
+        for brain_name in ("simulacion", "fisica"):
+            path = tmp_path / "brains" / brain_name
+            config = resolve(brain=path, config=config_file, require_layout=False)
+            service = BrainService(config.model_copy(update={"brain_name": brain_name}))
+            service.init()
+            result = service.pull_source(
+                "aula", dry_run=True, option_overrides={"glob": f"{brain_name}.md"}
+            )
+            assert result["brain"] == brain_name
+            assert [row["title"] for row in result["items"]] == [f"{brain_name}.md"]
 
 
 class TestDeclaration:

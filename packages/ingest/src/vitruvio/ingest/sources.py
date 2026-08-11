@@ -86,6 +86,26 @@ class Item:
     size: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class FetchResult:
+    """One fetched item's bytes and metadata learned only while acquiring it.
+
+    A listing often knows the MIME type and can put it on :class:`Item`. Some remote systems expose only a human
+    label until the download redirects to a real filename. Those sources return this object so the canonical block
+    records the specific type instead of ``application/octet-stream``. Returning bare ``bytes`` remains supported
+    for sources whose listing already carries everything Vitruvio needs.
+
+    Attributes:
+        data (bytes): The acquired content, unchanged.
+        media_type (str | None): The authoritative type discovered by the fetch, when known.
+        title (str | None): The real filename or a better report label discovered by the fetch.
+    """
+
+    data: bytes
+    media_type: str | None = None
+    title: str | None = None
+
+
 @runtime_checkable
 class Source(Protocol):
     """
@@ -108,8 +128,8 @@ class Source(Protocol):
         """Everything the source is offering, fetching none of it."""
         ...
 
-    def fetch(self, item: Item) -> bytes:
-        """The bytes of one item."""
+    def fetch(self, item: Item) -> bytes | FetchResult:
+        """The bytes of one item, optionally with metadata learned while fetching it."""
         ...
 
 
@@ -183,7 +203,7 @@ class BaseSource:
         """
         raise NotImplementedError
 
-    def fetch(self, item: Item) -> bytes:
+    def fetch(self, item: Item) -> bytes | FetchResult:
         """
         The bytes of one item.
 
@@ -191,7 +211,7 @@ class BaseSource:
             item (Item): One item from :meth:`list`.
 
         Returns:
-            bytes: Its content.
+            bytes | FetchResult: Its content, optionally with metadata unavailable to :meth:`list`.
 
         Raises:
             NotImplementedError: Always, here. A subclass must implement it.
@@ -666,7 +686,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from vitruvio.ingest.sources import BaseSource, Item
+from vitruvio.ingest.sources import BaseSource, FetchResult, Item
 
 
 class {class_name}(BaseSource):
@@ -686,13 +706,15 @@ class {class_name}(BaseSource):
         rotating query parameter) before returning it, because only you know which parts of your addresses are.
 
         Use `self.run([...])` for a subprocess and `self.get(url)` for HTTP -- both are bounded, and the bare calls
-        are not. `self.options` holds what vitruvio.toml declared; `self.root` is `path`, already resolved against
-        the configuration file.
+        are not. `self.options` holds the effective values: what vitruvio.toml declared, merged with any one-off
+        `source pull --option key=value` overrides; `self.root` is `path`, already resolved against the
+        configuration file. If an option changes which remote item an id names, include it in `origin` so the
+        dedup key remains stable and unambiguous.
         """
         raise NotImplementedError("list the items this source offers")
 
-    def fetch(self, item: Item) -> bytes:
-        """The bytes of one item.
+    def fetch(self, item: Item) -> bytes | FetchResult:
+        """The bytes of one item, or a FetchResult when the download reveals its MIME type or filename.
 
         Read a local file with `self.contain(path).read_bytes()` rather than `Path.read_bytes()`: it refuses a
         symlink, anything outside `self.root`, a FIFO (which would block forever), and an oversized file before the
