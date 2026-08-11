@@ -136,13 +136,17 @@ class TestDispatch:
         ],
     )
     def test_the_suggested_pipeline(self, media_type: str, expected: str | None) -> None:
-        """`application/pdf` suggests nothing *here* because the [vision] extra is not installed in the default
-        environment, and `image/png` suggests nothing anywhere: a re-encode is not reproducible, so a raster image
-        has no view and vision embeddings read the original blob."""
-        result = suggest(media_type)
-        if expected == "pdf-text" and not PdfTextPipeline().available:  # pragma: no cover - depends on extras
-            pytest.skip("the [vision] extra is not installed")
-        assert result == expected
+        """`application/pdf` suggests a view only when the [vision] extra is installed -- so what it suggests is
+        derived from that rather than pinned. `image/png` suggests nothing anywhere: a re-encode is not
+        reproducible, so a raster image has no view and vision embeddings read the original blob.
+
+        The guard used to read `if expected == "pdf-text"`, which no row ever set, so it never fired: the case was
+        pinned to `None` and the suite failed on any machine that *did* have the extra. A conditional expectation
+        that cannot fire is the same as no conditional at all.
+        """
+        if media_type == "application/pdf":
+            expected = "pdf-text" if PdfTextPipeline().available else None
+        assert suggest(media_type) == expected
 
     def test_media_type_parameters_are_ignored(self) -> None:
         assert TextPipeline().accepts("text/plain; charset=iso-8859-1")
