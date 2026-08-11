@@ -99,6 +99,17 @@ class BrainNotSelectedError(ConfigError):
     code = "NO_BRAIN"
 
 
+class ProjectNotKnownError(ConfigError):
+    """``--project`` named a project this machine has no configuration file for.
+
+    Its own type rather than a bare :class:`ConfigError` because the fix is mechanical and singular -- run
+    ``vitruvio project register`` once in the project's directory -- and an agent that can branch on the code can
+    say so without parsing prose.
+    """
+
+    code = "PROJECT_NOT_KNOWN"
+
+
 class BrainNotFoundError(ConfigError):
     """A brain was named but the path holds no OCI layout."""
 

@@ -710,6 +710,10 @@ class ResolvedConfig(BaseModel):
             it is what a derived repository is built from -- a path cannot tell you that ``./brains/algebra``
             publishes to ``facultad-algebra``.
         project (ProjectConfig): The merged project configuration.
+        project_origin (Origin): Which layer selected the project -- ``--project`` or ``--config``, the
+            environment, or the walk-up from the working directory. Carried for the same reason
+            :attr:`brain_origin` is: an invocation can arrive in a project four ways and only one of them is
+            visible in what was typed.
         actor_origin (Origin): Where the actor identity came from.
         config_file (Path | None): The file that was read, if any.
     """
@@ -720,8 +724,14 @@ class ResolvedConfig(BaseModel):
     brain_origin: Origin
     brain_name: str | None = None
     project: ProjectConfig
+    project_origin: Origin = Origin.DEFAULT
     actor_origin: Origin = Origin.DEFAULT
     config_file: Path | None = None
+
+    @property
+    def project_name(self) -> str | None:
+        """The project's declared name, when it declares one."""
+        return self.project.project.name
 
     def repository(self, account: str | None = None) -> str | None:
         """
@@ -792,4 +802,4 @@ class ResolvedConfig(BaseModel):
 
     def origins(self) -> Mapping[str, Origin]:
         """A summary of where the load-bearing values came from, for ``config show``."""
-        return {"brain": self.brain_origin, "actor": self.actor_origin}
+        return {"project": self.project_origin, "brain": self.brain_origin, "actor": self.actor_origin}

@@ -15,8 +15,15 @@ from vitruvio.kernel import (
     ConfigError,
     Origin,
     ProjectConfig,
+    ProjectNotKnownError,
+    forget_project,
+    known_projects,
     load_project,
+    register_project,
+    remember_brain,
     resolve,
+    select_config_file,
+    selected_brain,
 )
 
 
@@ -183,6 +190,181 @@ class TestSelection:
         resolved = resolve(require_brain=False)
         assert resolved.brain_name is None
         assert resolved.project.project.name == "empty"
+
+
+class TestTheProjectRegistry:
+    """Addressing a project by name, from anywhere.
+
+    The point of the registry is that an invocation can state its whole context -- project and brain -- without
+    depending on the working directory. That is what lets three terminals hold three projects at once, so these
+    tests are all written from *outside* the projects they select.
+    """
+
+    def test_a_registered_project_is_selected_by_name_from_anywhere(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "facultad"
+        project.mkdir()
+        config = write(project, PROJECT)
+        make_brain(project / "brains", "algebra")
+        register_project("facultad", config)
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        resolved = resolve(project="facultad", brain=Path("algebra"))
+        assert resolved.config_file == config
+        assert resolved.brain == (project / "brains" / "algebra").resolve()
+        assert resolved.brain_name == "algebra"
+        assert resolved.project_origin is Origin.FLAG
+
+    def test_two_projects_are_addressable_at_the_same_time(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole feature, in one test: two brains of the same *name* in two projects, told apart by project.
+
+        This is the shape that did not work before -- a brain per subject, several projects, several terminals --
+        and the failure was silent, because whichever brain a stale pointer named answered for both.
+        """
+        for name in ("uno", "dos"):
+            directory = tmp_path / name
+            directory.mkdir()
+            write(directory, f'[project]\nname = "{name}"\n\n[brains.metrica-a]\npath = "./brains/metrica-a"\n')
+            make_brain(directory / "brains", "metrica-a")
+            register_project(name, directory / "vitruvio.toml")
+
+        monkeypatch.chdir(tmp_path)
+        first = resolve(project="uno", brain=Path("metrica-a"))
+        second = resolve(project="dos", brain=Path("metrica-a"))
+
+        assert first.brain_name == second.brain_name == "metrica-a"
+        assert first.brain != second.brain
+        assert (first.project_name, second.project_name) == ("uno", "dos")
+
+    def test_the_environment_names_a_project_too(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """How one agent's session, or a container, states its project without passing a flag to every command."""
+        project = tmp_path / "facultad"
+        project.mkdir()
+        register_project("facultad", write(project, PROJECT))
+        make_brain(project / "brains", "algebra")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("VITRUVIO_PROJECT", "facultad")
+
+        resolved = resolve(brain=Path("algebra"))
+        assert resolved.brain_name == "algebra"
+        assert resolved.project_origin is Origin.ENVIRONMENT
+
+    def test_a_named_project_beats_the_walk_up_rather_than_deferring_to_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An agent that named a project and silently got the one it was standing in is the bug this flag ends."""
+        named = tmp_path / "named"
+        named.mkdir()
+        register_project("named", write(named, '[project]\nname = "named"\n\n[brains.b]\npath = "./b"\n'))
+        make_brain(named, "b")
+
+        standing = tmp_path / "standing"
+        standing.mkdir()
+        write(standing, '[project]\nname = "standing"\n\n[brains.b]\npath = "./b"\n')
+        make_brain(standing, "b")
+        monkeypatch.chdir(standing)
+
+        assert resolve(project="named").brain == (named / "b").resolve()
+
+    def test_an_unregistered_name_lists_what_is_registered(self, tmp_path: Path) -> None:
+        register_project("facultad", write(tmp_path, PROJECT))
+        with pytest.raises(ProjectNotKnownError, match="facultad") as caught:
+            resolve(project="eticompass")
+        assert "project register" in (caught.value.hint or "")
+
+    def test_a_project_whose_file_moved_says_so_rather_than_falling_back(self, tmp_path: Path) -> None:
+        config = write(tmp_path, PROJECT)
+        register_project("facultad", config)
+        config.unlink()
+        with pytest.raises(ProjectNotKnownError, match="no longer exists"):
+            select_config_file(project="facultad")
+
+    def test_forgetting_is_registry_only_and_reports_whether_it_did_anything(self, tmp_path: Path) -> None:
+        config = write(tmp_path, PROJECT)
+        register_project("facultad", config)
+        assert forget_project("facultad") is True
+        assert forget_project("facultad") is False, "a second forget is not an error, it is a no-op"
+        assert known_projects() == {}
+        assert config.is_file(), "forgetting a project must not touch a single file it describes"
+
+
+class TestTheSavedSelectionIsPerProject:
+    """``brain use`` is scoped to a project, and a project with brains never resolves from the global pointer.
+
+    Both halves matter and the second is the bug: a pointer left by ``brain use`` in one project used to answer
+    for a *different* project whose brains were all addressed by name, so a write could land in another
+    subject's brain with nobody informed -- and content addressing has no undo for that.
+    """
+
+    def test_a_choice_in_one_project_does_not_reach_another(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        facultad = tmp_path / "facultad"
+        facultad.mkdir()
+        write(facultad, PROJECT)
+        make_brain(facultad / "brains", "algebra")
+        make_brain(facultad / "brains", "analisis-ii")
+
+        other = tmp_path / "eticompass"
+        other.mkdir()
+        write(
+            other,
+            '[project]\nname = "eticompass"\n\n[brains.metrica-a]\npath = "./brains/metrica-a"\n'
+            '\n[brains.metrica-b]\npath = "./brains/metrica-b"\n',
+        )
+        make_brain(other / "brains", "metrica-a")
+        make_brain(other / "brains", "metrica-b")
+
+        remember_brain(facultad / "brains" / "algebra", project="facultad", name="algebra")
+
+        monkeypatch.chdir(facultad)
+        chosen = resolve()
+        assert chosen.brain_name == "algebra"
+        assert chosen.brain_origin is Origin.STATE
+
+        monkeypatch.chdir(other)
+        with pytest.raises(BrainNotSelectedError) as caught:
+            resolve()
+        assert "metrica-a" in (caught.value.hint or ""), "the other project asks by its own names"
+
+    def test_a_project_with_brains_never_resolves_from_the_machine_wide_pointer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        loose = make_brain(tmp_path, "loose")
+        remember_brain(loose)
+
+        project = tmp_path / "facultad"
+        project.mkdir()
+        write(project, PROJECT)
+        make_brain(project / "brains", "algebra")
+        make_brain(project / "brains", "analisis-ii")
+        monkeypatch.chdir(project)
+
+        with pytest.raises(BrainNotSelectedError):
+            resolve()
+
+    def test_a_brain_in_no_project_still_uses_the_machine_wide_pointer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The one case a single pointer was always right for, and it keeps working."""
+        loose = make_brain(tmp_path, "loose")
+        remember_brain(loose)
+        monkeypatch.chdir(tmp_path)
+
+        resolved = resolve()
+        assert resolved.brain == loose.resolve()
+        assert resolved.brain_origin is Origin.STATE
+
+    def test_a_saved_choice_that_left_the_project_is_treated_as_no_choice(self, tmp_path: Path) -> None:
+        config = write(tmp_path, PROJECT)
+        remember_brain(tmp_path / "brains" / "fisica", project="facultad", name="fisica")
+        assert selected_brain(load_project(config)) is None
 
 
 class TestResolvedRepository:
