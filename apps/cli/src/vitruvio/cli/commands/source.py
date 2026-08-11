@@ -272,12 +272,16 @@ def pull(
     if name is None:
         raise UsageError("name which source to pull, or pass --all", hint="`vitruvio source status` lists them")
 
-    result = current().service().pull_source(
-        name,
-        dry_run=dry_run,
-        limit=limit,
-        refetch=refetch,
-        option_overrides=option_overrides,
+    result = (
+        current()
+        .service()
+        .pull_source(
+            name,
+            dry_run=dry_run,
+            limit=limit,
+            refetch=refetch,
+            option_overrides=option_overrides,
+        )
     )
     for item in result["items"]:
         if item["outcome"] == "failed":

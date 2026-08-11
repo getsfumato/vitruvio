@@ -125,9 +125,7 @@ class TestOptionParsing:
             "glob=*.txt",
         )
 
-        code, payload = envelope(
-            capsys, "source", "pull", "papers", "--dry-run", "--option", "glob=*.md"
-        )
+        code, payload = envelope(capsys, "source", "pull", "papers", "--dry-run", "--option", "glob=*.md")
         assert code == ExitCode.OK
         assert payload["data"]["listed"] == 2
         assert payload["data"]["option_overrides"] == ["glob"]

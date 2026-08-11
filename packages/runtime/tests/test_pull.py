@@ -177,9 +177,7 @@ class TestPull:
 
         first = project._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
         reopened = BrainService(project.config)
-        second = reopened._pull_one(
-            reopened.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False
-        )
+        second = reopened._pull_one(reopened.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False)
 
         assert first["outcome"] == "registered"
         assert first["media_type"] == "application/pdf"
@@ -343,9 +341,7 @@ options = { glob = "nothing" }
             config = resolve(brain=path, config=config_file, require_layout=False)
             service = BrainService(config.model_copy(update={"brain_name": brain_name}))
             service.init()
-            result = service.pull_source(
-                "aula", dry_run=True, option_overrides={"glob": f"{brain_name}.md"}
-            )
+            result = service.pull_source("aula", dry_run=True, option_overrides={"glob": f"{brain_name}.md"})
             assert result["brain"] == brain_name
             assert [row["title"] for row in result["items"]] == [f"{brain_name}.md"]
 
