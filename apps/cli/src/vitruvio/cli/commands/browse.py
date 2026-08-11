@@ -71,18 +71,33 @@ def browse(
             hint=f"one of: {', '.join(MODULES)}",
         )
 
+    from vitruvio.kernel import BrainNotSelectedError
+
     context = current()
-    config = context.resolve()
-    # The origin is carried into the interface rather than dropped. Four layers can select a brain -- `--brain`,
-    # `$VITRUVIO_BRAIN`, a vitruvio.toml on the walk up, and whatever `brain use` last recorded -- and only the
-    # first is visible in the command that was typed. A bare `vitruvio browse` therefore opens *something*, and an
-    # interface that showed only the path left "which brain is this and why" unanswerable from inside it.
-    browser = BrainBrowser(
-        context.service(),
-        brain=str(config.brain),
-        origin=config.brain_origin.value,
-        name=config.brain_name,
-    )
+    # A brain that could not be selected opens the picker rather than failing. `browse` is the one command where
+    # that is the better answer: it is interactive by definition, the question "which brain did you mean" has a
+    # list for an answer, and printing five flags at somebody who is trying to *look* at something is a worse
+    # version of the same conversation. Every other command still refuses, because a non-interactive caller
+    # cannot answer a question.
+    try:
+        config = context.resolve()
+        # The origin is carried into the interface rather than dropped. Several layers can select a brain and only
+        # `--brain` is visible in the command that was typed, so a bare `vitruvio browse` opens *something*, and an
+        # interface that showed only the path left "which brain is this and why" unanswerable from inside it.
+        browser = BrainBrowser(
+            context.service(),
+            brain=str(config.brain),
+            origin=config.brain_origin.value,
+            name=config.brain_name,
+            project=config.project_name,
+            config_file=str(config.config_file) if config.config_file else None,
+        )
+    except BrainNotSelectedError:
+        # The project is still known even when the brain is not -- that is the whole point of separating the two
+        # questions -- so the picker opens on this project rather than on whatever sorts first.
+        found = context.config_file()
+        browser = BrainBrowser(None, brain="", config_file=str(found) if found else None)
+
     if memory_type is not None:
         browser.kind = memory_type
     browser.run()

@@ -36,7 +36,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedContent, TabPane, Tree
 
 from vitruvio.cli import render
-from vitruvio.cli.tui.screens import SearchScreen
+from vitruvio.cli.tui.screens import SearchScreen, SelectionScreen
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -139,8 +139,12 @@ class BrainBrowser(App[None]):
     The browser.
 
     Attributes:
-        service (BrainService): The one way in. Every pane goes through it, exactly as a command body does.
+        service (BrainService | None): The one way in. Every pane goes through it, exactly as a command body
+            does. ``None`` until a brain is chosen -- ``p`` opens the picker, and the browser can be pointed at
+            another project's brain without being restarted.
         brain (str): The brain's path, for the title bar.
+        project (str | None): The project it belongs to, so two projects' identically named brains are told apart.
+        config_file (str | None): That project's configuration file, which is half of a brain's identity here.
     """
 
     CSS = """
@@ -167,6 +171,7 @@ class BrainBrowser(App[None]):
         # first question this interface failed to answer, and an undiscoverable key is one that does not exist.
         Binding("tab", "focus_next", "pane"),
         Binding("m", "focus_modules", "modules"),
+        Binding("p", "select_brain", "project/brain"),
         Binding("i", "identify", "which brain"),
         Binding("slash", "focus_filter", "filter"),
         Binding("s", "search", "search"),
@@ -184,26 +189,33 @@ class BrainBrowser(App[None]):
 
     def __init__(
         self,
-        service: BrainService,
+        service: BrainService | None,
         *,
         brain: str,
         origin: str | None = None,
         name: str | None = None,
+        project: str | None = None,
+        config_file: str | None = None,
     ) -> None:
         """
-        Build the browser over an already-resolved service.
+        Build the browser over an already-resolved service, or over nothing yet.
 
         Args:
-            service (BrainService): The service layer.
+            service (BrainService | None): The service layer. ``None`` opens the selection screen instead of a
+                brain, which is what ``vitruvio browse`` does when no layer named one: a picker is a better
+                answer to "which brain did you mean" than an error naming five flags.
             brain (str): The brain's path, shown in the title.
             origin (str | None): Which layer of precedence selected that path -- flag, environment, file or state.
             name (str | None): Which of the project's named brains this is, when it is one.
+            project (str | None): Which project it belongs to, when it belongs to a named one.
+            config_file (str | None): That project's configuration file, so the picker can start where the
+                session is rather than at whatever sorts first.
 
-        Four layers can select a brain and only one of them is visible in the command that was typed, so a bare
-        ``vitruvio browse`` opens *something* and the interface used to show only the path it landed on. That is
-        the question this constructor's last two arguments exist to answer: a reader has to be able to tell "the
-        brain this project declares" from "whatever I last ran `brain use` on", because those are different
-        brains and the path alone does not say which one you got.
+        Several layers can select a brain and only one of them is visible in the command that was typed, so a
+        bare ``vitruvio browse`` opens *something* and the interface used to show only the path it landed on.
+        That is the question the last four arguments exist to answer: a reader has to be able to tell one
+        project's ``metrica-a`` from another's, because those are different brains and the path alone does not
+        say which one you got.
         """
         super().__init__()
         self.service = service
@@ -212,6 +224,8 @@ class BrainBrowser(App[None]):
         # `brain_name` rather than `name`: Textual's App already has a read-only `name` property, and assigning to
         # it raises. A shadowed attribute on a framework base class is a collision that only shows up at runtime.
         self.brain_name = name
+        self.project = project
+        self.config_file = config_file
         self.kind: str = MODULES[0]
         self.rows: list[dict[str, Any]] = []
         self.selected: dict[str, Any] | None = None
@@ -220,6 +234,26 @@ class BrainBrowser(App[None]):
         self.pdf_page = 0
         self.normalized = False
         self.counts: dict[str, int] = {}
+
+    @property
+    def opened(self) -> BrainService:
+        """
+        The service for the brain currently open.
+
+        A property rather than the attribute itself because the attribute is now optional -- ``browse`` with no
+        brain selected opens the picker instead of failing -- and every reader below runs only once something is
+        open. Raising here rather than returning ``None`` keeps that assumption checkable: each caller is inside a
+        worker that already reports its own failures, so the worst case is a notification rather than a crash.
+
+        Returns:
+            BrainService: The service.
+
+        Raises:
+            RuntimeError: If no brain is open. A bug in this module, not something a user can cause.
+        """
+        if self.service is None:
+            raise RuntimeError("no brain is open yet")
+        return self.service
 
     # --- Layout ---------------------------------------------------------------
 
@@ -258,6 +292,11 @@ class BrainBrowser(App[None]):
         # composing it first made Textual do -- put the cursor in a five-item list of leaves where the arrows
         # appeared to do nothing at all.
         table.focus()
+        if self.service is None:
+            # Nothing was selected, so the first thing to do is ask. `call_after_refresh` rather than a direct
+            # push: a screen pushed from `on_mount` is pushed before the app has a screen stack to put it on.
+            self.call_after_refresh(self.action_select_brain)
+            return
         self.load_modules()
 
     def _where(self) -> str:
@@ -266,16 +305,29 @@ class BrainBrowser(App[None]):
 
         The full path used to go here and the header truncated it -- which cut off the *end*, where the reason
         was. So the header carries the identifying short form and ``i`` carries the whole thing: a project brain
-        by its name, and an unnamed one by its parent directory and basename, because "brain" on its own is the
-        name of every second brain on a machine and identifies nothing.
+        by ``project/brain``, and an unnamed one by its parent directory and basename, because "brain" on its own
+        is the name of every second brain on a machine and identifies nothing.
+
+        The project is part of the short form rather than part of the detail, because two projects holding a
+        ``metrica-a`` each is the normal case this interface now has to survive: ``eticompass/metrica-a`` and
+        ``eticompass-v2/metrica-a`` are told apart by exactly the half that used to be dropped.
 
         Returns:
-            str: e.g. ``algebra by file`` or ``demo/brain by state``.
+            str: e.g. ``facultad/analisis-numerico by flag``, or ``(no brain open)``.
         """
         from pathlib import Path
 
+        if self.service is None:
+            return "(no brain open -- p to choose one)"
+
         path = Path(self.brain)
-        label = self.brain_name or (f"{path.parent.name}/{path.name}" if path.parent.name else path.name)
+        if self.project:
+            # Whenever the project is known, not only when the brain has a name inside it. A single-brain project
+            # declares its brain in `[brain].path` and never names it, so requiring both dropped the project from
+            # the header of exactly the brain whose own label -- `brain` -- identifies nothing on its own.
+            label = f"{self.project}/{self.brain_name or path.name}"
+        else:
+            label = self.brain_name or (f"{path.parent.name}/{path.name}" if path.parent.name else path.name)
         return f"{label} by {self.origin}" if self.origin else label
 
     # --- Loading --------------------------------------------------------------
@@ -284,7 +336,7 @@ class BrainBrowser(App[None]):
     def load_modules(self) -> None:
         """Read the brain's anatomy and fill the tree."""
         try:
-            info = self.service.info()
+            info = self.opened.info()
         except Exception as error:  # a brain that cannot be opened is a message, not a traceback
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
@@ -322,7 +374,7 @@ class BrainBrowser(App[None]):
     def load_rows(self) -> None:
         """Read a page of the selected module."""
         try:
-            result = self.service.blocks(self.kind, limit=PAGE, offset=self.offset, contains=self.filter)
+            result = self.opened.blocks(self.kind, limit=PAGE, offset=self.offset, contains=self.filter)
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
@@ -398,18 +450,18 @@ class BrainBrowser(App[None]):
         self.call_from_thread(self._set, "preview", preview)
 
         try:
-            payload = self.service.resolve(identity)["payload"]
+            payload = self.opened.resolve(identity)["payload"]
             self.call_from_thread(self._set, "payload", render.payload(payload))
         except Exception as error:
             self.call_from_thread(self._set, "payload", Text(str(error), style="bad"))
 
         try:
-            self.call_from_thread(self._set, "links", render.records(self.service.related(identity)))
+            self.call_from_thread(self._set, "links", render.records(self.opened.related(identity)))
         except Exception as error:
             self.call_from_thread(self._set, "links", Text(str(error), style="bad"))
 
         try:
-            proof = self.service.prove(identity, row["memory_type"])
+            proof = self.opened.prove(identity, row["memory_type"])
             view = render.fields(
                 [
                     ("root", render.digest(proof["root"], full=True)),
@@ -442,7 +494,7 @@ class BrainBrowser(App[None]):
         view = row.get("normalized_view") or {}
         if self.normalized and view.get("blob"):
             try:
-                data = self.service.content(str(view["blob"]))
+                data = self.opened.content(str(view["blob"]))
             except Exception as error:
                 return Group(head, "", Text(str(error), style="bad"))
             return Group(head, "", render.media.preview(data, str(view.get("media_type", "text/plain")), width=width))
@@ -450,7 +502,7 @@ class BrainBrowser(App[None]):
         if blob := row.get("blob"):
             media_type = str(row.get("media_type", "application/octet-stream"))
             try:
-                data = self.service.content(str(blob))
+                data = self.opened.content(str(blob))
             except Exception as error:
                 return Group(head, "", Text(str(error), style="bad"))
             body = render.media.preview(data, media_type, width=width, page=self.pdf_page)
@@ -481,7 +533,7 @@ class BrainBrowser(App[None]):
         from rich.markdown import Markdown
 
         try:
-            payload = self.service.resolve(row["block_id"])["payload"]
+            payload = self.opened.resolve(row["block_id"])["payload"]
         except Exception as error:
             return Text(str(error), style="bad")
 
@@ -585,6 +637,113 @@ class BrainBrowser(App[None]):
         """Focus the module sidebar, from wherever the cursor is."""
         self.query_one("#modules", ModuleTree).focus_current_module()
 
+    def action_select_brain(self) -> None:
+        """Choose which project, and which brain in it, to read.
+
+        The interface used to be about whichever brain the command line resolved, and changing that meant quitting
+        and running `vitruvio browse` again with different flags. That is untenable once a person keeps a project
+        per subject or per client: reading across two of them is the normal case, not an exotic one.
+        """
+        self.browse_catalogue()
+
+    @work(thread=True, exclusive=True, group="catalogue")
+    def browse_catalogue(self) -> None:
+        """Read every openable project off disk, then show the picker.
+
+        On a worker because it reads a `vitruvio.toml` per project and checks a layout per brain. Small work, but
+        it is filesystem work, and the event loop is not where filesystem work goes.
+        """
+        from pathlib import Path
+
+        from vitruvio.cli.tui.selection import catalogue
+
+        try:
+            entries = catalogue(Path(self.config_file) if self.config_file else None)
+        except Exception as error:
+            self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
+            return
+        self.call_from_thread(self._ask, entries)
+
+    def _ask(self, entries: list[dict[str, Any]]) -> None:
+        """
+        Push the picker.
+
+        Args:
+            entries (list[dict[str, Any]]): The catalogue.
+        """
+        self.push_screen(
+            SelectionScreen(entries, config_file=self.config_file, open_brain=self.brain or None),
+            self._selected,
+        )
+
+    def _selected(self, choice: tuple[Path, str | None] | None) -> None:
+        """
+        Act on what the picker returned.
+
+        Args:
+            choice (tuple[Path, str | None] | None): The project's configuration file and the brain's name, or
+                ``None`` when the screen was dismissed without choosing.
+        """
+        if choice is None:
+            if self.service is None:
+                # Dismissing the picker that opened *instead of* a brain leaves nothing to look at, so the only
+                # honest thing to do is leave -- an empty interface would read as a brain that failed to load.
+                self.exit()
+            return
+        config_file, brain = choice
+        self.retarget(config_file, brain)
+
+    @work(thread=True, exclusive=True, group="retarget")
+    def retarget(self, config_file: Path, brain: str | None) -> None:
+        """
+        Point the whole interface at another brain.
+
+        Resolution goes through the kernel rather than through anything this module knows, so the brain a picked
+        row opens is the same brain ``--project x --brain y`` would open. Opening it is real work -- a brain's
+        indices are rebuilt on open -- which is why this is a worker and why the header says so first.
+
+        Args:
+            config_file (Path): The project's configuration file.
+            brain (str | None): The brain's name in that project, or ``None`` for a single-brain project's own.
+        """
+        from vitruvio.cli.tui.selection import open_selection
+
+        self.call_from_thread(self.notify, f"opening {brain or config_file.parent.name}...")
+        try:
+            opened = open_selection(config_file, brain)
+        except Exception as error:
+            self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
+            return
+        self.call_from_thread(self._adopt, opened, str(config_file))
+
+    def _adopt(self, opened: dict[str, Any], config_file: str) -> None:
+        """
+        Make an opened brain the one on screen.
+
+        Everything the reader was looking *at* is reset -- the page, the filter, the selected block -- because
+        none of it refers to anything in the new brain. The module stays: "I was reading semantic memory" is a
+        statement about what you are doing rather than about which brain you were in.
+
+        Args:
+            opened (dict[str, Any]): What :func:`~vitruvio.cli.tui.selection.open_selection` returned.
+            config_file (str): The project's configuration file.
+        """
+        self.service = opened["service"]
+        self.brain = str(opened["brain"])
+        self.origin = opened["origin"]
+        self.brain_name = opened["name"]
+        self.project = opened["project"]
+        self.config_file = config_file
+
+        self.offset = 0
+        self.filter = None
+        self.selected = None
+        self.pdf_page = 0
+        self.normalized = False
+        self.query_one("#filter", Input).value = ""
+        self.sub_title = self._where()
+        self.load_modules()
+
     def action_identify(self) -> None:
         """Say exactly which brain this is, in full, and which layer of precedence chose it.
 
@@ -598,14 +757,17 @@ class BrainBrowser(App[None]):
     def identify(self) -> None:
         """Read the brain's own account of itself, then show it."""
         try:
-            state = self.service.state()
+            state = self.opened.state()
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
         actor = state.get("actor") or {}
+        where = f"selected by {self.origin}"
+        if self.brain_name:
+            where += f", as {self.project or 'the project'}'s {self.brain_name!r}"
         lines = [
             self.brain,
-            f"selected by {self.origin}" + (f", as the project's {self.brain_name!r}" if self.brain_name else ""),
+            where,
             f"snapshot {render.short(state['snapshot']['digest'])}, {state['block_count']} blocks",
             f"installed: {', '.join(state['installed']) or 'nothing'}",
             f"writes attributed to {actor.get('id') or '(no actor set)'}",
@@ -661,22 +823,29 @@ class BrainBrowser(App[None]):
         if not self.selected or not self.selected.get("blob"):
             self.notify("this block names no content to export", severity="warning")
             return
-        self.export(str(self.selected["blob"]), self.selected.get("origin"))
+        self.export(
+            str(self.selected["blob"]),
+            self.selected.get("origin"),
+            str(self.selected.get("media_type") or ""),
+        )
 
     @work(thread=True, group="export")
-    def export(self, blob: str, name: str | None) -> None:
+    def export(self, blob: str, name: str | None, media_type: str | None = None) -> None:
         """
         Copy content out of the brain.
 
         Args:
             blob (str): The content address.
             name (str | None): The origin's file name, when one was recorded.
+            media_type (str | None): The block's media type, which names the file when the origin does not.
         """
         from pathlib import Path
 
-        target = Path.cwd() / (Path(name).name if name else blob.replace(":", "-"))
+        from vitruvio.cli.render import desktop
+
+        target = Path.cwd() / desktop.filename(name, blob, media_type)
         try:
-            result = self.service.export_content(blob, target)
+            result = self.opened.export_content(blob, target)
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
@@ -692,10 +861,14 @@ class BrainBrowser(App[None]):
         if not self.selected or not self.selected.get("blob"):
             self.notify("this block names no content to open", severity="warning")
             return
-        self.open_externally(str(self.selected["blob"]), self.selected.get("origin"))
+        self.open_externally(
+            str(self.selected["blob"]),
+            self.selected.get("origin"),
+            str(self.selected.get("media_type") or ""),
+        )
 
     @work(thread=True, group="open")
-    def open_externally(self, blob: str, name: str | None) -> None:
+    def open_externally(self, blob: str, name: str | None, media_type: str | None = None) -> None:
         """
         Write the bytes out and hand them to the desktop's own handler.
 
@@ -706,14 +879,17 @@ class BrainBrowser(App[None]):
         Args:
             blob (str): The content address.
             name (str | None): The origin recorded at registration, which becomes the file's name.
+            media_type (str | None): The block's media type. Load-bearing rather than decorative: a handler is
+                chosen by suffix, and a brain whose blocks record no origin -- a pulled one -- would otherwise
+                hand a PDF to a text editor under a name that is a bare content address.
         """
         from pathlib import Path
 
         from vitruvio.cli.render import desktop
 
-        target = desktop.scratch(name, blob)
+        target = desktop.scratch(name, blob, media_type)
         try:
-            result = self.service.export_content(blob, target)
+            result = self.opened.export_content(blob, target)
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
@@ -733,7 +909,7 @@ class BrainBrowser(App[None]):
 
     def action_search(self) -> None:
         """Open the search screen -- the planner's answer, as distinct from the filter box."""
-        self.push_screen(SearchScreen(self.service), self._searched)
+        self.push_screen(SearchScreen(self.opened), self._searched)
 
     def _searched(self, block_id: str | None) -> None:
         """
@@ -754,7 +930,7 @@ class BrainBrowser(App[None]):
             block_id (str): The block to show.
         """
         try:
-            resolved = self.service.resolve(block_id)
+            resolved = self.opened.resolve(block_id)
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
@@ -762,7 +938,7 @@ class BrainBrowser(App[None]):
         found = None
         offset = 0
         while found is None:
-            page = self.service.blocks(kind, limit=PAGE, offset=offset)
+            page = self.opened.blocks(kind, limit=PAGE, offset=offset)
             for row in page["rows"]:
                 if row["block_id"] == block_id:
                     found = row

@@ -55,20 +55,42 @@ module in the middle. The selected block on the right, in four tabs:
 | links | the provenance records naming it: registration, derivation, supersession, removal |
 | proof | its Merkle inclusion proof, already checked against the module root |
 
-**Which brain am I looking at?** Four layers select one — `--brain`, `$VITRUVIO_BRAIN`, `[brain] path` in the
-nearest `vitruvio.toml`, and whatever `vitruvio brain use` last recorded, in that order — and only the first is
-visible in the command you typed. So the header names the brain and the layer that chose it (`algebra by file`,
-`demo/brain by state`), and `i` prints the whole path, the snapshot, which modules are installed and who writes
-are attributed to. `vitruvio brain state` answers the same question outside the interface.
+**Which brain am I looking at?** Several layers select one and only `--brain` is visible in the command you typed,
+so the header names the brain and the layer that chose it (`facultad/analisis-numerico by flag`, `demo/brain by
+state`), and `i` prints the whole path, the snapshot, which modules are installed and who writes are attributed
+to. The project is part of the short form because two projects each holding a `metrica-a` is the ordinary case,
+and the path alone does not say which one you got. `vitruvio brain state` answers the same question outside the
+interface.
+
+**Reading another project's brain.** `p` opens a picker: projects on the left, that project's brains on the right.
+Choosing one retargets the whole interface in place — no quitting, no second `vitruvio browse` with different
+flags. The two panes are one decision, in the same order the CLI resolves them: a brain name only means something
+inside a project, so moving the project cursor refills the brains beside it.
+
+```
+┌────────────────────────┬────────────────────────────────────────┐
+│    project     brains  │    brain             state  description│
+│ *  eticompass  2       │ *  metrica-a                …          │
+│    facultad    3       │    metrica-b                …          │
+└────────────────────────┴────────────────────────────────────────┘
+```
+
+`*` is the brain you have open, in both columns — half of what you open this screen to ask is *where am I*, and the
+cursor cannot answer that, because it moves as soon as you start looking around. The list is every project
+`--project` accepts, so `vitruvio project register` is what puts one in it. `escape` keeps the brain you had.
+
+This is also what `vitruvio browse` does when **no** brain was selected at all: it asks, instead of printing five
+flag names at somebody who is trying to look at something. It is the one command that does — every other one
+still refuses, because a non-interactive caller cannot answer a question.
 
 **Moving around.** The cursor starts in the blocks, because that is what you came to read: up and down walk the
 evidence. `left` (or `m`) goes to the sidebar, landing on the module you are already in; `right` or `enter` comes
 back into the blocks. In the sidebar, moving the cursor **opens** that module — there is no second keystroke to
 confirm. `tab` cycles the panes.
 
-Other keys: `/` filter, `s` search, `t` swap between original bytes and their normalized text view, `]` and `[`
-turn PDF pages, `o` open in whatever the desktop uses, `e` export into the working directory, `y` copy the block
-id, `n` and `b` page through a large module, `r` re-read, `?` every binding.
+Other keys: `/` filter, `s` search, `p` project and brain, `t` swap between original bytes and their normalized
+text view, `]` and `[` turn PDF pages, `o` open in whatever the desktop uses, `e` export into the working
+directory, `y` copy the block id, `n` and `b` page through a large module, `r` re-read, `?` every binding.
 
 `browse` needs a terminal and refuses `--json`. It has no output mode — the three `inspect` commands above are
 the same three reads with an envelope, which is what an agent should drive.

@@ -434,6 +434,21 @@ class TestTheInterface:
             await pilot.pause()
             assert not isinstance(app.screen, SearchScreen), "escape returns to the brain without choosing"
 
+    async def test_the_project_is_named_even_when_its_brain_has_no_name(self, brain: Path) -> None:
+        """A single-brain project declares its brain in `[brain].path` and never names it. Requiring both dropped
+        the project from the header of exactly the brain whose own label -- `brain` -- identifies nothing."""
+        app = BrainBrowser(service_for(brain), brain=str(brain), origin="file", name=None, project="solito")
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert "solito/brain by file" in app.sub_title
+
+    async def test_a_named_project_brain_is_shown_by_project_and_name(self, brain: Path) -> None:
+        """Two projects holding a `metrica-a` each is the normal case now, and the header has to tell them apart."""
+        app = BrainBrowser(service_for(brain), brain=str(brain), origin="flag", name="metrica-a", project="eticompass")
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert "eticompass/metrica-a by flag" in app.sub_title
+
     async def test_exporting_writes_the_bytes_into_the_working_directory(self, brain: Path, tmp_path: Path) -> None:
         app = BrainBrowser(service_for(brain), brain=str(brain))
         async with app.run_test(size=(140, 40)) as pilot:
@@ -443,6 +458,267 @@ class TestTheInterface:
             await pilot.press("e")
             await _settle(pilot)
         assert (tmp_path / "apuntes.md").exists(), "the fixture chdir'd here, and export writes to the cwd"
+
+    async def test_o_hands_over_a_file_the_desktop_can_actually_open(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A brain whose blocks record no origin -- a pulled one -- still has to open a PDF as a PDF.
+
+        The launch is intercepted rather than performed: a test that opened Preview would put a window over
+        whoever ran it. What is asserted is the *suffix of the file handed over*, because that is what every
+        desktop handler dispatches on.
+        """
+        from vitruvio.cli.render import desktop
+
+        root = tmp_path / "sin-origen"
+        assert main(["--brain", str(root), "--actor", "t@e.st", "brain", "init"]) == ExitCode.OK
+        paper = tmp_path / "paper.pdf"
+        paper.write_bytes(b"%PDF-1.7\n" + b"0" * 64)
+        # `--origin ""` is not available, so the block is registered normally and the row's origin is dropped
+        # below -- which is exactly the shape a pulled brain's rows have.
+        assert (
+            main(["--brain", str(root), "source", "register", str(paper), "--media-type", "application/pdf"])
+            == ExitCode.OK
+        )
+
+        handed: list[Path] = []
+
+        def record(path: Path) -> str:
+            handed.append(path)
+            return "open"
+
+        monkeypatch.setattr(desktop, "open_path", record)
+
+        app = BrainBrowser(service_for(root), brain=str(root))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert app.selected is not None
+            app.selected["origin"] = None
+            await pilot.press("o")
+            await _settle(pilot)
+
+        assert handed, "the bytes were written and something was asked to open them"
+        assert handed[0].suffix == ".pdf", f"{handed[0].name} would open in a text editor"
+        assert handed[0].read_bytes().startswith(b"%PDF")
+
+
+class TestChoosingWhatToLookAt:
+    """The picker: projects on the left, their brains on the right, and retargeting without restarting.
+
+    The interface used to be about whichever brain the command line resolved, and changing that meant quitting.
+    Once somebody keeps a project per subject or per client, reading across two of them is the normal case.
+    """
+
+    @pytest.fixture
+    def projects(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+        """Two registered projects, each holding two brains, one of which has a block in it."""
+        roots = []
+        for name, brains in (("facultad", ("algebra", "analisis-ii")), ("eticompass", ("metrica-a", "metrica-b"))):
+            root = tmp_path / name
+            root.mkdir()
+            config = str(root / "vitruvio.toml")
+            assert main(["--config", config, "--actor", "t@e.st", "project", "init", name]) == ExitCode.OK
+            for brain in brains:
+                assert main(["--config", config, "--actor", "t@e.st", "project", "add", brain]) == ExitCode.OK
+            roots.append(root)
+
+        notes = tmp_path / "apuntes.md"
+        notes.write_text("# Fourier\n", encoding="utf-8")
+        assert (
+            main(
+                [
+                    "--project",
+                    "facultad",
+                    "--brain",
+                    "algebra",
+                    "--actor",
+                    "t@e.st",
+                    "source",
+                    "register",
+                    str(notes),
+                ]
+            )
+            == ExitCode.OK
+        )
+        return roots[0], roots[1]
+
+    def test_the_catalogue_lists_every_registered_project_and_its_brains(self, projects: tuple[Path, Path]) -> None:
+        from vitruvio.cli.tui.selection import catalogue
+
+        entries = {entry["project"]: entry for entry in catalogue()}
+        assert set(entries) == {"facultad", "eticompass"}
+        assert [brain["name"] for brain in entries["eticompass"]["brains"]] == ["metrica-a", "metrica-b"]
+        assert all(brain["present"] for brain in entries["facultad"]["brains"])
+
+    def test_the_session_s_own_project_is_not_offered_twice(self, projects: tuple[Path, Path]) -> None:
+        """The registry stores resolved paths and the session's file arrives as the command line spelled it. On a
+        machine whose temporary or home directory is a symlink -- macOS, every container -- that is two spellings
+        of one path, and the project was listed under both."""
+        from vitruvio.cli.tui.selection import catalogue
+
+        facultad, _ = projects
+        entries = catalogue(facultad / "vitruvio.toml")
+        assert [entry["project"] for entry in entries].count("facultad") == 1
+        assert [entry["current"] for entry in entries].count(True) == 1
+
+    def test_a_project_is_found_through_a_brain_this_machine_remembers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The migration path, and it needs no command.
+
+        The registry is newer than the projects on the machine it shipped to, so a picker fed only by the registry
+        was empty for the person it was built for -- while vitruvio's own history held the brain, and the project
+        was one walk-up above it. An unregistered project is offered and *marked*, because `--project` cannot
+        reach it yet and finding that out from a CLI refusal is worse than reading it here.
+        """
+        from vitruvio.cli.tui.selection import catalogue
+        from vitruvio.kernel import forget_project, note_brain
+
+        root = tmp_path / "ethicompass"
+        root.mkdir()
+        config = str(root / "vitruvio.toml")
+        assert main(["--config", config, "--actor", "t@e.st", "project", "init", "ethicompass"]) == ExitCode.OK
+        assert main(["--config", config, "--actor", "t@e.st", "project", "add", "common"]) == ExitCode.OK
+        # As if the project predated the registry: the layout is on disk and remembered, the name is not recorded.
+        note_brain(root / "brains" / "common")
+        assert forget_project("ethicompass") is True
+
+        found = {entry["project"]: entry for entry in catalogue()}
+        assert "ethicompass" in found, "a remembered brain is a project vitruvio can still find"
+        assert found["ethicompass"]["registered"] is False
+        assert [brain["name"] for brain in found["ethicompass"]["brains"]] == ["common"]
+
+    def test_a_brain_project_add_created_is_remembered_without_becoming_a_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`project add` used not to note the layout it created, so a project whose brains were all made that way
+        was invisible to the discovery above. Noted, not selected: adding a brain must not silently change which
+        brain anything resolves to."""
+        from vitruvio.kernel import load_project, read_state, selected_brain
+
+        root = tmp_path / "facultad"
+        root.mkdir()
+        config = str(root / "vitruvio.toml")
+        assert main(["--config", config, "--actor", "t@e.st", "project", "init", "facultad"]) == ExitCode.OK
+        assert main(["--config", config, "--actor", "t@e.st", "project", "add", "analisis-numerico"]) == ExitCode.OK
+
+        remembered = read_state().get("known", [])
+        assert str((root / "brains" / "analisis-numerico").resolve()) in remembered
+        assert selected_brain(load_project(Path(config))) is None, "noted, not chosen"
+        assert "current" not in read_state(), "and not the machine-wide pointer either"
+
+    async def test_p_opens_the_picker_and_escape_keeps_the_brain_you_have(self, brain: Path) -> None:
+        from vitruvio.cli.tui.screens import SelectionScreen
+
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            await pilot.press("p")
+            await _settle(pilot)
+            assert isinstance(app.screen, SelectionScreen)
+            await pilot.press("escape")
+            await _settle(pilot)
+            # `__class__` rather than `isinstance`: the assertion above narrowed the attribute's type, so a
+            # negated isinstance after it is a contradiction to a type checker and everything below it is dead.
+            assert app.screen.__class__ is not SelectionScreen
+            assert app.service is not None, "declining to choose leaves the brain that was already open"
+
+    async def test_choosing_a_brain_in_another_project_retargets_the_interface(
+        self, projects: tuple[Path, Path]
+    ) -> None:
+        """The whole point: one session, several projects. What is on screen afterwards is the *other* brain."""
+        from vitruvio.cli.tui.screens import SelectionScreen
+
+        facultad, eticompass = projects
+        app = BrainBrowser(
+            service_for(facultad / "brains" / "algebra"),
+            brain=str(facultad / "brains" / "algebra"),
+            origin="flag",
+            name="algebra",
+            project="facultad",
+            config_file=str(facultad / "vitruvio.toml"),
+        )
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert app.rows, "the fixture registered a block into algebra"
+
+            await pilot.press("p")
+            await _settle(pilot)
+            screen = app.screen
+            assert isinstance(screen, SelectionScreen)
+
+            # Straight at the screen's own tables rather than by counting keypresses: what is under test is that a
+            # chosen row becomes the open brain, not how many arrow presses that project happens to be from the top.
+            projects_table = screen.query_one("#projects", DataTable)
+            index = next(position for position, entry in enumerate(screen.entries) if entry["project"] == "eticompass")
+            projects_table.move_cursor(row=index)
+            await _settle(pilot)
+            screen.query_one("#brains", DataTable).focus()
+            await pilot.press("enter")
+            await _settle(pilot)
+
+            assert app.project == "eticompass"
+            assert app.brain_name == "metrica-a"
+            assert app.brain == str((eticompass / "brains" / "metrica-a").resolve())
+            assert "eticompass/metrica-a" in app.sub_title
+            assert app.rows == [], "the new brain is empty, and the previous brain's rows are gone"
+
+    async def test_the_picker_marks_the_brain_that_is_already_open(self, projects: tuple[Path, Path]) -> None:
+        """Half of what a reader opens this screen to find out is where they *are*, and the cursor cannot say it:
+        it moves the moment they start looking around."""
+        from vitruvio.cli.tui.screens import SelectionScreen
+
+        facultad, _ = projects
+        open_layout = facultad / "brains" / "analisis-ii"
+        app = BrainBrowser(
+            service_for(open_layout),
+            brain=str(open_layout),
+            origin="flag",
+            name="analisis-ii",
+            project="facultad",
+            config_file=str(facultad / "vitruvio.toml"),
+        )
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            await pilot.press("p")
+            await _settle(pilot)
+            screen = app.screen
+            assert isinstance(screen, SelectionScreen)
+
+            marked = [brain["name"] for entry in screen.entries for brain in entry["brains"] if screen._is_open(brain)]
+            assert marked == ["analisis-ii"], "exactly the open brain, in exactly one project"
+
+    async def test_browse_with_no_brain_selected_opens_the_picker_instead_of_failing(
+        self, projects: tuple[Path, Path]
+    ) -> None:
+        """`browse` is interactive by definition, so "which brain did you mean" has a list for an answer.
+
+        Every other command still refuses, because a non-interactive caller cannot answer a question.
+        """
+        from vitruvio.cli.tui.screens import SelectionScreen
+
+        facultad, _ = projects
+        app = BrainBrowser(None, brain="", config_file=str(facultad / "vitruvio.toml"))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert isinstance(app.screen, SelectionScreen)
+            assert "no brain open" in app.sub_title
+
+    async def test_the_picker_starts_on_the_project_the_session_is_in(self, projects: tuple[Path, Path]) -> None:
+        """Landing elsewhere would make the highlight disagree with the header, and the highlight fills the
+        brain pane -- so the disagreement is one arrow key from being real."""
+        from vitruvio.cli.tui.screens import SelectionScreen
+
+        _, eticompass = projects
+        app = BrainBrowser(None, brain="", config_file=str(eticompass / "vitruvio.toml"))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            screen = app.screen
+            assert isinstance(screen, SelectionScreen)
+            highlighted = screen.entries[screen.query_one("#projects", DataTable).cursor_row]
+            assert highlighted["project"] == "eticompass"
+            brains = screen.query_one("#brains", DataTable)
+            assert brains.row_count == 2, "the highlighted project's brains, not the first project's"
 
 
 async def _settle(pilot: Any, ticks: int = 25) -> None:

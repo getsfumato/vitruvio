@@ -130,12 +130,31 @@ of milliseconds. The stylesheet is inline in the app class rather than a `.tcss`
 non-Python files from a package directory unless they are named as artifacts, and a stylesheet that shipped
 missing would be a completely unstyled interface.
 
+### 7. The interface is about a brain it can change, not a brain it was given
+
+Added in M4. `p` opens a picker — projects on the left, that project's brains on the right — and choosing one
+retargets the whole interface in place.
+
+The interface used to be handed one resolved service and could never be pointed anywhere else, so "read the other
+subject" meant quitting and re-running `vitruvio browse` with different flags. That is untenable once somebody
+keeps a project per subject or per client, which is what [ADR-0010](0010-projects-and-derived-repositories.md)
+recommends: reading across two of them is the normal case rather than an exotic one.
+
+Two rules keep it from becoming a second selection mechanism. The panes are **one decision in the CLI's order** — a
+brain name only means something inside a project, so moving the project cursor refills the brains — and the choice
+is resolved by `vitruvio.kernel.resolve`, so a picked row opens exactly the brain `--project x --brain y` would.
+The interface must not be a place where a brain can be selected by rules the CLI does not share.
+
+It is also why `browse` is the one command that treats an unselected brain as a question: it opens the picker
+instead of failing. A list is a better answer than five flag names to somebody who is trying to *look* at
+something. Every other command still refuses, because a non-interactive caller cannot answer a question.
+
 ## Consequences
 
 **Two things had to be added after the first person used it, and both were the same mistake.** The cursor started
 in the module sidebar, whose entries are all leaves, so the arrow keys appeared to do nothing and no key led to the
-next pane -- the sidebar was a room with no door. And the header showed the brain's path but not which of the four
-precedence layers chose it, so a bare `vitruvio browse` opened *something* and the interface could not say what.
+next pane -- the sidebar was a room with no door. And the header showed the brain's path but not which precedence
+layer chose it, so a bare `vitruvio browse` opened *something* and the interface could not say what.
 Both were the interface knowing something and not showing it: the fix is that the cursor starts in the blocks,
 `left`/`m` and `right`/`enter` cross between panes, moving the sidebar cursor opens that module, and `i` reports
 the brain, the layer that selected it, the snapshot and the actor. A worker that raises is a related failure of the
