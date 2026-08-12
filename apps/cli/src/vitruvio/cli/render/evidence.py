@@ -16,17 +16,13 @@ fixed width either truncated an identity or wasted half the line on one. Rich me
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import Any
 
+from rich.console import RenderableType
 from rich.text import Text
 
 from vitruvio.cli.render import theme
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from rich.console import RenderableType
 
 SHORT = theme.SHORT
 """Re-exported so the digest width has one definition. See :data:`vitruvio.cli.render.theme.SHORT`."""

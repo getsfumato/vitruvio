@@ -17,16 +17,13 @@ the merge is order-independent anyway, so the ordering is an optimisation rather
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from boltzmann.indices.base import IndexKind
 
 from vitruvio.indices.base import VitruvioIndex
-from vitruvio.indices.projection import IdentityKey, fold
+from vitruvio.indices.projection import IdentityKey, Projection, fold
 from vitruvio.indices.queries import IdQuery, Results
-
-if TYPE_CHECKING:
-    from vitruvio.indices.projection import Projection
 
 EXACT_SCORE = 1.0
 """What an identity match scores.

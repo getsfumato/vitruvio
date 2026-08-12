@@ -226,7 +226,7 @@ def pull(
     name
         Which declared source. Omit it with --all.
     all_sources
-        Pull every declared source, each into the brain it declares. Keeps going past a failure.
+        Pull every source declared by the selected brain. Keeps going past a failure.
     dry_run
         List and decide, fetch nothing and register nothing. What to run first when a source has just been
         pointed at a directory.
@@ -253,7 +253,7 @@ def pull(
                 "--option overrides one named source and cannot be combined with --all",
                 hint="pull a source by name, or put persistent defaults in vitruvio.toml",
             )
-        result = current().service(require_brain=False).pull_all(dry_run=dry_run, limit=limit, refetch=refetch)
+        result = current().service().pull_all(dry_run=dry_run, limit=limit, refetch=refetch)
         for entry in result["sources"]:
             if entry["ok"]:
                 counts = ", ".join(f"{value} {key}" for key, value in sorted(entry["counts"].items())) or "nothing"
@@ -308,7 +308,7 @@ def pull(
 
 @app.command(name="status")
 def status() -> ExitCode:
-    """What sources this project declares, and whether each one can be used.
+    """What sources the selected brain declares, and whether each one can be used.
 
     `status` rather than `list`, because in this group "list" reads as "list the canonical sources in the brain",
     which is what `vitruvio inspect module canonical` does.
@@ -317,7 +317,7 @@ def status() -> ExitCode:
     whose plugin is missing, is something to be told about rather than something to fail on.
     """
     console = current().console
-    result = current().service(require_brain=False).sources()
+    result = current().service().sources()
     if not result["sources"]:
         return console.emit("source.status", result, view=render.empty("no sources declared"))
     table = render.table("", "source", "kind", "brain", "detail")
@@ -375,7 +375,7 @@ def scaffold(kind: str, *, force: bool = False) -> ExitCode:
     result = current().service(require_brain=False).scaffold_source(kind, force=force)
     view = render.stack(
         render.fields([("wrote", result["path"])]),
-        render.empty(f'declare [sources.<name>] kind = "{result["kind"]}" in vitruvio.toml'),
+        render.empty(f"declare the {result['kind']!r} kind under the selected brain's sources in vitruvio.toml"),
     )
     return console.emit("source.scaffold", result, view=view)
 
@@ -385,7 +385,6 @@ def add(
     name: str,
     *,
     kind: Annotated[str, Parameter(name=["--kind"])],
-    brain: Annotated[str | None, Parameter(name=["--brain-name"])] = None,
     path: str | None = None,
     media_type: Annotated[str | None, Parameter(name=["--media-type"])] = None,
     normalize_with: Annotated[str | None, Parameter(name=["--normalize-with"])] = None,
@@ -400,9 +399,6 @@ def add(
         What to call it. Lowercase, because you will type it on a command line.
     kind
         Which strategy acquires from it. `vitruvio source kinds` lists what is installed.
-    brain
-        Which named brain it feeds. Spelled --brain-name because --brain is a global option that selects the
-        brain for *this invocation*; this one is written into the file and decides every future pull.
     path
         Its root. Recorded as given and resolved against vitruvio.toml, never against the working directory.
     media_type
@@ -419,11 +415,10 @@ def add(
 
     result = (
         current()
-        .service(require_brain=False)
+        .service()
         .add_source(
             name,
             kind=kind,
-            brain=brain,
             path=path,
             media_type=media_type,
             normalize_with=normalize_with,
@@ -450,7 +445,7 @@ def remove(name: str) -> ExitCode:
         The source's name.
     """
     console = current().console
-    result = current().service(require_brain=False).remove_source(name)
+    result = current().service().remove_source(name)
     return console.emit("source.remove", result, view=render.fields([("removed", result["name"])]))
 
 

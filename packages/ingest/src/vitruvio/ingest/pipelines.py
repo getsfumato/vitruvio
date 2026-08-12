@@ -27,11 +27,9 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections.abc import Iterator
 from html.parser import HTMLParser
-from typing import TYPE_CHECKING, ClassVar
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
+from typing import ClassVar
 
 TEXT_MEDIA_TYPE = "text/plain; charset=utf-8"
 """What every text-producing pipeline emits. Named once so the views are interchangeable to a reader."""

@@ -26,18 +26,16 @@ personal data, credentials, or licensed material -- not for cleanup. Wrong knowl
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from cyclopts import App, Parameter
+from rich.console import RenderableType
 from rich.text import Text
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
 from vitruvio.kernel import ExitCode, VitruvioError
-
-if TYPE_CHECKING:
-    from rich.console import RenderableType
 
 app = App(
     name="retain",

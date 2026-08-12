@@ -26,9 +26,9 @@ in the postings to match positionally.
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING
 
 # Reused rather than reimplemented. Divergence from the SDK's own list would show up as a differential-test
 # failure that looks like a scoring bug, and the list itself is chosen by grammatical role rather than frequency.
@@ -44,9 +44,6 @@ from vitruvio.embeddings.folding import (
     normalize,
     tokenize,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
 
 __all__ = [
     "MINIMUM_LENGTH",

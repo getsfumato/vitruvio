@@ -19,13 +19,11 @@ title column of a provenance record and call it a name.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import Any
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from boltzmann.blocks.base import Block
-    from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.blocks.base import Block
+from boltzmann.blocks.memory_type import MemoryType
 
 TITLE_FIELDS: Mapping[str, tuple[str, ...]] = {
     "canonical": ("media_type",),

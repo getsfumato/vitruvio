@@ -7,7 +7,7 @@ groups appear in ``--help``, which is editorial and worth controlling.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from cyclopts import App
 
 from vitruvio.cli.commands import (
     bench,
@@ -27,9 +27,6 @@ from vitruvio.cli.commands import (
     source,
     task,
 )
-
-if TYPE_CHECKING:
-    from cyclopts import App
 
 GROUPS = (
     project,

@@ -8,16 +8,14 @@ churn is the machine-readable shape, because that is what an agent is driving.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
 from vitruvio.cli.main import main
 from vitruvio.kernel import ExitCode, __version__
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 
 def run(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str, str]:

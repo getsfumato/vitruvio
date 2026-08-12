@@ -18,18 +18,14 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.blocks.provenance import Actor, ActorKind
+from boltzmann.brain import Brain
 from boltzmann.ingest.proposer import Candidate, CandidateSet
 from boltzmann.ingest.register import RegistrationRequest
 from boltzmann.retention.policy import PERMISSIVE_POLICY
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from boltzmann.brain import Brain
 
 SUBJECTS = ("senales", "control", "algebra", "termodinamica", "optica", "redes")
 """Subjects, so a facet filter has something with real selectivity to cut on."""

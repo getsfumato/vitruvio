@@ -15,29 +15,24 @@ and it is what lets a later open tell a current index from a stale one without r
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
 
-from boltzmann.indices.base import IndexKind
+from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.indices.base import Index, IndexKind
+from boltzmann.module.module import Module
 
+from vitruvio.indices.base import VitruvioIndex
 from vitruvio.indices.bitmap import BitmapIndex
 from vitruvio.indices.btree import BTreeIndex
 from vitruvio.indices.graph import GraphIndex
 from vitruvio.indices.hash_map import HashMapIndex
 from vitruvio.indices.inverted import InvertedIndex
+from vitruvio.indices.queries import Capability
 from vitruvio.indices.vector import VectorIndex
+from vitruvio.kernel import IndexSpec
 from vitruvio.stats import ModuleStats, leaf_fingerprint, merge
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-    from pathlib import Path
-
-    from boltzmann.blocks.memory_type import MemoryType
-    from boltzmann.indices.base import Index
-    from boltzmann.module.module import Module
-
-    from vitruvio.indices.base import VitruvioIndex
-    from vitruvio.indices.queries import Capability
-    from vitruvio.kernel import IndexSpec
 
 # Which kinds this build can construct. A declared kind that is absent here is reported rather than silently
 # skipped: an index the user asked for and did not get is exactly the thing that must not pass unnoticed.

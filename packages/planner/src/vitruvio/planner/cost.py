@@ -19,16 +19,11 @@ than as a preference the optimiser could sell.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-from vitruvio.planner.ir import Estimates, Op
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-
-    from vitruvio.planner.ir import Plan
-    from vitruvio.stats import ModuleStats
+from vitruvio.planner.ir import Estimates, Op, Plan
+from vitruvio.stats import ModuleStats
 
 
 @dataclass(frozen=True, slots=True)

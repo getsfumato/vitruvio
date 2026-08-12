@@ -18,13 +18,12 @@ change the artifact's identity.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+from boltzmann.store.base import BlockStore
 
 from vitruvio.kernel import VitruvioError
 from vitruvio.runtime.registry import PREFLIGHT_TAG, is_docker_hub, normalize_reference
-
-if TYPE_CHECKING:
-    from boltzmann.store.base import BlockStore
 
 PROBE_CONTENT = b'{"vitruvio":"preflight"}'
 """What the probe layer holds. Tiny, and self-describing if anyone finds it."""

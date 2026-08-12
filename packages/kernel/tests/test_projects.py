@@ -148,7 +148,7 @@ class TestSelection:
         monkeypatch.chdir(tmp_path)
 
         resolved = resolve(brain=tmp_path / "brains" / "algebra")
-        assert resolved.brain_name is None, "a path selects a brain without claiming it is a project member"
+        assert resolved.brain_name == "algebra", "a matching path keeps access to that brain's scoped configuration"
 
     def test_the_environment_selects_by_name_too(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """How a container or a CI job picks a subject without editing a file."""

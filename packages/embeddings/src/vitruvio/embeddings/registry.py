@@ -12,12 +12,9 @@ failure the model tag exists to make impossible.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from vitruvio.embeddings.base import Embedder, EmbedderUnavailableError, FakeEmbedder, HashingEmbedder
-
-if TYPE_CHECKING:
-    from vitruvio.kernel import EmbedderSpec
+from vitruvio.kernel import EmbedderSpec
 
 Factory = Callable[["EmbedderSpec"], Embedder]
 

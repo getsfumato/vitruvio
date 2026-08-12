@@ -26,32 +26,29 @@ installed, so chunk boundaries -- and therefore cache keys and vector identity -
 from __future__ import annotations
 
 import struct
-from typing import TYPE_CHECKING, Any, ClassVar
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, ClassVar
 
+from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.exceptions import DistributionError
 from boltzmann.indices.base import IndexKind
 
 from vitruvio.embeddings import (
+    Embedder,
     EmbedderUnavailableError,
     MemoryCache,
     ModelTag,
     TextRole,
+    Vector,
     cache_key,
     explain_mismatch,
 )
+from vitruvio.indices import format as envelope
 from vitruvio.indices.base import VitruvioIndex
+from vitruvio.indices.projection import Projection
 from vitruvio.indices.queries import VectorQuery
 from vitruvio.stats import VectorStats
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from pathlib import Path
-
-    from boltzmann.blocks.memory_type import MemoryType
-
-    from vitruvio.embeddings import Embedder, Vector
-    from vitruvio.indices import format as envelope
-    from vitruvio.indices.projection import Projection
 
 CHUNKER_ID = "vitruvio-chunker/1"
 """Bumped when chunk boundaries change. Inside the model tag, because different chunks are different embedded strings."""

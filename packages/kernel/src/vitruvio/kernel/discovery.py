@@ -47,17 +47,15 @@ from __future__ import annotations
 import os
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import tomli_w
+from boltzmann.blocks.provenance import ActorKind
 from pydantic import ValidationError
 
 from vitruvio.kernel.config import ActorSpec, Origin, ProjectConfig, ResolvedConfig
 from vitruvio.kernel.errors import BrainNotSelectedError, ConfigError, ProjectNotKnownError
 from vitruvio.kernel.paths import CONFIG_FILE, is_layout, state_file
-
-if TYPE_CHECKING:
-    from boltzmann.blocks.provenance import ActorKind
 
 ENV_BRAIN = "VITRUVIO_BRAIN"
 ENV_CONFIG = "VITRUVIO_CONFIG"
@@ -484,14 +482,22 @@ def _brain_from_layers(
         named = project.brain_path(str(brain_flag))
         if named is not None:
             return named, Origin.FLAG, str(brain_flag)
-        return brain_flag.expanduser().resolve(), Origin.FLAG, None
+        selected = brain_flag.expanduser().resolve()
+        for name in project.brains:
+            if project.brain_path(name) == selected:
+                return selected, Origin.FLAG, name
+        return selected, Origin.FLAG, None
 
     from_env = os.environ.get(ENV_BRAIN, "").strip()
     if from_env:
         named = project.brain_path(from_env)
         if named is not None:
             return named, Origin.ENVIRONMENT, from_env
-        return Path(from_env).expanduser().resolve(), Origin.ENVIRONMENT, None
+        selected = Path(from_env).expanduser().resolve()
+        for name in project.brains:
+            if project.brain_path(name) == selected:
+                return selected, Origin.ENVIRONMENT, name
+        return selected, Origin.ENVIRONMENT, None
 
     if project.brain.path and project.source is not None:
         # Relative to the file, not to cwd. This is the whole point of the walk-up.

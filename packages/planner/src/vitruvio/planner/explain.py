@@ -12,12 +12,11 @@ alternative. All four are visible in one payload, which turns an argument into a
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-if TYPE_CHECKING:
-    from vitruvio.planner.ir import Estimates, Metrics, Plan
+from vitruvio.planner.ir import Estimates, Metrics, Plan
 
 
 class OperatorExplain(BaseModel):

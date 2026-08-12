@@ -10,18 +10,15 @@ built-in kind was shipped first for.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 from vitruvio.ingest.sources import FetchResult, Item
-from vitruvio.kernel import ConfigError, ProjectConfig, SourceSpec, UsageError, resolve
+from vitruvio.kernel import BrainSpec, ConfigError, ProjectConfig, SourceSpec, UsageError, resolve
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.assembly import Capability
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 PROJECT = """
 [brain]
@@ -34,7 +31,7 @@ id = "tester@example.com"
 profile = "conservative"
 redactable_media_types = ["text/markdown"]
 
-[sources.papers]
+[brain.sources.papers]
 kind = "directory"
 path = "./incoming"
 options = {{ glob = "*.md" }}
@@ -99,7 +96,7 @@ class TestPull:
 
         from vitruvio.kernel import load_project
 
-        declared = load_project(tmp_path / "vitruvio.toml").sources["papers"]
+        declared = load_project(tmp_path / "vitruvio.toml").brain.sources["papers"]
         assert declared.options == {"glob": "*.md"}, "a pull override must never become configuration"
 
     def test_an_unknown_pull_override_is_validated_by_the_kind(self, project: BrainService) -> None:
@@ -130,7 +127,7 @@ class TestPull:
         broken = incoming / "vanishes.md"
         broken.write_text("# gone\n", encoding="utf-8")
 
-        source = project._source("papers", project.config.project.sources["papers"])
+        source = project._source("papers", project.config.sources["papers"])
         listed = list(source.list())
         broken.unlink()
 
@@ -172,7 +169,7 @@ class TestPull:
 
         source = DeferredMetadataSource()
         item = Item(id="77", origin="aula://course/77", title="Teoria")
-        spec = project.config.project.sources["papers"]
+        spec = project.config.sources["papers"]
         brain = project.brain(Capability.WRITE)
 
         first = project._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
@@ -201,7 +198,7 @@ class TestPull:
 
         source = CorrectedSource()
         item = Item(id="88", origin="aula://course/88", title="Teoria")
-        spec = project.config.project.sources["papers"]
+        spec = project.config.sources["papers"]
         brain = project.brain(Capability.WRITE)
 
         generic = project._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
@@ -257,7 +254,7 @@ class TestPullAll:
     ) -> None:
         config_file = tmp_path / "vitruvio.toml"
         config_file.write_text(
-            PROJECT.format() + '\n[sources.absent]\nkind = "directory"\npath = "./not-there"\n',
+            PROJECT.format() + '\n[brain.sources.absent]\nkind = "directory"\npath = "./not-there"\n',
             encoding="utf-8",
         )
         service = BrainService(resolve(brain=tmp_path / "brain", config=config_file))
@@ -270,7 +267,7 @@ class TestPullAll:
         assert failed["code"] == "SOURCE_FAILED"
 
     def test_with_nothing_declared_it_says_so_as_a_configuration_error(self, service: BrainService) -> None:
-        with pytest.raises(ConfigError, match="declares no sources"):
+        with pytest.raises(ConfigError, match="brain declares no sources"):
             service.pull_all()
 
 
@@ -281,9 +278,7 @@ class TestRefusals:
         with pytest.raises(UsageError, match="declares no source"):
             project.pull_source("nonexistent")
 
-    def test_a_source_may_not_feed_a_brain_other_than_the_selected_one(self, tmp_path: Path) -> None:
-        """Neither side silently wins. Registering one subject's material into another brain is the worst outcome
-        available here and content addressing has no undo for it."""
+    def test_a_brain_cannot_see_another_brains_source(self, tmp_path: Path) -> None:
         config_file = tmp_path / "vitruvio.toml"
         config_file.write_text(
             """
@@ -293,25 +288,24 @@ id = "tester@example.com"
 [brains.algebra]
 path = "./brains/algebra"
 
+[brains.algebra.sources.papers]
+kind = "directory"
+path = "./incoming"
+
 [brains.fisica]
 path = "./brains/fisica"
-
-[sources.papers]
-kind = "directory"
-brain = "algebra"
-path = "./incoming"
 """,
             encoding="utf-8",
         )
         (tmp_path / "incoming").mkdir()
         config = resolve(brain=tmp_path / "brains" / "fisica", config=config_file, require_layout=False)
-        service = BrainService(config.model_copy(update={"brain_name": "fisica"}))
+        assert config.brain_name == "fisica", "a declared brain selected by path keeps its configuration identity"
+        service = BrainService(config)
         service.init()
-        with pytest.raises(UsageError, match="feeds brain 'algebra'"):
+        with pytest.raises(UsageError, match="brain declares no source"):
             service.pull_source("papers")
 
-    def test_an_unpinned_source_can_be_parameterized_for_each_explicit_brain(self, tmp_path: Path) -> None:
-        """The reusable case: one declaration, while both destination and acquisition parameters stay explicit."""
+    def test_the_same_source_name_has_persistent_options_per_brain(self, tmp_path: Path) -> None:
         config_file = tmp_path / "vitruvio.toml"
         config_file.write_text(
             """
@@ -321,13 +315,18 @@ id = "tester@example.com"
 [brains.simulacion]
 path = "./brains/simulacion"
 
+[brains.simulacion.sources.aula]
+kind = "directory"
+path = "./incoming"
+options = { glob = "simulacion.md" }
+
 [brains.fisica]
 path = "./brains/fisica"
 
-[sources.aula]
+[brains.fisica.sources.aula]
 kind = "directory"
 path = "./incoming"
-options = { glob = "nothing" }
+options = { glob = "fisica.md" }
 """,
             encoding="utf-8",
         )
@@ -339,9 +338,9 @@ options = { glob = "nothing" }
         for brain_name in ("simulacion", "fisica"):
             path = tmp_path / "brains" / brain_name
             config = resolve(brain=path, config=config_file, require_layout=False)
-            service = BrainService(config.model_copy(update={"brain_name": brain_name}))
+            service = BrainService(config)
             service.init()
-            result = service.pull_source("aula", dry_run=True, option_overrides={"glob": f"{brain_name}.md"})
+            result = service.pull_source("aula", dry_run=True)
             assert result["brain"] == brain_name
             assert [row["title"] for row in result["items"]] == [f"{brain_name}.md"]
 
@@ -356,8 +355,8 @@ class TestDeclaration:
         from vitruvio.kernel import load_project
 
         written = load_project(tmp_path / "vitruvio.toml")
-        assert written.sources["notes"].kind == "directory"
-        assert written.sources["notes"].options == {"glob": "*.txt"}
+        assert written.brain.sources["notes"].kind == "directory"
+        assert written.brain.sources["notes"].options == {"glob": "*.txt"}
 
     def test_add_warns_when_a_path_leaves_the_project(self, project: BrainService, tmp_path: Path) -> None:
         """A directory source composes with `dist push` into a way to publish something nobody meant to: point one
@@ -370,24 +369,23 @@ class TestDeclaration:
         with pytest.raises(UsageError, match="already declares"):
             project.add_source("papers", kind="directory", path="./incoming")
 
-    def test_a_source_naming_an_undeclared_brain_is_refused_before_it_is_written(self, tmp_path: Path) -> None:
-        """Validated against the whole document rather than its own fields -- otherwise the refusal would arrive at
-        the next pull, by which time the declaration is committed. A single-brain project has nothing to check
-        against, so this needs a project that names its brains."""
+    def test_add_writes_only_under_the_selected_named_brain(self, tmp_path: Path) -> None:
         config_file = tmp_path / "vitruvio.toml"
         config_file.write_text(
-            '[actor]\nid = "t@e.c"\n\n[brains.algebra]\npath = "./brains/algebra"\n',
+            '[actor]\nid = "t@e.c"\n\n[brains.algebra]\npath = "./brains/algebra"\n\n'
+            '[brains.fisica]\npath = "./brains/fisica"\n',
             encoding="utf-8",
         )
         config = resolve(brain=tmp_path / "brains" / "algebra", config=config_file, require_layout=False)
-        service = BrainService(config.model_copy(update={"brain_name": "algebra"}))
+        service = BrainService(config)
         service.init()
-        with pytest.raises(Exception, match="fisica"):
-            service.add_source("aula", kind="directory", brain="fisica", path="./incoming")
+        service.add_source("aula", kind="directory", path="./incoming")
 
         from vitruvio.kernel import load_project
 
-        assert "aula" not in load_project(config_file).sources, "nothing may be written before it validates"
+        written = load_project(config_file)
+        assert "aula" in written.brains["algebra"].sources
+        assert written.brains["fisica"].sources == {}
 
     def test_remove_undeclares_without_touching_anything_registered(
         self, project: BrainService, tmp_path: Path
@@ -398,7 +396,7 @@ class TestDeclaration:
 
         from vitruvio.kernel import load_project
 
-        assert "papers" not in load_project(tmp_path / "vitruvio.toml").sources
+        assert "papers" not in load_project(tmp_path / "vitruvio.toml").brain.sources
         assert project.state()["block_count"] == before
 
     def test_removing_something_undeclared_is_a_usage_error(self, project: BrainService) -> None:
@@ -410,7 +408,7 @@ class TestDeclaration:
         `pull`."""
         config_file = tmp_path / "vitruvio.toml"
         config_file.write_text(
-            PROJECT.format() + '\n[sources.absent]\nkind = "directory"\npath = "./not-there"\n',
+            PROJECT.format() + '\n[brain.sources.absent]\nkind = "directory"\npath = "./not-there"\n',
             encoding="utf-8",
         )
         (tmp_path / "incoming").mkdir(exist_ok=True)
@@ -430,7 +428,7 @@ id = "tester@example.com"
 [brain]
 path = "./brain"
 
-[sources.aula]
+[brain.sources.aula]
 kind = "aulasvirtuales"
 """,
             encoding="utf-8",
@@ -442,10 +440,10 @@ kind = "aulasvirtuales"
 
     def test_a_directory_source_with_no_path_is_a_configuration_error(self, tmp_path: Path) -> None:
         spec = SourceSpec(kind="directory")
-        ProjectConfig(sources={"papers": spec})  # the schema allows it; the kind does not
+        ProjectConfig(brain=BrainSpec(sources={"papers": spec}))  # the schema allows it; the kind does not
         config_file = tmp_path / "vitruvio.toml"
         config_file.write_text(
-            '[actor]\nid = "t@e.c"\n\n[brain]\npath = "./brain"\n\n[sources.papers]\nkind = "directory"\n',
+            '[actor]\nid = "t@e.c"\n\n[brain]\npath = "./brain"\n\n[brain.sources.papers]\nkind = "directory"\n',
             encoding="utf-8",
         )
         service = BrainService(resolve(brain=tmp_path / "brain", config=config_file, require_layout=False))

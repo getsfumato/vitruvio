@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.blocks.semantic import SemanticBlock
 
 from vitruvio.indices import (
     Combine,
@@ -26,11 +27,6 @@ from vitruvio.indices.text import (
     phrase_terms,
     stem,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from boltzmann.blocks.semantic import SemanticBlock
 
 
 class TestAnalyzerDeterminism:

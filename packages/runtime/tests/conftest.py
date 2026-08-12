@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
-from vitruvio.kernel import resolve
+from vitruvio.kernel import ResolvedConfig, resolve
 from vitruvio.runtime import BrainService
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from vitruvio.kernel import ResolvedConfig
 
 
 @pytest.fixture

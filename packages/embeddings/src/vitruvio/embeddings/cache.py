@@ -23,13 +23,10 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import struct
-from typing import TYPE_CHECKING
+from collections.abc import Iterable, Mapping, Sequence
+from pathlib import Path
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
-    from pathlib import Path
-
-    from vitruvio.embeddings.base import Vector
+from vitruvio.embeddings.base import Vector
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vectors (

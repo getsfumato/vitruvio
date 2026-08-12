@@ -24,11 +24,10 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from boltzmann.ingest.proposer import CandidateSet
-    from boltzmann.ingest.task import ProcessingTask
+from boltzmann.ingest.proposer import CandidateSet
+from boltzmann.ingest.task import ProcessingTask
 
 MAX_STATEMENT = 4000
 """Where a section's statement is cut. Long enough for a dense paragraph, short enough that one runaway section does

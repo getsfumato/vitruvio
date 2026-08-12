@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -23,10 +24,6 @@ from vitruvio.runtime.registry import (
     normalize_reference,
     store,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-    from pathlib import Path
 
 
 class TestReferenceNormalisation:

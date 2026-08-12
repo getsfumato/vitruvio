@@ -10,15 +10,17 @@ from __future__ import annotations
 
 import json as jsonlib
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Annotated, Any
 
 from cyclopts import App, Parameter
+from rich.table import Table
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import (
     ConfigError,
     ExitCode,
+    ProjectConfig,
     Secret,
     load_project,
     paths,
@@ -26,11 +28,6 @@ from vitruvio.kernel import (
     registry_credentials,
     update_config,
 )
-
-if TYPE_CHECKING:
-    from rich.table import Table
-
-    from vitruvio.kernel import ProjectConfig
 
 app = App(
     name="config", help="Inspect and edit the project configuration.", result_action="return_value", exit_on_error=False

@@ -24,14 +24,18 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.indices.base import IndexKind
 from boltzmann.module.ledger import Ledger
+from boltzmann.module.module import Module
 from boltzmann.query.evidence import EvidenceBundle
+from boltzmann.query.request import Query
 
+from vitruvio.kernel import PlannerConfig
 from vitruvio.planner.cost import (
     DEFAULT_CALIBRATION,
     Calibration,
@@ -48,17 +52,8 @@ from vitruvio.planner.explain import (
     describe_plan,
 )
 from vitruvio.planner.intent import classify
-from vitruvio.planner.ir import Op
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-
-    from boltzmann.module.module import Module
-    from boltzmann.query.request import Query
-
-    from vitruvio.kernel import PlannerConfig
-    from vitruvio.planner.ir import Metrics, Plan
-    from vitruvio.stats import ModuleStats
+from vitruvio.planner.ir import Metrics, Op, Plan
+from vitruvio.stats import ModuleStats
 
 RESERVE_FACTOR = 1
 """Extra rows kept past the limit, as a multiple of it.

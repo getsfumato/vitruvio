@@ -19,17 +19,14 @@ with no timestamp cannot satisfy a time window.
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from boltzmann.indices.base import IndexKind
 
 from vitruvio.indices.base import VitruvioIndex
-from vitruvio.indices.projection import OrderedKey
+from vitruvio.indices.projection import OrderedKey, Projection
 from vitruvio.indices.queries import Order, RangeQuery
 from vitruvio.stats import HISTOGRAM_BUCKETS, Estimate, TimeStats
-
-if TYPE_CHECKING:
-    from vitruvio.indices.projection import Projection
 
 RANGE_SCORE = 1.0
 """What an in-range hit scores. A range predicate is boolean; ranking belongs to the planner."""

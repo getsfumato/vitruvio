@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.blocks.semantic import SemanticBlock
 from boltzmann.exceptions import DistributionError
 from boltzmann.indices.base import Index, TravellingIndex
 
@@ -31,11 +32,6 @@ from vitruvio.indices import (
     VectorQuery,
     chunk,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from boltzmann.blocks.semantic import SemanticBlock
 
 
 def an_index(memory_type: MemoryType = MemoryType.SEMANTIC, home: Path | None = None, **kwargs: object) -> VectorIndex:

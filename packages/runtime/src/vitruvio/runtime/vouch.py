@@ -39,15 +39,11 @@ when the private goes away, the failure is a red build rather than a brain that 
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Iterable
 
 from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.brain import Brain
 from boltzmann.indices.base import IndexKind
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
-
-    from boltzmann.brain import Brain
 
 VOUCHED_ATTRIBUTE = "_vouched"
 """The SDK private this depends on. Named once, so the test that guards it and the code that uses it agree."""

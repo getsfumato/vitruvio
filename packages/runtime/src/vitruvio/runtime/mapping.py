@@ -12,8 +12,8 @@ the distinction is the whole point.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from boltzmann.exceptions import (
     BlockIntegrityError,
@@ -34,9 +34,6 @@ from boltzmann.exceptions import (
 )
 
 from vitruvio.kernel import ExitCode, VitruvioError
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 
 @dataclass(frozen=True)
