@@ -100,6 +100,25 @@ jobs:
       # that this would measure the scan and pass for the wrong reason.
       - run: uv run vitruvio bench --tier 800 --queries 12 --gate
 
+  installer:
+    name: installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # install.sh is the one thing here that no test imports and every new user runs first. shellcheck is
+      # preinstalled on the runner image, and `sh -n` catches what it does not: between them, a typo in the
+      # installer fails on a pull request rather than on a release nobody can install.
+      - run: sh -n install.sh
+      - run: shellcheck --shell=sh install.sh
+      # The full download path needs a published release, so it is exercised by the smoke job in
+      # release.yml. What is checkable without one is that the release workflow and the installer still
+      # agree on the archive name -- they are the two halves of one contract, written in two files.
+      - name: the installer and the release workflow must agree on the archive name
+        run: |
+          set -eu
+          grep -q 'ARCHIVE="${PKG}-v${VERSION}-wheels.tar.gz"' install.sh
+          grep -q 'name="vitruvio-v${VERSION}-wheels"' .github/workflows/release.yml
+
   no-sources:
     name: no-sources (PyPI pyboltzmann)
     runs-on: ubuntu-latest

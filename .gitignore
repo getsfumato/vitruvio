@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+# The wheel bundle the release workflow assembles from dist/ before uploading it.
+bundle/
 .venv/
 venv/
 

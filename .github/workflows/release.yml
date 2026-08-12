@@ -1,0 +1,329 @@
+name: release
+
+# Computes the release from the commits on main and cuts it, unattended.
+#
+# `fix:` and `perf:` take a patch, `feat:` a minor, and a break takes the minor while the major is 0
+# (`major_on_zero = false`). Everything else -- docs, style, refactor, test, build, ci, chore -- releases
+# nothing, so most pushes end at the `plan` job with "no release". The mapping is not duplicated here: it
+# is `[tool.semantic_release]` in pyproject.toml, and python-semantic-release is the only thing that
+# reads it, which is what keeps a local `semantic-release version --print` honest about what CI will do.
+on:
+  push:
+    branches: [main]
+  # The hand path: force a release out of commits that would not have caused one, or re-run after a
+  # transient failure. `none` behaves exactly like a push.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Force a bump of this size even if the commits do not call for one.
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
+
+permissions:
+  contents: write
+
+concurrency:
+  # Never two releases at once: they would race on the tag, on the nine versions in the manifests, and on
+  # the lock. Not cancel-in-progress -- interrupting a release between the tag push and the assets is
+  # worse than queueing behind it.
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    # Skips its own release commit. Pushes made with GITHUB_TOKEN do not start workflows, so this should
+    # be unreachable -- it is here because relying on that alone makes an infinite release loop the
+    # failure mode if it ever changes.
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    outputs:
+      release: ${{ steps.plan.outputs.release }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+    env:
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags and full history: the commit range starts at the last release tag, and a shallow clone
+          # cannot see it -- it would plan every release as if it were the first.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      # The root group carries python-semantic-release; no member needs installing to ask it a question.
+      - run: uv sync --only-dev
+
+      - id: plan
+        name: compute the next version from the commits
+        run: |
+          set -euo pipefail
+
+          flag=""
+          case "${{ inputs.force || 'none' }}" in
+            patch|minor|major) flag="--${{ inputs.force }}" ;;
+          esac
+
+          # `--print` reports the *current* version when nothing is releasable rather than printing
+          # nothing, so emptiness is not the signal. Comparing the two tags is: they differ exactly when
+          # a bump is warranted, and `last` is empty only before the first release ever.
+          last=$(uv run semantic-release version --print-last-released-tag 2>/dev/null || true)
+          next=$(uv run semantic-release version --print-tag $flag 2>/dev/null || true)
+
+          echo "last released tag: ${last:-<none>}"
+          echo "next tag:          ${next:-<none>}"
+
+          if [ -z "$next" ]; then
+            release=false
+          elif [ "$next" = "$last" ]; then
+            release=false
+          else
+            release=true
+          fi
+
+          {
+            echo "release=$release"
+            echo "tag=$next"
+            echo "version=${next#v}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release plan"
+            echo
+            if [ "$release" = true ]; then
+              echo "Releasing **${next#v}** (last: ${last:-none})."
+            else
+              echo "No releasable commits since ${last:-the beginning}. Nothing to do."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$release" != true ]; then
+            echo "::notice::no releasable commits since ${last:-the beginning}; nothing to do"
+          fi
+
+  gate:
+    name: gate
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      UV_FROZEN: "1"
+    steps:
+      # ci.yml runs on this same push, but nothing joins the two runs, so without this a release can be
+      # cut from a commit whose CI is red. This is the subset that must hold for the tag to mean
+      # anything: the lint, the layering contract, the types on the floor version, and the fast tests.
+      # The full three-version matrix stays in ci.yml -- it gates the merge, this gates the tag.
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      - run: uv sync --all-packages
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy packages apps
+      - run: uv run lint-imports
+      - run: uv run python -m vitruvio.cli.reference --check
+      - run: uv run pytest -m "not slow" -n auto
+
+  release:
+    name: bump, tag and publish
+    needs: [plan, gate]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.11"
+      # No UV_FROZEN anywhere in this job: build_command relocks on purpose, and a frozen environment
+      # would make the release fail on the very file it is supposed to update.
+      - run: uv sync --all-packages
+
+      - name: bump the nine versions, write the changelog, tag and push
+        env:
+          # `[tool.semantic_release.remote]` reads the token from here. It is used for the push, not for
+          # creating the release -- that is `--no-vcs-release` below.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          flag=""
+          case "${{ inputs.force || 'none' }}" in
+            patch|minor|major) flag="--${{ inputs.force }}" ;;
+          esac
+
+          # Deliberately not letting semantic-release create the GitHub release. It would publish it the
+          # moment the tag exists, and `releases/latest` is what install.sh resolves -- so for the minute
+          # it takes to build and upload, every installer would resolve a release with no artifacts in
+          # it. The draft below is invisible to `latest` until the assets are verified present.
+          uv run semantic-release -v version $flag --no-vcs-release
+
+          # The tag the plan computed and the tag semantic-release actually created must be the same
+          # thing. They can only diverge if a commit landed between the two jobs, and the mismatch is
+          # cheap to catch here and expensive to discover in a published release.
+          created=$(git describe --tags --exact-match HEAD)
+          [ "$created" = "$TAG" ] || {
+            echo "::error::planned $TAG but semantic-release created $created"
+            exit 1
+          }
+
+      - name: bundle the nine distributions
+        run: |
+          set -eu
+          # One archive rather than eighteen loose assets. The nine distributions are only installable
+          # together -- `vitruvio` depends on vitruvio-kernel and vitruvio-runtime, which depend on five
+          # more -- so the unit an installer needs is the whole set. install.sh downloads this, points
+          # `uv tool install --find-links` at the extracted directory, and lets uv resolve within it.
+          name="vitruvio-v${VERSION}-wheels"
+          mkdir -p "bundle/${name}"
+          # Globbed on the version rather than copying dist/ wholesale. build_command empties dist/ first,
+          # so this is the second of two guards against a stale artifact from an earlier version being
+          # bundled -- the cost of one is a release that installs the wrong code.
+          cp dist/*-"${VERSION}"-py3-none-any.whl dist/*-"${VERSION}".tar.gz "bundle/${name}/"
+
+          # Nine of each. A bundle short a package installs nothing and says "no solution found", so the
+          # count is asserted here rather than discovered by whoever ran the installer first.
+          wheels=$(find "bundle/${name}" -name '*.whl' | wc -l | tr -d ' ')
+          sdists=$(find "bundle/${name}" -name '*.tar.gz' | wc -l | tr -d ' ')
+          echo "wheels: $wheels, sdists: $sdists"
+          [ "$wheels" -eq 9 ] && [ "$sdists" -eq 9 ] || {
+            echo "::error::expected 9 wheels and 9 sdists, got $wheels and $sdists"
+            exit 1
+          }
+
+          # Every wheel must carry the version being released. A member whose pyproject escaped
+          # version_toml would build at the old number and install alongside the new ones.
+          for whl in "bundle/${name}"/*.whl; do
+            case "$(basename "$whl")" in
+              *-"${VERSION}"-py3-none-any.whl) ;;
+              *) echo "::error::$(basename "$whl") is not version ${VERSION}"; exit 1 ;;
+            esac
+          done
+
+          cd bundle
+          tar --format=ustar -czf "${name}.tar.gz" "${name}"
+          # "<64 hex>  <name>", which is the shape install.sh's `cut -d' ' -f1` expects. openssl dgst
+          # would emit "SHA256(f)= hex" and every install would die on a checksum mismatch.
+          sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          sum=$(cut -d' ' -f1 < "${name}.tar.gz.sha256")
+          [ ${#sum} -eq 64 ] || { echo "::error::checksum has the wrong shape: $sum"; exit 1; }
+          tar -tzf "${name}.tar.gz" | head -5
+
+      - name: draft the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, reusing it"
+          else
+            gh release create "$TAG" --draft --verify-tag --title "$TAG" --generate-notes
+          fi
+          # install.sh ships as an asset as well as in the tree, so
+          # `releases/latest/download/install.sh` is a stable URL that always serves the installer the
+          # newest release was actually tested with.
+          gh release upload "$TAG" \
+            "bundle/vitruvio-v${VERSION}-wheels.tar.gz" \
+            "bundle/vitruvio-v${VERSION}-wheels.tar.gz.sha256" \
+            install.sh \
+            --clobber
+
+      - name: install from the draft, then publish it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # The installer's own path, against the artifacts about to be published, while the release is
+          # still a draft. A bundle that cannot be installed therefore never becomes `latest`. It reads
+          # the archive locally because a draft's assets are not downloadable without auth, which is the
+          # one step install.sh does differently here than in a user's shell -- covered by the
+          # smoke job below, which runs the download path too.
+          mkdir -p /tmp/wheels
+          tar -xzf "bundle/vitruvio-v${VERSION}-wheels.tar.gz" -C /tmp/wheels
+          # --reinstall for the same reason install.sh uses it: only `vitruvio` is pinned, so an existing
+          # environment would keep its eight siblings and the check below would pass or fail for a reason
+          # that has nothing to do with this release.
+          UV_TOOL_BIN_DIR=/tmp/bin uv tool install --force --reinstall \
+            --find-links "$(find /tmp/wheels -name '*.whl' -exec dirname {} \; | head -1)" \
+            "vitruvio==${VERSION}"
+          got=$(/tmp/bin/vitruvio --version)
+          echo "installed: $got"
+          [ "$got" = "$VERSION" ] || { echo "::error::installed $got, expected $VERSION"; exit 1; }
+
+          expected=3
+          found=$(gh release view "$TAG" --json assets --jq '[.assets[].name] | length')
+          [ "$found" -eq "$expected" ] || {
+            gh release view "$TAG" --json assets --jq '.assets[].name'
+            echo "::error::expected $expected assets, found $found; leaving the release as a draft"
+            exit 1
+          }
+          gh release edit "$TAG" --draft=false --latest
+
+      - name: summary
+        run: |
+          {
+            echo "### Released ${TAG}"
+            echo
+            echo '```'
+            echo "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    name: install ${{ matrix.os }}
+    needs: [plan, release]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04, macos-latest]
+    steps:
+      # The published path, end to end, on a runner with no uv and no vitruvio: resolve the release from
+      # the GitHub API, download the bundle, verify the checksum, install, run it. This is the only test
+      # that covers the parts of install.sh a user reaches and CI otherwise never does -- version
+      # resolution, the download, and bootstrapping uv.
+      - uses: actions/checkout@v4
+      - name: wait for releases/latest to catch up
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -eu
+          # install.sh below is run with no VITRUVIO_VERSION on purpose, so that resolution through the
+          # API is part of what is tested. That endpoint is cached, so it can lag the `gh release edit`
+          # by a few seconds; polling here keeps a real installer bug distinguishable from that lag.
+          for _ in $(seq 1 20); do
+            got=$(curl -fsSL "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+                  | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+            [ "$got" = "$TAG" ] && exit 0
+            echo "latest is ${got:-<none>}, waiting for $TAG"
+            sleep 5
+          done
+          echo "::error::releases/latest never became $TAG"
+          exit 1
+
+      - name: install and run
+        env:
+          VITRUVIO_BIN_DIR: ${{ runner.temp }}/bin
+        run: |
+          set -eu
+          sh ./install.sh
+          got=$("$VITRUVIO_BIN_DIR/vitruvio" --version)
+          echo "installed: $got"
+          [ "$got" = "${{ needs.plan.outputs.version }}" ] || {
+            echo "::error::installed $got, expected ${{ needs.plan.outputs.version }}"
+            exit 1
+          }
+          "$VITRUVIO_BIN_DIR/vitruvio" --help > /dev/null

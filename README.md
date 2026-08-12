@@ -9,11 +9,20 @@ The protocol says a brain conserves, validates and retrieves knowledge while an 
 Vitruvio fills them in: six index kinds, text and vision embeddings, and a cost-based planner that chooses indices
 from the shape of the query and can explain why.
 
-> Status: early. The CLI is complete and tested; nothing has been released to PyPI yet.
+> Status: early. The CLI is complete and tested; nothing has been released to PyPI yet — the installer below
+> takes the wheels from the GitHub release instead, so it works today and keeps working once PyPI happens.
 
 ```console
-pip install vitruvio                 # no torch, no downloads — still embeds, still indexes
-pip install 'vitruvio[all]'          # local and API embeddings, PDF pages, LLM proposers
+curl -fsSL https://raw.githubusercontent.com/getsfumato/vitruvio/main/install.sh | sh
+```
+
+Installs the latest release into `~/.local/bin` with its own isolated environment, fetching a Python if the
+host has nothing new enough. `VITRUVIO_EXTRAS=all` for local and API embeddings, PDF pages and LLM proposers;
+`VITRUVIO_VERSION` to pin; `VITRUVIO_BIN_DIR` to install elsewhere. Or, once a release is on PyPI:
+
+```console
+uv tool install vitruvio             # no torch, no downloads — still embeds, still indexes
+uv tool install 'vitruvio[all]'      # local and API embeddings, PDF pages, LLM proposers
 ```
 
 ```console
@@ -38,6 +47,7 @@ read.) **The brain returns evidence, never prose** — there is no
 | [Decisions](docs/adr/README.md) | twelve ADRs: what was chosen, what it cost, what was rejected |
 | [Architecture](docs/architecture.md) | the workspace, the layering, and why an app may not import the SDK |
 | [Contributing](docs/contributing.md) | the dev loop and the gate every change passes |
+| [Releasing](RELEASING.md) | how a commit on `main` becomes a version, a tag and an installable release |
 | [`skills/`](skills/README.md) | the agent-facing contracts, installable with `vitruvio skills install` |
 
 ## License

@@ -277,7 +277,21 @@ version_toml = [
     "apps/cli/pyproject.toml:project.version",
 ]
 version_variables = ["packages/kernel/src/vitruvio/kernel/version.py:__version__"]
-build_command = "pip install build && python -m build"
+# `python -m build` cannot run here: the workspace root is virtual and has no [project] table, so there
+# is nothing at the top level to build. `uv build --all-packages` builds all nine members instead, which
+# is what a release has to carry -- the CLI wheel alone would be uninstallable.
+#
+# `uv lock` first, and not as a nicety: uv.lock records every member's version, so a bump that leaves it
+# untouched makes the lock stale, and CI runs with UV_FROZEN=1. The next push would fail on the lock
+# rather than on anything a person changed. semantic-release runs build_command *before* the release
+# commit, so the relocked file lands in that commit via `assets` below.
+#
+# `rm -rf dist` because the release counts what it finds there: a leftover wheel from an earlier version
+# would be bundled alongside the new ones and installed in preference to nothing at all.
+build_command = "uv lock && rm -rf dist && uv build --all-packages --out-dir dist"
+# Everything the bump touches that is not a version file. Without this the release commit is missing the
+# lock the build just regenerated.
+assets = ["uv.lock"]
 commit_message = "chore(release): v{version}"
 tag_format = "v{version}"
 allow_zero_version = true
@@ -293,10 +307,22 @@ prerelease = true
 prerelease_token = "b"
 
 [tool.semantic_release.changelog]
+# `update` splits the existing file on insertion_flag and writes the new section immediately below it,
+# rather than regenerating the whole history on every release. Both are named explicitly because the flag
+# is the load-bearing part: without that literal comment in CHANGELOG.md, semantic-release finds nothing
+# to split on and writes no entry at all -- no error, no warning, just a release with no changelog. Do
+# not remove the `<!-- version list -->` line from CHANGELOG.md.
+mode = "update"
+insertion_flag = "<!-- version list -->"
 exclude_commit_patterns = [
     "^chore\\(release\\):",
     "^Merge",
 ]
+
+[tool.semantic_release.changelog.default_templates]
+# Named here rather than at [tool.semantic_release.changelog], where it is deprecated and slated for
+# removal in v11.
+changelog_file = "CHANGELOG.md"
 
 [tool.semantic_release.commit_parser_options]
 allowed_tags = [
