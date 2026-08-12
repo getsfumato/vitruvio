@@ -1,18 +1,19 @@
-"""The browser's two modal screens: retrieval, and choosing what to look at.
+"""The browser's retrieval workspace and its modal for choosing what to look at.
 
-The search screen is the planner's answer, kept visibly separate from the filter box. The selection screen is
+The query workspace is the planner's answer, kept visibly separate from the filter box. The selection screen is
 how the browser stops being about one brain: projects on the left, that project's brains on the right, and
 what it returns is a pair -- a configuration file and a brain name -- because those two together are what
 identifies a brain in vitruvio. Neither screen resolves anything itself; both hand a choice back and let the
 browser act on it, so there is one place where a brain is opened and one place where a block is drawn.
 
-The search screen: the planner's answer, kept visibly separate from the filter box.
+The query workspace: the planner's answer, kept visibly separate from the filter box.
 
 The filter in the browser's middle pane narrows rows that were already read. This screen runs
 :meth:`~vitruvio.runtime.BrainService.search`, which is the cost-based planner choosing indices and returning a
-verified Evidence Bundle. They look similar and are not, so the difference is stated on the screen rather than
-left for a user to infer: the score column here is agreement between retrieval strategies, and the footer says
-so, because a number in a results table gets read as confidence unless something says otherwise.
+verified Evidence Bundle. Results stay beside the physical plan and query-scoped views of the indices that actually
+ran. They look similar and are not, so the difference is stated on the screen rather than left for a user to infer:
+the score column here is agreement between retrieval strategies, and the footer says so, because a number in a
+results table gets read as confidence unless something says otherwise.
 
 Choosing a result dismisses the screen with a block identity, and the browser reveals it in its module. That is
 the whole contract -- this screen never renders a block, so there is one place where a block is drawn.
@@ -27,18 +28,19 @@ from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import DataTable, Input, Label, Static
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen, Screen
+from textual.widgets import DataTable, Footer, Header, Input, Label, Static, TabbedContent, TabPane
 
 from vitruvio.cli import render
+from vitruvio.cli.tui.query_views import btree_view, graph_view, plan_view, vector_view
 from vitruvio.runtime import BrainService
 
 LIMIT = 25
 """How many matches to ask the planner for."""
 
 
-class SearchScreen(ModalScreen[str | None]):
+class SearchScreen(Screen[str | None]):
     """
     Ask the brain a question, and pick a block from what comes back.
 
@@ -47,19 +49,24 @@ class SearchScreen(ModalScreen[str | None]):
     """
 
     CSS = """
-    SearchScreen { align: center middle; }
+    SearchScreen { background: $background; }
 
-    #panel {
-        width: 80%;
-        height: 70%;
-        border: round $accent;
-        background: $surface;
-        padding: 1 2;
-    }
+    #query-workspace { height: 1fr; }
+    #query-head { height: auto; padding: 1 2 0 2; }
+    #query-title { width: 20; padding-top: 1; text-style: bold; }
+    #query { width: 1fr; border: none; background: $boost; }
+    #query-status { width: auto; min-width: 22; padding: 1 0 0 2; color: $text-muted; }
+    #query-options { height: 3; padding: 0 2; }
+    #query-since, #query-until { width: 1fr; border: none; background: $surface; }
+    #query-depth { width: 24; border: none; background: $surface; }
 
-    #query { margin-bottom: 1; }
+    #query-main { height: 1fr; margin-top: 1; }
+    #result-pane { width: 42%; min-width: 42; border-right: solid $panel; }
+    #result-heading { height: 2; padding: 0 1; text-style: bold; }
     #results { height: 1fr; }
-    #note { color: $text-muted; }
+    #analysis { width: 1fr; min-width: 52; }
+    .query-view { padding: 1 2; }
+    #note { height: 2; padding: 0 2; color: $text-muted; }
     """
 
     BINDINGS = [
@@ -78,15 +85,35 @@ class SearchScreen(ModalScreen[str | None]):
         self.matches: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
-        """Lay out the query box, the results, and the sentence about what a score is."""
-        with Vertical(id="panel"):
-            yield Label("search the brain -- the planner chooses the indices")
-            yield Input(placeholder="natural language, terms, or a sha256: identity", id="query")
-            yield DataTable(id="results", cursor_type="row")
+        """Lay out the persistent query workspace: results beside the plan and its visual evidence."""
+        yield Header(show_clock=False)
+        with Vertical(id="query-workspace"):
+            with Horizontal(id="query-head"):
+                yield Label("query the brain", id="query-title")
+                yield Input(placeholder="natural language, terms, label, or sha256: identity", id="query")
+                yield Static("ready", id="query-status")
+            with Horizontal(id="query-options"):
+                yield Input(placeholder="since · RFC3339 (optional)", id="query-since")
+                yield Input(placeholder="until · RFC3339 (optional)", id="query-until")
+                yield Input(placeholder="graph depth · 1 default", id="query-depth", type="integer")
+            with Horizontal(id="query-main"):
+                with Vertical(id="result-pane"):
+                    yield Label("results", id="result-heading")
+                    yield DataTable(id="results", cursor_type="row")
+                with TabbedContent(id="analysis"):
+                    with TabPane("plan", id="plan-tab"), VerticalScroll(classes="query-view"):
+                        yield Static(plan_view(None), id="query-plan")
+                    with TabPane("graph", id="graph-tab"), VerticalScroll(classes="query-view"):
+                        yield Static(graph_view(None), id="query-graph")
+                    with TabPane("vectors", id="vector-tab"), VerticalScroll(classes="query-view"):
+                        yield Static(vector_view(None), id="query-vector")
+                    with TabPane("B-tree", id="btree-tab"), VerticalScroll(classes="query-view"):
+                        yield Static(btree_view(None), id="query-btree")
             yield Static(
-                "a score is agreement between retrieval strategies, not a probability -- enter opens a result",
+                "score is retrieval agreement, not probability · enter opens a result · escape returns to browsing",
                 id="note",
             )
+        yield Footer()
 
     def on_mount(self) -> None:
         """Focus the query box and label the results table."""
@@ -96,22 +123,64 @@ class SearchScreen(ModalScreen[str | None]):
     @on(Input.Submitted, "#query")
     def _submitted(self, event: Input.Submitted) -> None:
         """Run the query the planner was given."""
-        self.search(event.value)
+        depth_value = self.query_one("#query-depth", Input).value.strip()
+        self.search(
+            event.value,
+            since=self.query_one("#query-since", Input).value.strip() or None,
+            until=self.query_one("#query-until", Input).value.strip() or None,
+            expand_depth=max(0, int(depth_value or "1")),
+        )
 
     @work(thread=True, exclusive=True, group="search")
-    def search(self, text: str) -> None:
+    def search(
+        self,
+        text: str,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+        expand_depth: int = 1,
+    ) -> None:
         """
         Retrieve, off the event loop.
 
         Args:
             text (str): What to look for.
+            since (str | None): Optional RFC3339 lower time bound.
+            until (str | None): Optional RFC3339 upper time bound.
+            expand_depth (int): Graph expansion depth.
         """
+        query = text.strip()
+        if not query and not (since or until):
+            self.app.call_from_thread(self._failed, "write a query or provide a time window before running it")
+            return
+        self.app.call_from_thread(self._loading, query or "time window")
         try:
-            result = self.service.search(text, limit=LIMIT)
+            result = self.service.search(
+                query,
+                since=since,
+                until=until,
+                expand_depth=expand_depth,
+                limit=LIMIT,
+                diagnostics=True,
+            )
         except Exception as error:
-            self.app.call_from_thread(self.app.notify, str(error), severity="error", timeout=10)
+            self.app.call_from_thread(self._failed, str(error))
             return
         self.app.call_from_thread(self._fill, result)
+
+    def _loading(self, text: str) -> None:
+        """Make the in-flight state explicit without hiding the previous result."""
+        query = self.query_one("#query", Input)
+        query.disabled = True
+        self.query_one("#query-status", Static).update(f"planning {text[:28]}…")
+
+    def _failed(self, message: str) -> None:
+        """Return control to the query and name a recoverable failure."""
+        query = self.query_one("#query", Input)
+        query.disabled = False
+        query.focus()
+        self.query_one("#query-status", Static).update("query failed")
+        self.app.notify(message, severity="error", timeout=10)
 
     def _fill(self, result: dict[str, Any]) -> None:
         """
@@ -121,6 +190,12 @@ class SearchScreen(ModalScreen[str | None]):
             result (dict[str, Any]): What ``service.search`` produced.
         """
         self.matches = list(result.get("matches", []))
+        plan = result.get("plan") or {}
+        diagnostics = result.get("diagnostics") or {}
+        self.query_one("#query-plan", Static).update(plan_view(plan))
+        self.query_one("#query-graph", Static).update(graph_view(diagnostics.get("graph")))
+        self.query_one("#query-vector", Static).update(vector_view(diagnostics.get("vector")))
+        self.query_one("#query-btree", Static).update(btree_view(diagnostics.get("btree")))
         table = self.query_one("#results", DataTable)
         table.clear()
         for match in self.matches:
@@ -139,7 +214,14 @@ class SearchScreen(ModalScreen[str | None]):
                 Text(identity),
                 key=match["block_id"],
             )
+        query = self.query_one("#query", Input)
+        query.disabled = False
+        indices = sorted({kind for kinds in (plan.get("indices_consulted") or {}).values() for kind in kinds})
+        selected = " + ".join(indices) if indices else "exhaustive scan"
+        more = " · more may exist" if result.get("truncated") else ""
+        self.query_one("#query-status", Static).update(f"{len(self.matches)} results{more} · {selected}")
         if not self.matches:
+            query.focus()
             self.app.notify("the brain holds nothing matching -- that is an answer, not an error")
             return
         table.focus()

@@ -203,6 +203,96 @@ class TestTheRenderLayer:
         note = media.image(b"not read", width=10)
         assert "vitruvio[vision]" in note.plain  # type: ignore[union-attr]
 
+    def test_the_ordered_view_names_the_real_engine_and_bisect_window(self) -> None:
+        from vitruvio.cli.tui.query_views import btree_view
+
+        view = btree_view(
+            {
+                "selected": True,
+                "scopes": [
+                    {
+                        "scope": "episodic",
+                        "key": "occurred_at",
+                        "engine": "sorted-array",
+                        "total": 3,
+                        "start": 1,
+                        "end": 2,
+                        "entries": [
+                            {
+                                "position": 1,
+                                "value": "2026-05-14T14:00:00Z",
+                                "block_id": "sha256:" + "a" * 64,
+                                "selected": True,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        assert "sorted-array engine" in view.plain
+        assert "bisect window [1, 2) · 1 selected" in view.plain
+        assert "[" in view.plain
+        assert "]" in view.plain
+
+    def test_the_ordered_view_reports_offscreen_and_empty_boundaries(self) -> None:
+        from vitruvio.cli.tui.query_views import btree_view
+
+        wide = btree_view(
+            {
+                "selected": True,
+                "scopes": [
+                    {
+                        "scope": "episodic",
+                        "key": "occurred_at",
+                        "total": 100,
+                        "start": 10,
+                        "end": 90,
+                        "entries": [{"position": position, "value": str(position)} for position in range(38, 63)],
+                    }
+                ],
+            }
+        ).plain
+        assert "bisect window [10, 90) · 80 selected" in wide
+        assert "start+end boundary outside" in wide
+
+        empty = btree_view(
+            {
+                "selected": True,
+                "scopes": [
+                    {
+                        "scope": "episodic",
+                        "key": "occurred_at",
+                        "total": 3,
+                        "start": 2,
+                        "end": 2,
+                        "entries": [{"position": position, "value": str(position)} for position in range(3)],
+                    }
+                ],
+            }
+        ).plain
+        assert "bisect window [2, 2) · 0 selected" in empty
+        assert "empty range · insertion point 2" in empty
+
+    def test_the_vector_view_keeps_every_consulted_scope_visible(self) -> None:
+        from vitruvio.cli.tui.query_views import vector_view
+
+        scopes = [
+            {
+                "scope": scope,
+                "dimensions": 32,
+                "points": [
+                    {"role": "query", "label": "query", "x": -0.5, "y": 0.0},
+                    {"role": "result", "label": label, "x": 0.5, "y": 0.0},
+                ],
+            }
+            for scope, label in (("semantic", "concept"), ("episodic", "episode"))
+        ]
+        rendered = vector_view({"selected": True, "scopes": scopes}).plain
+        assert "semantic" in rendered
+        assert "episodic" in rendered
+        assert "concept" in rendered
+        assert "episode" in rendered
+
 
 class TestOpeningInTheDesktop:
     """A terminal draws a thumbnail; the desktop opens the page. This is the path that answers "I need to actually
@@ -448,6 +538,110 @@ class TestTheInterface:
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, SearchScreen), "escape returns to the brain without choosing"
+
+    async def test_query_workspace_shows_the_executed_plan_and_index_visuals(
+        self, brain: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The diagram is tied to the result from the same search, not to a second EXPLAIN that might choose again."""
+        service = service_for(brain)
+        block_id = "sha256:" + "a" * 64
+
+        def searched(text: str, **options: Any) -> dict[str, Any]:
+            assert text == "fourier"
+            assert options["diagnostics"] is True
+            assert options["since"] is None
+            assert options["until"] is None
+            assert options["expand_depth"] == 1
+            return {
+                "matches": [
+                    {
+                        "score": "0.91",
+                        "memory_type": "semantic",
+                        "block_id": block_id,
+                        "content": {"label": "Serie de Fourier"},
+                    }
+                ],
+                "plan": {
+                    "signature": "plan1234",
+                    "intent": "conceptual",
+                    "indices_consulted": {"semantic": ["graph", "vector"]},
+                    "est_cost_us": 42.0,
+                    "est_recall": 0.92,
+                    "degradations": [],
+                    "operators": [
+                        {
+                            "node_id": 0,
+                            "op": "VectorSearch",
+                            "scope": "semantic",
+                            "index": "vector",
+                            "inputs": [],
+                        },
+                        {
+                            "node_id": 1,
+                            "op": "GraphExpand",
+                            "scope": "semantic",
+                            "index": "graph",
+                            "inputs": [0],
+                        },
+                    ],
+                },
+                "diagnostics": {
+                    "graph": {
+                        "selected": True,
+                        "scopes": ["semantic"],
+                        "nodes": [
+                            {"id": block_id, "label": "Serie de Fourier", "role": "result", "memory_type": "semantic"},
+                            {"id": "sha256:" + "b" * 64, "label": "Señales periódicas", "role": "related"},
+                        ],
+                        "edges": [
+                            {
+                                "source": block_id,
+                                "target": "sha256:" + "b" * 64,
+                                "kind": "related",
+                                "predicate": "descompone",
+                            }
+                        ],
+                    },
+                    "vector": {
+                        "selected": True,
+                        "scopes": [
+                            {
+                                "scope": "semantic",
+                                "dimensions": 384,
+                                "method": "pca",
+                                "points": [
+                                    {"role": "query", "label": "query", "x": -0.8, "y": 0.2},
+                                    {
+                                        "role": "result",
+                                        "label": "Serie de Fourier",
+                                        "block_id": block_id,
+                                        "x": 0.7,
+                                        "y": -0.4,
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    "btree": {"selected": False, "scopes": []},
+                },
+            }
+
+        monkeypatch.setattr(service, "search", searched)
+        app = BrainBrowser(service, brain=str(brain))
+        async with app.run_test(size=(150, 42)) as pilot:
+            await _settle(pilot)
+            await pilot.press("s")
+            await pilot.pause()
+            query = app.screen.query_one("#query", Input)
+            query.value = "fourier"
+            await pilot.press("enter")
+            await _settle(pilot)
+            assert app.screen.query_one("#results", DataTable).row_count == 1
+            assert "graph + vector" in _screen_pane(app, "query-status")
+            assert "VectorSearch" in _screen_pane(app, "query-plan")
+            assert "descompone" in _screen_pane(app, "query-graph")
+            assert "384D → 2D PCA" in _screen_pane(app, "query-vector")
+            assert "B-tree not selected" in _screen_pane(app, "query-btree")
 
     async def test_the_project_is_named_even_when_its_brain_has_no_name(self, brain: Path) -> None:
         """A single-brain project declares its brain in `[brain].path` and never names it. Requiring both dropped
@@ -783,6 +977,18 @@ def _pane(app: BrainBrowser, name: str) -> str:
     from textual.widgets import Static
 
     widget = app.query_one(f"#{name}", Static)
+    console = Console(width=200, no_color=True, theme=theme.THEME)
+    with console.capture() as captured:
+        console.print(widget.content)
+    return captured.get()
+
+
+def _screen_pane(app: BrainBrowser, name: str) -> str:
+    """Render a Static held by the currently pushed screen."""
+    from rich.console import Console
+    from textual.widgets import Static
+
+    widget = app.screen.query_one(f"#{name}", Static)
     console = Console(width=200, no_color=True, theme=theme.THEME)
     with console.capture() as captured:
         console.print(widget.content)

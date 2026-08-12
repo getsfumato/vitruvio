@@ -192,7 +192,7 @@ Show how a query would be answered, and what the alternatives cost.
 
 ## `vitruvio browse` `--memory-type`
 
-Read the brain: modules on the left, their blocks in the middle, the selected block on the right.
+Read and query the brain in a terminal workspace that also shows the executed plan and selected indices.
 
 ## `vitruvio retain`
 

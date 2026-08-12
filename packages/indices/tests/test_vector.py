@@ -342,6 +342,18 @@ class TestVectorIndex:
         assert stats.recall_curve
         assert 0.0 < stats.recall_at(64) <= 1.0
 
+    def test_query_results_can_be_projected_for_an_honest_two_dimensional_view(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        index = an_index()
+        index.build(semantic_blocks, content)
+        identities = [str(block.block_id) for block in semantic_blocks[:3]]
+        projected = index.project_2d("fourier", identities)
+        assert projected["dimensions"] == 32
+        assert projected["points"][0]["role"] == "query"
+        assert [point["block_id"] for point in projected["points"][1:]] == identities
+        assert all(-1.0 <= point[axis] <= 1.0 for point in projected["points"] for axis in ("x", "y"))
+
 
 class TestTravel:
     def test_dump_and_load_round_trip(self, semantic_blocks: list[SemanticBlock], content: MemoryContent) -> None:

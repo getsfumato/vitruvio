@@ -576,6 +576,87 @@ class VectorIndex(VitruvioIndex):
             return []
         return [(BlockId.parse(block_id), score) for block_id, score, _, _ in self.lookup(query, limit)]
 
+    def project_2d(self, text: str, identities: Sequence[str], *, limit: int = 20) -> dict[str, Any]:
+        """Project the query and representative result vectors into two dimensions.
+
+        Each result contributes the chunk whose cosine is highest against the query, matching the max-over-chunks
+        rule used by :meth:`lookup`. PCA is only a view over those real embeddings; coordinates are normalized for a
+        terminal canvas and must not be read as scores.
+
+        Returns:
+            dict[str, Any]: Source dimensionality, projection method and normalized query/result points.
+        """
+        if not text.strip() or not self.queryable:
+            return {"dimensions": 0, "method": "pca", "points": []}
+
+        probe = tuple(self.embedder.embed_text([text], role=TextRole.QUERY)[0])
+        wanted = list(dict.fromkeys(str(identity) for identity in identities))[: max(0, limit)]
+        wanted_set = set(wanted)
+        best_by_identity: dict[str, tuple[float, int, tuple[float, ...]]] = {}
+        # One pass over the vector table, not one pass per result. Diagnostics must stay bounded on the million-vector
+        # spaces where a terminal view is most useful.
+        for key, row in self._rows.items():
+            identity = row[0]
+            if identity not in wanted_set or row[1] != SPACE_TEXT:
+                continue
+            vector = self._vectors[key]
+            score = sum(a * b for a, b in zip(probe, vector, strict=False))
+            held = best_by_identity.get(identity)
+            if held is None or score > held[0]:
+                best_by_identity[identity] = (score, row[2], vector)
+        representatives = [
+            (identity, best_by_identity[identity][2], best_by_identity[identity][1])
+            for identity in wanted
+            if identity in best_by_identity
+        ]
+
+        vectors = [probe, *(vector for _, vector, _ in representatives)]
+        if not vectors:
+            return {"dimensions": 0, "method": "pca", "points": []}
+
+        import numpy as np
+
+        matrix = np.asarray(vectors, dtype=np.float64)
+        dimensions = int(matrix.shape[1]) if matrix.ndim == 2 else 0
+        centred = matrix - matrix.mean(axis=0, keepdims=True)
+        if len(vectors) == 1 or not np.any(centred):
+            coordinates = np.zeros((len(vectors), 2), dtype=np.float64)
+        else:
+            _left, _singular, axes = np.linalg.svd(centred, full_matrices=False)
+            projected = centred @ axes[: min(2, len(axes))].T
+            coordinates = np.zeros((len(vectors), 2), dtype=np.float64)
+            coordinates[:, : projected.shape[1]] = projected
+            # SVD axes have arbitrary signs. Fix each sign from the first largest-magnitude point so repeated views
+            # of unchanged vectors do not mirror themselves.
+            for axis in range(2):
+                pivot = int(np.argmax(np.abs(coordinates[:, axis])))
+                if coordinates[pivot, axis] < 0:
+                    coordinates[:, axis] *= -1
+            span = np.max(np.abs(coordinates), axis=0)
+            span[span == 0] = 1.0
+            coordinates /= span
+
+        points: list[dict[str, Any]] = [
+            {
+                "role": "query",
+                "block_id": None,
+                "chunk": None,
+                "x": float(coordinates[0, 0]),
+                "y": float(coordinates[0, 1]),
+            }
+        ]
+        for position, (identity, _vector, chunk_position) in enumerate(representatives, start=1):
+            points.append(
+                {
+                    "role": "result",
+                    "block_id": identity,
+                    "chunk": chunk_position,
+                    "x": float(coordinates[position, 0]),
+                    "y": float(coordinates[position, 1]),
+                }
+            )
+        return {"dimensions": dimensions, "method": "pca", "points": points}
+
     def locator_for(self, block_id: str, position: int, span: tuple[int, int] | None) -> str:
         """
         A citation string for one chunk.

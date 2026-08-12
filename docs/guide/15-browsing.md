@@ -26,7 +26,7 @@ page is.
 
 The distinction is worth keeping straight, because a filter that looked like retrieval would be a second and much
 worse retrieval path sitting next to the one with a cost model behind it. In the interface it is two different
-things in two different places: the filter box narrows what is on screen, and `s` opens the search screen.
+things in two different places: the filter box narrows what is on screen, and `s` opens the query workspace.
 
 A canonical block carries no name — its identity must not depend on what anyone called the file — so a canonical
 row is titled by the **origin its registration recorded**, read back out of provenance. That is why a canonical
@@ -94,6 +94,36 @@ directory, `y` copy the block id, `n` and `b` page through a large module, `r` r
 
 `browse` needs a terminal and refuses `--json`. It has no output mode — the three `inspect` commands above are
 the same three reads with an envelope, which is what an agent should drive.
+
+## Seeing how a query ran
+
+`s` opens a query workspace inside `browse`. The query and optional RFC3339 time window sit at the top;
+results stay on the left; the chosen physical plan and its visual evidence stay on the right. A graph expansion
+depth is explicit because following one edge and following three are materially different queries. A blank depth
+means one hop, zero disables expansion, and the planner caps the request at the project's `graph_expand_max`.
+
+The workspace asks for at most 25 matches and does not page them. They are the first ranked matches, not proof that
+the brain holds no others; the status says `more may exist` when the Evidence Bundle reports truncation.
+
+The **plan** tab names every operator and, per module, the indices the planner actually consulted. “Available” is
+not the same as “selected”: an installed vector index may lose to an exhaustive scan on a small module, and the UI
+says so instead of drawing a vector view that did not participate.
+
+The other tabs are conditional views over the same execution:
+
+| tab | what it draws |
+|---|---|
+| graph | up to 40 real typed edges per consulted graph scope touching the returned neighborhood |
+| vectors | the query and up to 20 returned block vectors per scope, projected to 2D with PCA |
+| B-tree | up to 25 ordered values around the actual `bisect` window used by `RangeScan` |
+
+The vector coordinates show relative geometry, not match scores. Vitruvio's B-tree role is implemented by sorted
+parallel arrays because whole-module rebuilds make pointer pages unnecessary; the tab names that engine and draws
+its ordered spine rather than inventing stored tree nodes. Hash lookup is still named in the plan when selected,
+but has no dedicated diagram: a dictionary probe has no useful internal geometry to visualize. Every diagram is a
+bounded inspection view, so a dense neighborhood or wide range can extend beyond what fits in the panel.
+
+Choosing a result returns to the reading view and reveals that exact block. `escape` returns without choosing.
 
 ## What a preview can and cannot show
 

@@ -240,3 +240,61 @@ class BTreeIndex(VitruvioIndex):
         if not values:
             return None
         return values[0], values[-1]
+
+    def window(
+        self,
+        key: OrderedKey,
+        *,
+        low: str | int | None = None,
+        high: str | int | None = None,
+        prefix: str | None = None,
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """Describe the sorted-array window a range query bisects.
+
+        This index plays the B+ tree role but deliberately stores sorted parallel arrays. The diagnostic therefore
+        exposes the real ordered spine and the two bisect positions instead of inventing page nodes that do not exist.
+
+        Returns:
+            dict[str, Any]: Key, bounds, bisect positions and a bounded slice of values with their block identities.
+        """
+        values = self._values.get(key.value, [])
+        owners = self._owners.get(key.value, [])
+        encoded_low = None if low is None else self._encode(low)
+        encoded_high = None if high is None else self._encode(high)
+        if prefix:
+            encoded_low = prefix if encoded_low is None else max(encoded_low, prefix)
+            ceiling = prefix + PREFIX_CEILING
+            encoded_high = ceiling if encoded_high is None else min(encoded_high, ceiling)
+
+        start = 0 if encoded_low is None else bisect_left(values, encoded_low)
+        end = len(values) if encoded_high is None else bisect_right(values, encoded_high)
+        width = max(1, limit)
+        if len(values) <= width:
+            left, right = 0, len(values)
+        else:
+            centre = (start + end) // 2
+            left = max(0, min(centre - width // 2, len(values) - width))
+            right = left + width
+
+        entries = []
+        for position in range(left, right):
+            identity = self._table.identity(owners[position]) if position < len(owners) else None
+            entries.append(
+                {
+                    "position": position,
+                    "value": values[position],
+                    "block_id": identity,
+                    "selected": start <= position < end,
+                }
+            )
+        return {
+            "key": key.value,
+            "engine": self.ENGINE,
+            "total": len(values),
+            "low": encoded_low,
+            "high": encoded_high,
+            "start": start,
+            "end": end,
+            "entries": entries,
+        }

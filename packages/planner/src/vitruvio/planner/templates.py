@@ -78,7 +78,7 @@ def build_templates(
 
     for multiplier in K_GRID:
         pool = max(limit, limit * config.overfetch * multiplier)
-        for generators in _generator_sets(scopes, capabilities, permitted, mandatory):
+        for generators in _generator_sets(query, scopes, capabilities, permitted, mandatory):
             plan = _assemble(
                 query=query,
                 scopes=scopes,
@@ -116,6 +116,7 @@ def build_templates(
 
 
 def _generator_sets(
+    query: Query,
     scopes: Sequence[str],
     capabilities: Capabilities,
     permitted: frozenset[str] | None,
@@ -133,7 +134,7 @@ def _generator_sets(
         available.append("TermScan")
     if any(capabilities.has(scope, IndexKind.VECTOR) for scope in scopes):
         available.append("VectorSearch")
-    if any(capabilities.has(scope, IndexKind.GRAPH) for scope in scopes):
+    if query.hints.expand_depth > 0 and any(capabilities.has(scope, IndexKind.GRAPH) for scope in scopes):
         available.append("GraphExpand")
 
     if permitted is not None:
@@ -246,30 +247,45 @@ def _mask_for(
     *same* node -- evaluated once, costed once. That sharing is the reason the IR is a DAG.
     """
     filters = query.filters
-    clauses = 0
     rows = stats.cardinality if stats else 0
-    exact = False
+    mask: int | None = None
 
     if capabilities.has(scope, IndexKind.BITMAP):
-        if filters.subject:
-            clauses += 1
-            if stats is not None:
-                estimated = stats.column("subject").selectivity(filters.subject, stats.cardinality)
-                rows, exact = estimated.rows, estimated.exact
+        clauses = int(bool(filters.subject)) + len(filters.tags or ())
+        exact = False
+        if filters.subject and stats is not None:
+            estimated = stats.column("subject").selectivity(filters.subject, stats.cardinality)
+            rows, exact = estimated.rows, estimated.exact
         if filters.tags:
-            clauses += len(filters.tags)
             rows = min(rows, max(1, rows // 2))
+        if clauses:
+            mask = builder.add(
+                Op.BITMAP_FILTER,
+                scope=scope,
+                index=IndexKind.BITMAP.value,
+                clauses=clauses,
+                rows=rows,
+                exact=exact,
+            )
 
-    if not clauses:
-        return None
-    return builder.add(
-        Op.BITMAP_FILTER,
-        scope=scope,
-        index=IndexKind.BITMAP.value,
-        clauses=clauses,
-        rows=rows,
-        exact=exact,
-    )
+    if (filters.since or filters.until) and capabilities.has(scope, IndexKind.BTREE):
+        exact = False
+        if stats is not None and "occurred_at" in stats.time:
+            estimated = stats.time["occurred_at"].range_selectivity(filters.since, filters.until, stats.cardinality)
+            rows, exact = min(rows, estimated.rows) if mask is not None else estimated.rows, estimated.exact
+        mask = builder.add(
+            Op.RANGE_SCAN,
+            scope=scope,
+            index=IndexKind.BTREE.value,
+            inputs=[mask] if mask is not None else [],
+            key="occurred_at",
+            low=filters.since,
+            high=filters.until,
+            rows=rows,
+            exact=exact,
+        )
+
+    return mask
 
 
 def _generator_node(
@@ -346,9 +362,9 @@ def _generator_node(
         )
 
     if generator == "GraphExpand":
-        if not capabilities.has(scope, IndexKind.GRAPH):
+        if query.hints.expand_depth <= 0 or not capabilities.has(scope, IndexKind.GRAPH):
             return None
-        depth = min(query.hints.expand_depth or 1, config.graph_expand_max)
+        depth = min(query.hints.expand_depth, config.graph_expand_max)
         graph = stats.graph if stats else None
         reach = graph.reach_by_depth[depth - 1] if graph and len(graph.reach_by_depth) >= depth else 1.5
         return builder.add(

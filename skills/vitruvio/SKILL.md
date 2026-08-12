@@ -62,8 +62,9 @@ actually returned.
    `vitruvio inspect links <BLOCK_ID> --json` gives the provenance records naming a block: where it came from, and
    what has been done to it since.
 
-   (`vitruvio browse` opens the same three reads as a terminal interface. It is for a person and refuses `--json`;
-   suggest it to the user, do not run it.)
+   (`vitruvio browse` opens the same three reads as a terminal interface. Its `s` query workspace also shows the
+   selected physical plan and bounded graph/vector/ordered-index visualizations. It is for a person and refuses
+   `--json`; suggest it to the user, do not run it.)
 
    Sources belong to brains: `[brain.sources.<name>]` for a single brain and
    `[brains.<brain>.sources.<name>]` for a named project brain. Always select the brain before `source status`,
