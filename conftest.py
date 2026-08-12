@@ -12,12 +12,9 @@ either redirected into ``tmp_path`` or cleared.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 # Everything vitruvio reads from the environment. Listed exhaustively and asserted against the kernel's own
 # tables below, so that adding a variable without adding it here is a test failure rather than a leak.

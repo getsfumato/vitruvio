@@ -23,11 +23,13 @@ golden fixture stable and a published digest meaningful.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from boltzmann.indices.base import IndexKind
 
+from vitruvio.indices import format as envelope
 from vitruvio.indices.base import VitruvioIndex
+from vitruvio.indices.projection import Projection
 from vitruvio.indices.queries import Combine, Results, TermQuery
 from vitruvio.indices.text import (
     analyze,
@@ -37,10 +39,6 @@ from vitruvio.indices.text import (
     query_terms,
 )
 from vitruvio.stats import TermStats
-
-if TYPE_CHECKING:
-    from vitruvio.indices import format as envelope
-    from vitruvio.indices.projection import Projection
 
 K1 = 1.2
 """BM25 term-frequency saturation. The standard value; above it, repeated terms keep mattering for too long."""

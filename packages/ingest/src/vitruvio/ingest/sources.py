@@ -27,17 +27,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from vitruvio.ingest.media import media_type_for
-from vitruvio.kernel import ConfigError, SourceError, SourceUnavailableError, plugin_dir
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
-
-    from vitruvio.kernel import SourceSpec
+from vitruvio.kernel import ConfigError, SourceError, SourceSpec, SourceUnavailableError, plugin_dir
 
 ENTRY_POINT_GROUP = "vitruvio.sources"
 """Where a distributable source kind registers itself.

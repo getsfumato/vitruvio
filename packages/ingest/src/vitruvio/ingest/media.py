@@ -13,10 +13,7 @@ block, because the media type is part of a block's identity.
 from __future__ import annotations
 
 import mimetypes
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
 
 FALLBACK_MEDIA_TYPE = "application/octet-stream"
 """What an unguessable file is. Honest, and it still round-trips: the bytes are what matter."""

@@ -21,16 +21,13 @@ wherever their scores agree.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Decimal
-from typing import TYPE_CHECKING
 
 # Imported rather than re-declared: a second definition of the wire format's precision is a second thing to keep in
 # sync, and this one is the protocol's.
 from boltzmann.query.scan import SCORE_PRECISION
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
 
 RRF_K = 60
 """The constant in ``1 / (K + rank)``. The conventional value: large enough that the top few ranks are close

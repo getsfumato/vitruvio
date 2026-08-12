@@ -23,19 +23,15 @@ association and therefore cannot rank an expansion at all.
 from __future__ import annotations
 
 from collections import deque
-from typing import TYPE_CHECKING, Any, ClassVar
+from collections.abc import Mapping
+from typing import Any, ClassVar
 
 from boltzmann.indices.base import IndexKind
 
 from vitruvio.indices.base import VitruvioIndex
-from vitruvio.indices.projection import EdgeKind
+from vitruvio.indices.projection import EdgeKind, Projection
 from vitruvio.indices.queries import TraversalQuery
 from vitruvio.stats import GraphStats
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from vitruvio.indices.projection import Projection
 
 SEED_SCORE = 1.0
 """What a seed scores. It was already found; the expansion is about what it leads to."""

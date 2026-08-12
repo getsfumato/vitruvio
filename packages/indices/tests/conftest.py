@@ -7,9 +7,8 @@ again and make every assertion about an index depend on it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
+from boltzmann.blocks.base import Block
 from boltzmann.blocks.canonical import CanonicalBlock, NormalizedView
 from boltzmann.blocks.episodic import EpisodicBlock
 from boltzmann.blocks.procedural import ProceduralBlock, Step
@@ -17,9 +16,6 @@ from boltzmann.blocks.provenance import Actor, ActorKind, ProvenanceBlock, Regis
 from boltzmann.blocks.semantic import Relation, SemanticBlock, SemanticKind
 
 from vitruvio.indices.testing import MemoryContent, block_id
-
-if TYPE_CHECKING:
-    from boltzmann.blocks.base import Block
 
 
 @pytest.fixture

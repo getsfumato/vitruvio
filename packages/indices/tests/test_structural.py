@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
+from boltzmann.blocks.canonical import CanonicalBlock
+from boltzmann.blocks.episodic import EpisodicBlock
 from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.blocks.procedural import ProceduralBlock
+from boltzmann.blocks.provenance import ProvenanceBlock
+from boltzmann.blocks.semantic import SemanticBlock
 from boltzmann.indices.base import Index, IndexKind
 
 from vitruvio.indices import (
@@ -29,15 +34,6 @@ from vitruvio.indices import (
 )
 from vitruvio.indices import format as envelope
 from vitruvio.indices.projection import Facet
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from boltzmann.blocks.canonical import CanonicalBlock
-    from boltzmann.blocks.episodic import EpisodicBlock
-    from boltzmann.blocks.procedural import ProceduralBlock
-    from boltzmann.blocks.provenance import ProvenanceBlock
-    from boltzmann.blocks.semantic import SemanticBlock
 
 
 class TestProtocolShape:

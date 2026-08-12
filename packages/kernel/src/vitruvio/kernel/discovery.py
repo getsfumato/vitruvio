@@ -47,17 +47,15 @@ from __future__ import annotations
 import os
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import tomli_w
+from boltzmann.blocks.provenance import ActorKind
 from pydantic import ValidationError
 
 from vitruvio.kernel.config import ActorSpec, Origin, ProjectConfig, ResolvedConfig
 from vitruvio.kernel.errors import BrainNotSelectedError, ConfigError, ProjectNotKnownError
 from vitruvio.kernel.paths import CONFIG_FILE, is_layout, state_file
-
-if TYPE_CHECKING:
-    from boltzmann.blocks.provenance import ActorKind
 
 ENV_BRAIN = "VITRUVIO_BRAIN"
 ENV_CONFIG = "VITRUVIO_CONFIG"

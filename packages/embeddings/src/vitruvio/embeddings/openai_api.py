@@ -24,7 +24,8 @@ this vendor's failures. Nothing else.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from collections.abc import Sequence
+from typing import Any, ClassVar
 
 from vitruvio.embeddings.base import (
     EmbedderUnavailableError,
@@ -35,11 +36,7 @@ from vitruvio.embeddings.base import (
     _normalize,
 )
 from vitruvio.embeddings.tag import UNPINNED, ModelTag
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from vitruvio.kernel import EmbedderSpec
+from vitruvio.kernel import EmbedderSpec
 
 DEFAULT_BATCH = 64
 """Inputs per request.

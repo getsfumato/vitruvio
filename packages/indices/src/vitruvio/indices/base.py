@@ -22,23 +22,19 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from bisect import bisect_left
-from typing import TYPE_CHECKING, Any, ClassVar
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Any, ClassVar
 
+from boltzmann.blocks.base import Block
+from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.identity.time import utc_timestamp
-from boltzmann.indices.base import AbstractIndex, IndexKind
+from boltzmann.indices.base import AbstractIndex, ContentReader, IndexKind
 
 from vitruvio.indices import format as envelope
 from vitruvio.indices.projection import PROJECTION_ID, Projection, project
 from vitruvio.indices.queries import BuildDelta, Capability, Results
 from vitruvio.stats import StatsFragment, leaf_fingerprint
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
-    from pathlib import Path
-
-    from boltzmann.blocks.base import Block
-    from boltzmann.blocks.memory_type import MemoryType
-    from boltzmann.indices.base import ContentReader
 
 
 class OrdinalTable:

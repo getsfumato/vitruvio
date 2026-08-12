@@ -14,19 +14,15 @@ confidence -- and what lets EXPLAIN show real numbers instead of guesses.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from collections.abc import Iterable
+from typing import Any, ClassVar
 
 from boltzmann.indices.base import IndexKind
 
 from vitruvio.indices.base import VitruvioIndex
-from vitruvio.indices.projection import Facet, fold
+from vitruvio.indices.projection import Facet, Projection, fold
 from vitruvio.indices.queries import Combine, FacetClause, FacetQuery, Results
 from vitruvio.stats import TOP_VALUES, ColumnStats, Estimate
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
-
-    from vitruvio.indices.projection import Projection
 
 FILTER_SCORE = 1.0
 """What a filter match scores. A filter has no relevance -- ranking belongs to whatever generated the candidates."""

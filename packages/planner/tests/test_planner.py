@@ -12,8 +12,6 @@ Three of these tests are load-bearing rather than incidental:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 from boltzmann.query.request import Query, QueryFilters, QueryHints, RetrievalMode
 
@@ -37,9 +35,6 @@ from vitruvio.planner import (
 )
 from vitruvio.planner.planner import Capabilities
 from vitruvio.stats import Freshness, ModuleStats, StatsVersion, TermStats, VectorStats
-
-if TYPE_CHECKING:
-    pass
 
 STRUCTURAL = ["hash_map", "bitmap", "btree"]
 

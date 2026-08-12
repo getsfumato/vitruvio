@@ -9,17 +9,15 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
 from vitruvio.ingest import sources
 from vitruvio.ingest.sources import BaseSource, DirectorySource, Item, kinds, resolve_source, scaffold
 from vitruvio.kernel import ConfigError, SourceError, SourceSpec, SourceUnavailableError
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 
 def make(

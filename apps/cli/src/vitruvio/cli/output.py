@@ -23,16 +23,14 @@ renderer, and keeps ``config show`` from importing a rendering library to print 
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+from rich.console import Console as RichConsole
+from rich.console import RenderableType
 
 from vitruvio.kernel import ExitCode, VitruvioError, __version__
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from rich.console import Console as RichConsole
-    from rich.console import RenderableType
 
 
 @dataclass

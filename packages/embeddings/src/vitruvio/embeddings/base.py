@@ -21,15 +21,13 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from vitruvio.embeddings.folding import FOLDING_VERSION, tokenize
 from vitruvio.embeddings.tag import ModelTag
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 Vector = tuple[float, ...]
 """One embedding.

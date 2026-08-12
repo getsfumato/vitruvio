@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
+
+from cyclopts import App
 
 from vitruvio.cli.main import app
-
-if TYPE_CHECKING:
-    from cyclopts import App
 
 
 def _reference() -> Path:

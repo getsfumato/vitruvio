@@ -21,12 +21,10 @@ as much per row. That ratio is the entire reason the pushdown rules exist.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 NodeId = int
 """A node's position in the arena."""

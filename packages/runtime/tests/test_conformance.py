@@ -13,9 +13,10 @@ answer rather than an error.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
+from boltzmann.brain import Brain
 from boltzmann.conformance import (
     BrainReaderConformance,
     CompositionConformance,
@@ -25,11 +26,6 @@ from boltzmann.conformance import (
 
 from vitruvio.kernel import resolve
 from vitruvio.runtime import Capability, open_brain
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from boltzmann.brain import Brain
 
 
 class TestBrainReaderConformance(BrainReaderConformance):

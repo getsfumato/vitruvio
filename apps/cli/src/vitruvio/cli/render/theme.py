@@ -19,18 +19,15 @@ a console of its own would be a renderer that could print into a JSON stream.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 from rich.box import SIMPLE
 from rich.console import Console as RichConsole
+from rich.console import RenderableType
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
-
-    from rich.console import RenderableType
 
 MEMORY_STYLES = {
     "canonical": "canonical",

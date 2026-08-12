@@ -15,15 +15,11 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from vitruvio.cli.output import Console
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from vitruvio.kernel import ResolvedConfig
-    from vitruvio.runtime import BrainService
+from vitruvio.kernel import ResolvedConfig
+from vitruvio.runtime import BrainService
 
 
 @dataclass

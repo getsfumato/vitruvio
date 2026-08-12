@@ -19,23 +19,17 @@ index" is a fact about the command.
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import TYPE_CHECKING
+from pathlib import Path
 
+from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.blocks.provenance import Actor
 from boltzmann.brain import Brain
+from boltzmann.indices.base import Index
+from boltzmann.query.planner import QueryPlanner
 from boltzmann.store.oci_layout import OciLayoutStore
 
 from vitruvio.ingest import bootstrap as bootstrap_pipelines
-from vitruvio.kernel import BrainNotFoundError, is_layout
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from boltzmann.blocks.memory_type import MemoryType
-    from boltzmann.blocks.provenance import Actor
-    from boltzmann.indices.base import Index
-    from boltzmann.query.planner import QueryPlanner
-
-    from vitruvio.kernel import ResolvedConfig
+from vitruvio.kernel import BrainNotFoundError, ResolvedConfig, is_layout
 
 
 class Capability(IntEnum):

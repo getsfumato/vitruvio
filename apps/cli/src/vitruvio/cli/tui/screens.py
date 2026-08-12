@@ -21,21 +21,18 @@ the whole contract -- this screen never renders a block, so there is one place w
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on, work
+from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Input, Label, Static
 
 from vitruvio.cli import render
-
-if TYPE_CHECKING:
-    from textual.app import ComposeResult
-
-    from vitruvio.runtime import BrainService
+from vitruvio.runtime import BrainService
 
 LIMIT = 25
 """How many matches to ask the planner for."""

@@ -10,14 +10,11 @@ a query shape that can express something no index can answer is a shape that wil
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-    from vitruvio.indices.projection import EdgeKind, Facet, IdentityKey, OrderedKey
+from vitruvio.indices.projection import EdgeKind, Facet, IdentityKey, OrderedKey
 
 
 class Order(StrEnum):

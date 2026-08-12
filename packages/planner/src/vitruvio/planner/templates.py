@@ -15,23 +15,18 @@ depends on how much the generators disagree, which is a property of the brain.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from boltzmann.indices.base import IndexKind
+from boltzmann.query.request import Query
 
+from vitruvio.kernel import PlannerConfig
 from vitruvio.planner.cost import BRUTE_THRESHOLD
-from vitruvio.planner.intent import IntentKind, admissible_generators, requires
+from vitruvio.planner.intent import Intent, IntentKind, admissible_generators, requires
 from vitruvio.planner.ir import Op, Plan, PlanBuilder
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-
-    from boltzmann.query.request import Query
-
-    from vitruvio.kernel import PlannerConfig
-    from vitruvio.planner.intent import Intent
-    from vitruvio.planner.planner import Capabilities
-    from vitruvio.stats import ModuleStats
+from vitruvio.planner.planner import Capabilities
+from vitruvio.stats import ModuleStats
 
 K_GRID = (1, 4)
 """Over-fetch multipliers to try, as multiples of the configured factor.

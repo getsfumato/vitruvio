@@ -13,10 +13,8 @@ it -- the browser must not become a place where a brain can be selected by rules
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
+from typing import Any
 
 
 def catalogue(current: Path | None = None) -> list[dict[str, Any]]:

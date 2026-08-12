@@ -10,12 +10,9 @@ differ from another's.
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
+from collections.abc import Iterable
 
 from boltzmann.identity.digest import BlockId, Digest, OciDigest
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 
 class MemoryContent:

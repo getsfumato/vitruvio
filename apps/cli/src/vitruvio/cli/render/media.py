@@ -23,16 +23,13 @@ reader thinking the brain held nothing.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import Any
 
+from rich.console import RenderableType
 from rich.text import Text
 
 from vitruvio.cli.render import theme
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from rich.console import RenderableType
 
 TEXTUAL_TYPES = (
     "text/",

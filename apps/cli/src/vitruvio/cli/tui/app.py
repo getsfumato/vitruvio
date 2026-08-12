@@ -26,8 +26,10 @@ the same thing.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
+from rich.console import RenderableType
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -37,13 +39,7 @@ from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedCont
 
 from vitruvio.cli import render
 from vitruvio.cli.tui.screens import SearchScreen, SelectionScreen
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from rich.console import RenderableType
-
-    from vitruvio.runtime import BrainService
+from vitruvio.runtime import BrainService
 
 MODULES = ("canonical", "episodic", "semantic", "procedural", "provenance")
 """The five modules, in the order the protocol introduces them: what was observed, what happened, what is

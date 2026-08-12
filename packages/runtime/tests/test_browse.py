@@ -9,14 +9,11 @@ verified or not at all.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
 from vitruvio.kernel import VitruvioError
-
-if TYPE_CHECKING:
-    from vitruvio.runtime import BrainService
+from vitruvio.runtime import BrainService
 
 
 @pytest.fixture

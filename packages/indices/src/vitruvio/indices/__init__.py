@@ -12,7 +12,12 @@ confident nothing.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.indices.base import Index
 
 from vitruvio.indices.base import OrdinalTable, VitruvioIndex
 from vitruvio.indices.bitmap import BitmapIndex
@@ -51,16 +56,7 @@ from vitruvio.indices.queries import (
 from vitruvio.indices.testing import MemoryContent, blob_id, block_id, content_over
 from vitruvio.indices.text import Analysis, analyze, analyzer_id, query_groups, query_terms, tokenize
 from vitruvio.indices.vector import CHUNKER_ID, IndexModelMismatchError, VectorIndex, chunk
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from pathlib import Path
-    from typing import Any
-
-    from boltzmann.blocks.memory_type import MemoryType
-    from boltzmann.indices.base import Index
-
-    from vitruvio.kernel import IndexSpec, ResolvedConfig
+from vitruvio.kernel import IndexSpec, ResolvedConfig
 
 __all__ = [
     "CHUNKER_ID",

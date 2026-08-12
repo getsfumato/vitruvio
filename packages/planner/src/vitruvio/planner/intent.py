@@ -17,14 +17,11 @@ violate "no single index is authoritative".
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING
 
 from boltzmann.query.request import RetrievalMode
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 """What an exact identity looks like. Anchored, so a query that merely mentions a digest is not one."""

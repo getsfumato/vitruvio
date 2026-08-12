@@ -23,24 +23,20 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.identity.digest import BlockId
 from boltzmann.indices.base import IndexKind
+from boltzmann.module.module import Module
 from boltzmann.query.evidence import EvidenceBundle, Match, SourceRef
+from boltzmann.query.request import Query
 
 from vitruvio.planner import fusion
 from vitruvio.planner.explain import Degradation
-from vitruvio.planner.ir import Metrics, Op
-
-if TYPE_CHECKING:
-    from boltzmann.module.module import Module
-    from boltzmann.query.request import Query
-
-    from vitruvio.planner.intent import Intent
-    from vitruvio.planner.ir import Plan
-    from vitruvio.planner.planner import Capabilities, CostBasedPlanner
+from vitruvio.planner.intent import Intent
+from vitruvio.planner.ir import Metrics, Op, Plan
+from vitruvio.planner.planner import Capabilities, CostBasedPlanner
 
 
 @dataclass

@@ -37,13 +37,11 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
-
-    from vitruvio.bench.corpus import Corpus, Judgement
+from vitruvio.bench.corpus import Corpus, Judgement
 
 CONFIGURATIONS = ("scan", "lexical", "vector", "planner")
 """Which strategies to compare, in the order they are reported."""

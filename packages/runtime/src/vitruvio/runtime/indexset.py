@@ -10,13 +10,10 @@ inside a function, so an ``INSPECT``-capability command never loads an index eng
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.indices.base import Index
 
-if TYPE_CHECKING:
-    from boltzmann.blocks.memory_type import MemoryType
-    from boltzmann.indices.base import Index
-
-    from vitruvio.kernel import ResolvedConfig
+from vitruvio.kernel import ResolvedConfig
 
 
 def index_set(config: ResolvedConfig) -> dict[MemoryType, list[Index]]:

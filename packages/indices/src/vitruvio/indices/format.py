@@ -18,13 +18,11 @@ would be indistinguishable from a complete one.
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import msgspec
 from pydantic import BaseModel, ConfigDict
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 MAGIC = b"VITRUVIO-IDX\x00"
 """Leading bytes of every index file. Fixed length, so the header can be located without parsing."""

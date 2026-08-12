@@ -20,25 +20,20 @@ caller writes the answer.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.brain import Brain
+from boltzmann.identity.digest import BlockId
+from boltzmann.query.request import Query
 
-from vitruvio.kernel import VitruvioError
+from vitruvio.kernel import ResolvedConfig, VitruvioError
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability, open_brain
 from vitruvio.runtime.mapping import translate
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping
-    from pathlib import Path
-
-    from boltzmann.brain import Brain
-    from boltzmann.identity.digest import BlockId
-    from boltzmann.query.request import Query
-
-    from vitruvio.kernel import ResolvedConfig
 
 
 @contextmanager

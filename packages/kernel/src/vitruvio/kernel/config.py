@@ -18,9 +18,10 @@ Two models are worth telling apart:
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.blocks.provenance import Actor, ActorKind
@@ -28,10 +29,6 @@ from boltzmann.indices.base import IndexKind
 from boltzmann.query.request import RetrievalMode
 from boltzmann.retention.policy import RetentionPolicy
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
 
 DEFAULT_REGISTRY_HOST = "docker.io"
 """Where a derived repository lives when only an account is known.

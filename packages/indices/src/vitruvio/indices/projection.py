@@ -21,18 +21,16 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from boltzmann.blocks.base import Block
 from boltzmann.blocks.canonical import CanonicalBlock
 from boltzmann.blocks.episodic import EpisodicBlock
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.blocks.procedural import ProceduralBlock
 from boltzmann.blocks.provenance import ProvenanceBlock
 from boltzmann.blocks.semantic import SemanticBlock
-
-if TYPE_CHECKING:
-    from boltzmann.blocks.base import Block
-    from boltzmann.indices.base import ContentReader
+from boltzmann.indices.base import ContentReader
 
 PROJECTION_ID = "vitruvio-projection/2"
 """Bumped whenever what gets extracted, or how it is weighted, changes.

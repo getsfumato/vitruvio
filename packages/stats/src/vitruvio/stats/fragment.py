@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,10 +34,6 @@ from vitruvio.stats.catalog import (
     TimeStats,
     VectorStats,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
-    from pathlib import Path
 
 
 def leaf_fingerprint(identities: Iterable[str]) -> str:

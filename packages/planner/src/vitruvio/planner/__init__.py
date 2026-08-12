@@ -12,8 +12,7 @@ preference the optimiser could sell for enough latency.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from vitruvio.kernel import PlannerConfig
 from vitruvio.planner.cost import (
     BRUTE_THRESHOLD,
     DEFAULT_CALIBRATION,
@@ -37,9 +36,6 @@ from vitruvio.planner.fusion import RRF_K, Candidate, accumulate, fuse, normaliz
 from vitruvio.planner.intent import Intent, IntentKind, classify
 from vitruvio.planner.ir import Estimates, Metrics, Node, Op, Output, Plan, PlanBuilder
 from vitruvio.planner.planner import Capabilities, CostBasedPlanner, build_planner
-
-if TYPE_CHECKING:
-    from vitruvio.kernel import PlannerConfig
 
 __all__ = [
     "BRUTE_THRESHOLD",

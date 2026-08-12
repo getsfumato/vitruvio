@@ -10,7 +10,8 @@ built-in kind was shipped first for.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,10 +19,6 @@ from vitruvio.ingest.sources import FetchResult, Item
 from vitruvio.kernel import BrainSpec, ConfigError, ProjectConfig, SourceSpec, UsageError, resolve
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.assembly import Capability
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 PROJECT = """
 [brain]
