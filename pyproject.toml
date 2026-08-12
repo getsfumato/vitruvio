@@ -293,6 +293,10 @@ build_command = "uv lock && rm -rf dist && uv build --all-packages --out-dir dis
 # lock the build just regenerated.
 assets = ["uv.lock"]
 commit_message = "chore(release): v{version}"
+# Otherwise the release commits are authored by `semantic-release <semantic-release>`, which is not an
+# email and maps to no account, so GitHub files them under an anonymous contributor of that name. This is
+# the Actions bot's real identity, and the commits attribute to it.
+commit_author = "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 tag_format = "v{version}"
 allow_zero_version = true
 major_on_zero = false
