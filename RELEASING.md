@@ -15,6 +15,11 @@ One workflow, [`.github/workflows/release.yml`](.github/workflows/release.yml), 
 | `release` | bumps the nine versions, relocks, writes the changelog, tags, builds, publishes |
 | `smoke` | that `install.sh` installs the release it just published, on three runners |
 
+`smoke` runs on ubuntu-latest, **ubuntu-22.04** and macos-latest, and the middle one is not padding: its
+system Python is 3.10, below the 3.11 floor. That is the runner that caught uv resolving against the host
+interpreter and refusing to install rather than fetching a newer Python — a failure invisible on every
+machine that happens to have a new enough one, which is to say on every developer's laptop.
+
 The version arithmetic is not in the workflow. It is `[tool.semantic_release]` in `pyproject.toml`, read by
 [python-semantic-release](https://python-semantic-release.readthedocs.io/), which is also what makes the
 question answerable locally:

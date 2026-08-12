@@ -255,7 +255,9 @@ jobs:
           # --reinstall for the same reason install.sh uses it: only `vitruvio` is pinned, so an existing
           # environment would keep its eight siblings and the check below would pass or fail for a reason
           # that has nothing to do with this release.
-          UV_TOOL_BIN_DIR=/tmp/bin uv tool install --force --reinstall \
+          # -p ">=3.11" for the same reason install.sh passes it: without it uv resolves against whatever
+          # python3 the runner happens to have and fails outright when that is older than the floor.
+          UV_TOOL_BIN_DIR=/tmp/bin uv tool install --force --reinstall -p ">=3.11" \
             --find-links "$(find /tmp/wheels -name '*.whl' -exec dirname {} \; | head -1)" \
             "vitruvio==${VERSION}"
           got=$(/tmp/bin/vitruvio --version)

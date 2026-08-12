@@ -12,8 +12,8 @@
 # vitruvio is nine pure-Python distributions rather than one binary, so this does not download an
 # executable: it downloads the release's wheel bundle and hands it to `uv tool install`, which builds an
 # isolated environment for it and links one command into VITRUVIO_BIN_DIR. uv is bootstrapped into a
-# directory this script owns if it is not already present, and a Python is fetched by uv when the host has
-# nothing new enough -- so nothing here depends on the host's Python being usable.
+# directory this script owns if it is not already present, and is asked for a Python by range so that it
+# fetches one when the host has nothing new enough -- so nothing here depends on the host's Python.
 
 set -eu
 
@@ -247,13 +247,19 @@ mkdir -p "$BIN_DIR" || die "could not create $BIN_DIR"
 #
 # --quiet: uv would otherwise list fifty resolved packages and then warn that BIN_DIR is not on the PATH
 # in its own words, immediately before this script says the same thing in its own. Errors still print.
+# -p ">=3.11" is what makes uv *fetch* a Python instead of failing on the host's. Left implicit, uv
+# discovers whatever `python3` is and resolves against it: on Ubuntu 22.04 that is 3.10, and the install
+# dies with "vitruvio requires Python >=3.11 ... your requirements are unsatisfiable" rather than
+# downloading anything. Asking for the range explicitly makes the request satisfiable by a managed
+# download, and still reuses a host 3.11+ when there is one rather than fetching a second copy.
 if [ "$FROM_PYPI" = 1 ]; then
-  UV_TOOL_BIN_DIR="$BIN_DIR" "$UV" tool install --quiet --force --reinstall "$SPEC" >&2 \
+  UV_TOOL_BIN_DIR="$BIN_DIR" "$UV" tool install --quiet --force --reinstall -p ">=$PY_FLOOR" "$SPEC" >&2 \
     || die "could not install $SPEC from PyPI"
 else
   # --find-links, not --index: the nine vitruvio distributions come from the release bundle while their
   # third-party dependencies (cyclopts, rich, textual, ...) still resolve from PyPI as normal.
-  UV_TOOL_BIN_DIR="$BIN_DIR" "$UV" tool install --quiet --force --reinstall --find-links "$WHEELS" "$SPEC" >&2 \
+  UV_TOOL_BIN_DIR="$BIN_DIR" "$UV" tool install --quiet --force --reinstall -p ">=$PY_FLOOR" \
+    --find-links "$WHEELS" "$SPEC" >&2 \
     || die "could not install $SPEC"
 fi
 
