@@ -1001,12 +1001,12 @@ class BrainService:
         from vitruvio.kernel import VitruvioError
 
         rows: list[dict[str, Any]] = []
-        for name, spec in sorted(self.config.project.sources.items()):
+        for name, spec in sorted(self.config.sources.items()):
             row: dict[str, Any] = {
                 "name": name,
                 "kind": spec.kind,
-                "brain": spec.brain,
-                "path": str(self.config.project.source_root(name) or "") or None,
+                "brain": self.config.brain_name or str(self.config.brain),
+                "path": str(self.config.source_root(name) or "") or None,
                 "normalize_with": spec.normalize_with,
             }
             try:
@@ -1022,7 +1022,12 @@ class BrainService:
                     "provenance": self._kind_provenance(spec.kind),
                 }
             )
-        return {"sources": rows, "kinds": describe_sources(), "config_file": str(self.config.config_file or "")}
+        return {
+            "brain": self.config.brain_name or str(self.config.brain),
+            "sources": rows,
+            "kinds": describe_sources(),
+            "config_file": str(self.config.config_file or ""),
+        }
 
     def source_kinds(self) -> dict[str, Any]:
         """
@@ -1072,7 +1077,6 @@ class BrainService:
         name: str,
         *,
         kind: str,
-        brain: str | None = None,
         path: str | None = None,
         media_type: str | None = None,
         normalize_with: str | None = None,
@@ -1085,7 +1089,6 @@ class BrainService:
         Args:
             name (str): What to call it.
             kind (str): Which strategy acquires from it.
-            brain (str | None): Which named brain it feeds.
             path (str | None): Its root, recorded as given and resolved against the configuration file.
             media_type (str | None): Override the inferred media type.
             normalize_with (str | None): A normalization pipeline.
@@ -1101,7 +1104,7 @@ class BrainService:
         """
         import pathlib
 
-        from vitruvio.kernel import ConfigError, ProjectConfig, SourceSpec, UsageError, update_config
+        from vitruvio.kernel import ConfigError, SourceSpec, UsageError, update_config
 
         config_path = self.config.config_file
         if config_path is None:
@@ -1109,36 +1112,23 @@ class BrainService:
                 "this project has no vitruvio.toml to declare a source in",
                 hint="run `vitruvio project init <name>` first, or `vitruvio brain init`",
             )
-        if name in self.config.project.sources:
+        if name in self.config.sources:
             raise UsageError(
-                f"this project already declares a source called {name!r}",
+                f"this brain already declares a source called {name!r}",
                 hint="pick another name, or `vitruvio source remove` it first",
             )
 
         spec = SourceSpec(
             kind=kind,
-            brain=brain,
             path=path,
             media_type=media_type,
             normalize_with=normalize_with,
             license=license_id,
             options=options or {},
         )
-        # Validated against the whole document before anything is written, so a source naming a brain the project
-        # does not declare is refused here rather than at the next pull, by which time it is committed.
-        declared = {
-            key: value.model_dump(exclude_none=True, mode="json") for key, value in self.config.project.sources.items()
-        }
-        ProjectConfig.model_validate(
-            {
-                **self.config.project.model_dump(exclude_none=True, mode="json"),
-                "sources": {**declared, name: spec.model_dump(exclude_none=True, mode="json")},
-            }
-        )
-
         # One call for the whole table, not one per field: `update_config` validates the entire document before
         # writing, so writing `kind` first would submit an intermediate document missing required fields.
-        update_config(config_path, f"sources.{name}", spec.model_dump(exclude_none=True, mode="json"))
+        update_config(config_path, self.config.source_config_key(name), spec.model_dump(exclude_none=True, mode="json"))
 
         # Resolved here rather than through `source_root`, which reads the configuration this process loaded -- and
         # that copy predates the write above, so it does not know about this source yet.
@@ -1154,7 +1144,7 @@ class BrainService:
         return {
             "name": name,
             "kind": kind,
-            "brain": brain,
+            "brain": self.config.brain_name or str(self.config.brain),
             "path": str(root) if root else None,
             "config_file": str(config_path),
             "warning": warning,
@@ -1171,18 +1161,22 @@ class BrainService:
             dict[str, Any]: What was removed.
 
         Raises:
-            UsageError: If the project declares no such source.
+            UsageError: If the selected brain declares no such source.
         """
         from vitruvio.kernel import UsageError, update_config
 
         config_path = self.config.config_file
-        if config_path is None or name not in self.config.project.sources:
+        if config_path is None or name not in self.config.sources:
             raise UsageError(
-                f"this project declares no source called {name!r}",
-                hint=f"declared: {', '.join(sorted(self.config.project.sources)) or '(none)'}",
+                f"this brain declares no source called {name!r}",
+                hint=f"declared: {', '.join(sorted(self.config.sources)) or '(none)'}",
             )
-        update_config(config_path, f"sources.{name}", None)
-        return {"name": name, "config_file": str(config_path)}
+        update_config(config_path, self.config.source_config_key(name), None)
+        return {
+            "name": name,
+            "brain": self.config.brain_name or str(self.config.brain),
+            "config_file": str(config_path),
+        }
 
     def pull_source(
         self,
@@ -1211,19 +1205,18 @@ class BrainService:
             dict[str, Any]: A row per item with what happened to it, and the totals.
 
         Raises:
-            UsageError: If the source is not declared, or feeds a brain other than the selected one.
+            UsageError: If the selected brain does not declare the source.
         """
         from vitruvio.kernel import UsageError
 
-        declared = self.config.project.sources.get(name)
+        declared = self.config.sources.get(name)
         if declared is None:
             raise UsageError(
-                f"this project declares no source called {name!r}",
-                hint=f"declared: {', '.join(sorted(self.config.project.sources)) or '(none)'}",
+                f"this brain declares no source called {name!r}",
+                hint=f"declared: {', '.join(sorted(self.config.sources)) or '(none)'}",
             )
         overrides = dict(option_overrides or {})
         spec = declared.model_copy(update={"options": {**declared.options, **overrides}})
-        self._require_declared_brain(name, spec)
         source = self._source(name, spec)
 
         with _translated():
@@ -1258,7 +1251,7 @@ class BrainService:
 
     def pull_all(self, *, dry_run: bool = False, limit: int | None = None, refetch: bool = False) -> dict[str, Any]:
         """
-        Pull every declared source, each into the brain it declares.
+        Pull every source declared by the selected brain.
 
         Keeps going past a failed source, for the same reason ``dist push --all`` does: being told which one of six
         failed is better than stopping at the first and leaving four that would have worked unpulled and
@@ -1277,22 +1270,21 @@ class BrainService:
             dict[str, Any]: A result per source, and whether every one succeeded.
 
         Raises:
-            ConfigError: If the project declares no sources at all.
+            ConfigError: If the selected brain declares no sources at all.
         """
         from vitruvio.kernel import ConfigError, VitruvioError
 
-        declared = self.config.project.sources
+        declared = self.config.sources
         if not declared:
             raise ConfigError(
-                "this project declares no sources",
+                "this brain declares no sources",
                 hint="declare one with `vitruvio source add <name> --kind directory --path ...`",
             )
 
         results: list[dict[str, Any]] = []
         for name, spec in sorted(declared.items()):
             try:
-                service = self._service_for_brain(spec.brain)
-                outcome = service.pull_source(name, dry_run=dry_run, limit=limit, refetch=refetch)
+                outcome = self.pull_source(name, dry_run=dry_run, limit=limit, refetch=refetch)
                 results.append({"ok": True, **outcome})
             except VitruvioError as error:
                 # Per-source failures accumulate; per-item ones already did, inside `pull_source`. A source that is
@@ -1302,13 +1294,14 @@ class BrainService:
                         "ok": False,
                         "source": name,
                         "kind": spec.kind,
-                        "brain": spec.brain,
+                        "brain": self.config.brain_name or str(self.config.brain),
                         "error": str(error),
                         "code": error.code,
                     }
                 )
         return {
             "sources": results,
+            "brain": self.config.brain_name or str(self.config.brain),
             "ok": all(bool(result["ok"]) for result in results),
             "registered": sum(int(result.get("registered", 0)) for result in results),
             "dry_run": dry_run,
@@ -1323,7 +1316,7 @@ class BrainService:
         return resolve_source(
             name,
             spec,
-            root=self.config.project.source_root(name),
+            root=self.config.source_root(name),
             cwd=self.config.config_file.parent if self.config.config_file else None,
         )
 
@@ -1333,44 +1326,6 @@ class BrainService:
 
         found = kinds().get(kind)
         return found.provenance if found else None
-
-    def _require_declared_brain(self, name: str, spec: Any) -> None:
-        """
-        Refuse a pull whose source declares a brain other than the selected one.
-
-        An error rather than an override in either direction. Registering one subject's material into another brain
-        is the worst outcome available here and content addressing has no undo for it, so a coin flip between two
-        readings of the request is not a resolution.
-        """
-        from vitruvio.kernel import UsageError
-
-        declared = spec.brain
-        selected = self.config.brain_name
-        if declared and selected and declared != selected:
-            raise UsageError(
-                f"source {name!r} feeds brain {declared!r}, but {selected!r} is selected",
-                hint=f"drop --brain and let the declaration decide, or edit `brain` under [sources.{name}]",
-            )
-
-    def _service_for_brain(self, brain: str | None) -> BrainService:
-        """
-        A service bound to one named brain of this project, reusing the resolved configuration.
-
-        Resolved once and copied rather than re-read per brain: every brain in a project shares its actor, policy
-        and embedder, and re-reading the file per source would let the project change underneath a half-finished
-        pull.
-        """
-        from vitruvio.kernel import ConfigError
-
-        if brain is None or brain == self.config.brain_name:
-            return self
-        path = self.config.project.brain_path(brain)
-        if path is None:
-            raise ConfigError(
-                f"a source feeds brain {brain!r}, which this project does not declare",
-                hint="add it with `vitruvio project add`, or fix `brain` under that source",
-            )
-        return BrainService(self.config.model_copy(update={"brain": path, "brain_name": brain}))
 
     @staticmethod
     def _item_row(item: Any) -> dict[str, Any]:

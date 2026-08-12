@@ -16,18 +16,46 @@ vitruvio source pull papers               # skipped by origin; nothing is fetche
 ```
 
 ```toml
-[sources.papers]
+[brain.sources.papers]
 kind = "directory"
 path = "~/Downloads/arxiv"
 normalize_with = "pdf-text"
 
-[sources.papers.options]
+[brain.sources.papers.options]
 glob = "*.pdf"
 
-[sources.algebra-aula]
+[brains.algebra]
+path = "./brains/algebra"
+
+[brains.algebra.sources.aula]
 kind = "aulasvirtuales"        # a plugin you wrote
-brain = "algebra"
-options = { materia = "77" }
+options = { course_id = 77 }
+
+[brains.simulacion]
+path = "./brains/simulacion"
+
+[brains.simulacion.sources.aula]
+kind = "aulasvirtuales"        # the same kind and source name, different brain defaults
+options = { course_id = 30030 }
+```
+
+Sources are brain configuration, not project configuration. A single-brain project declares them under
+`[brain.sources.<name>]`; a named project declares them under `[brains.<brain>.sources.<name>]`. The same source
+kind and name may appear under several brains with different paths and options, and selecting a brain selects only
+its declarations. Project-level `[sources.<name>]` declarations are invalid.
+
+To migrate an older declaration, move the whole source table under its destination brain and delete the old
+`brain` field:
+
+```toml
+# before
+[sources.aula]
+kind = "aulasvirtuales"
+brain = "simulacion"
+
+# after
+[brains.simulacion.sources.aula]
+kind = "aulasvirtuales"
 ```
 
 ## Defaults in the declaration, overrides on one pull
@@ -46,10 +74,9 @@ The kind receives the merged values through `self.options`; command-line values 
 result exactly as it validates declared options. Values are parsed as booleans, integers or strings by the same rules
 as `source add`.
 
-This is the reusable-source shape: declare `aula` without `brain`, then select the destination brain explicitly on
-every pull. A source that declares `brain = "simulacion"` remains pinned to it, and a conflicting `--brain` is still
-refused. `--option` cannot be combined with `--all`, because one override set has no unambiguous meaning across
-different kinds.
+Persistent differences belong in each brain's declaration. `--option` remains useful for a one-off override and
+never rewrites that declaration. It cannot be combined with `--all`, because one override set has no unambiguous
+meaning across different source kinds in the selected brain.
 
 Overrides are acquisition parameters, not hidden state. A plugin must include every value that changes a remote
 item's identity in that item's stable `origin` — for example both `course_id` and `resource_id`. Otherwise two
@@ -75,8 +102,9 @@ vitruvio source kinds        # directory (built-in), plus anything you installed
 ```console
 vitruvio source scaffold aulasvirtuales     # writes ~/.config/vitruvio/sources/aulasvirtuales.py
 $EDITOR ~/.config/vitruvio/sources/aulasvirtuales.py
-vitruvio source add algebra-aula --kind aulasvirtuales --brain-name algebra --option materia=77
-vitruvio source pull algebra-aula
+vitruvio --project facultad --brain algebra source add aula \
+  --kind aulasvirtuales --option course_id=77
+vitruvio --project facultad --brain algebra source pull aula
 ```
 
 Two methods: `list()` returns what is on offer without fetching any of it, and `fetch(item)` returns one item's
@@ -145,28 +173,28 @@ Undoing a redaction is a deliberate act: register the file by hand with `vitruvi
 
 ## Several brains
 
-A source declares which brain it feeds, so one command updates a whole project:
+Select a brain before inspecting, adding, removing, or pulling its sources. `--all` means every source belonging to
+that selected brain; it never crosses into another brain:
 
 ```console
-vitruvio source pull --all
-# ok    algebra-aula       4 registered
-# warning: fisica-aula: source 'fisica-aula': aulasvirtuales exited 2: no session, run `login` first
+vitruvio --project facultad --brain algebra source pull --all
+# ok    aula               4 registered
 # ok    papers             12 registered, 3 skipped
 ```
 
 `--all` keeps going past a failure and exits 11 if any source failed. Being told which one of six went wrong is
 better than stopping at the first and leaving four that would have worked unpulled and unmentioned.
 
-The source's declared brain **wins**, and a conflicting `--brain` is an error rather than an override. Registering
-one subject's material into another brain is the worst outcome available here, and content addressing has no undo
-for it.
+This containment removes the old conflict between a project-level source's `brain` field and the selected
+`--brain`: there is no destination field to disagree with the source's location. A multi-brain project with no
+selected brain refuses every source command before it can acquire or register anything.
 
 ## Where a pull can go wrong
 
 ```console
-vitruvio source status
+vitruvio --project facultad --brain algebra source status
 # ok  papers        directory        ~/Downloads/arxiv
-# --  algebra-aula  aulasvirtuales   -> algebra   aulasvirtuales is not on PATH
+# --  aula          aulasvirtuales   aulasvirtuales is not on PATH
 ```
 
 `status` reports an unusable source as a row rather than failing, because one broken declaration must not hide the

@@ -100,18 +100,20 @@ A **source** is a declaration of where material comes from, in `vitruvio.toml`. 
 into canonical memory; interpretation is still this skill's loop, unchanged.
 
 ```bash
-vitruvio source status --json                   # what is declared, and whether each can be used
+vitruvio --project p --brain b source status --json  # this brain's declarations and availability
 vitruvio source pull papers --dry-run --json    # what it would take, fetching nothing
 vitruvio source pull papers --json
 vitruvio source pull aula --option course_id=77 --dry-run --json  # override a default for this pull only
-vitruvio source pull --all --json               # every source, each into the brain it declares
+vitruvio source pull --all --json               # every source declared by the selected brain
 ```
 
-For a reusable source, omit `brain` in its declaration and pass the complete `--project` / `--brain` context on
-each named pull. Repeatable `--option key=value` values are merged over the declaration for that invocation and do
-not rewrite `vitruvio.toml`. They are deliberately unavailable with `--all`: overrides are kind-specific, so one
-set cannot safely apply to heterogeneous sources. A kind must include identity-changing options in every item's
-`origin` (course plus resource, not resource alone), or origin dedup could skip an item from the wrong parameter set.
+The declaration lives under `[brain.sources.<name>]` or `[brains.<brain>.sources.<name>]`; project-level
+`[sources]` and a source-level `brain` field are invalid. The same installed kind and source name may be declared
+under several brains with different persistent options. Repeatable `--option key=value` values are merged over the
+selected brain's declaration for that invocation and do not rewrite `vitruvio.toml`. They are deliberately
+unavailable with `--all`: overrides are kind-specific, so one set cannot safely apply to heterogeneous sources. A
+kind must include identity-changing options in every item's `origin` (course plus resource, not resource alone), or
+origin dedup could skip an item from the wrong parameter set.
 If a remote listing omits the MIME type or real filename, the source should return
 `FetchResult(data, media_type=..., title=...)` from `fetch` after inspecting the downloaded native file. Do not put
 `application/octet-stream` on the `Item` merely to make the type non-null: Vitruvio deliberately re-fetches a

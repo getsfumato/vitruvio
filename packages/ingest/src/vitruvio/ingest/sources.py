@@ -427,7 +427,7 @@ class DirectorySource(BaseSource):
         if root is None:
             raise ConfigError(
                 f"source {name!r} is a directory source with no `path`",
-                hint=f'set path = "..." under [sources.{name}]',
+                hint=(f'set path = "..." under [brain.sources.{name}] or [brains.<brain>.sources.{name}]'),
             )
         unknown = set(self.options) - self.KNOWN_OPTIONS
         if unknown:
@@ -676,9 +676,9 @@ can add a kind here.
 
 Declare it in vitruvio.toml:
 
-    [sources.{kind}]
+    [brain.sources.{kind}]                  # single-brain project
+    # [brains.<name>.sources.{kind}]        # named brain in a multi-brain project
     kind = "{kind}"
-    brain = "..."          # which brain this feeds; the declaration wins over --brain
     options = {{}}           # whatever your __init__ below reads
 """
 

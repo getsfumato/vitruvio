@@ -91,10 +91,10 @@ better than passing flags every time.
 | `source register FILE` | canonical evidence. `--media-type`, `--normalize-with`, `--license`, `--origin` |
 | `source replace FILE --supersedes ID` | a newer edition, plus the supersession edge |
 | `source put FILE` | store bytes addressably **without** a canonical block |
-| `source pull [NAME]` | acquire from a declared source. `--option k=v` overrides one named pull without editing config; also `--dry-run`, `--limit`, `--refetch`, `--all` |
-| `source status` | what is declared, and whether each can be used right now |
+| `source pull [NAME]` | acquire from the selected brain's declaration. `--option k=v` overrides one named pull; `--all` stays within that brain |
+| `source status` | what the selected brain declares, and whether each can be used right now |
 | `source kinds` | which acquisition kinds are installed, and where each came from |
-| `source add NAME --kind K` | declare one. `--path`, `--brain-name`, `--option k=v`, `--normalize-with` |
+| `source add NAME --kind K` | declare one under the selected brain. `--path`, `--option k=v`, `--normalize-with` |
 | `source remove NAME` | undeclare it. Registered blocks are untouched |
 | `source scaffold KIND` | write a starter plugin for a kind vitruvio does not ship |
 

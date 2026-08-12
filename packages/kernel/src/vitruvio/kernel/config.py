@@ -27,7 +27,7 @@ from boltzmann.blocks.provenance import Actor, ActorKind
 from boltzmann.indices.base import IndexKind
 from boltzmann.query.request import RetrievalMode
 from boltzmann.retention.policy import RetentionPolicy
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -380,10 +380,6 @@ class SourceSpec(BaseModel):
         kind (str): Which strategy acquires from this source. A built-in kind (``directory``) or one a plugin
             registers. Unknown at parse time on purpose: the set is open, and the resolver reports an unknown kind
             as a configuration error naming what is installed.
-        brain (str | None): Which named brain this source feeds. The source's declaration **wins** over
-            ``--brain``, and a conflict is an error rather than an override: registering algebra PDFs into the
-            history brain is the worst available outcome, and content addressing cannot undo it. Left unset in a
-            single-brain project.
         path (str | None): A directory or file the source works from, resolved against **this file's directory**
             rather than the working directory. First-class rather than an ``options`` key precisely so that a
             plugin author does not have to remember that rule, or reimplement it.
@@ -401,7 +397,6 @@ class SourceSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     kind: str
-    brain: str | None = None
     path: str | None = None
     media_type: str | None = None
     normalize_with: str | None = None
@@ -419,6 +414,17 @@ class SourceSpec(BaseModel):
         return value.strip()
 
 
+def _validate_source_names(value: dict[str, SourceSpec]) -> dict[str, SourceSpec]:
+    """Keep source names safe to type, wherever a brain declares them."""
+    for name in value:
+        if not SOURCE_NAME.match(name):
+            raise ValueError(
+                f"source name {name!r} should be lowercase letters, digits and single separators (-, _): "
+                f"`algebra-aula` rather than `Algebra Aula`"
+            )
+    return value
+
+
 class BrainSpec(BaseModel):
     """
     Which brain this project is about.
@@ -428,12 +434,16 @@ class BrainSpec(BaseModel):
             the working directory. A project config that means something different depending on which
             subdirectory you ran the command from would not be a reproducibility artifact.
         publish (bool): Whether this brain may be published at all. See :attr:`NamedBrainSpec.publish`.
+        sources (dict[str, SourceSpec]): Where this brain acquires canonical evidence from.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     path: str | None = None
     publish: bool = True
+    sources: dict[str, SourceSpec] = Field(default_factory=dict)
+
+    _source_names = field_validator("sources")(_validate_source_names)
 
 
 class NamedBrainSpec(BaseModel):
@@ -450,6 +460,7 @@ class NamedBrainSpec(BaseModel):
             Usually absent -- the whole point of a project namespace is that each brain derives its own.
         description (str | None): What this brain holds, for ``project show``. A set of six named brains is
             unreadable without one.
+        sources (dict[str, SourceSpec]): Where this brain acquires canonical evidence from.
         publish (bool): Whether this brain may be published. ``False`` makes ``dist push`` refuse before it packs
             anything, and ``dist push --all`` skip it.
 
@@ -471,6 +482,9 @@ class NamedBrainSpec(BaseModel):
     reference: str | None = None
     description: str | None = None
     publish: bool = True
+    sources: dict[str, SourceSpec] = Field(default_factory=dict)
+
+    _source_names = field_validator("sources")(_validate_source_names)
 
     @field_validator("reference")
     @classmethod
@@ -528,8 +542,6 @@ class ProjectConfig(BaseModel):
         planner (PlannerConfig): Planner knobs.
         registry (RegistrySpec): Publication target.
         ingest (IngestSpec): Ingestion defaults.
-        sources (dict[str, SourceSpec]): Where material is pulled from, keyed by name. Note the plural: ``source``
-            below is the file this configuration was read from, and predates this field.
         source (Path | None): Which file this came from. Not a TOML key -- set by the loader, and excluded
             from serialization so that a round-trip does not write it back into the file.
     """
@@ -546,7 +558,6 @@ class ProjectConfig(BaseModel):
     planner: PlannerConfig = PlannerConfig()
     registry: RegistrySpec = RegistrySpec()
     ingest: IngestSpec = IngestSpec()
-    sources: dict[str, SourceSpec] = Field(default_factory=dict)
     source: Path | None = Field(default=None, exclude=True)
 
     @field_validator("brains")
@@ -560,38 +571,6 @@ class ProjectConfig(BaseModel):
                     f"and single separators (-, _, .). `analisis-ii` rather than `Análisis II`"
                 )
         return value
-
-    @field_validator("sources")
-    @classmethod
-    def _validate_source_names(cls, value: dict[str, SourceSpec]) -> dict[str, SourceSpec]:
-        """A source name is typed on a command line, so it is held to a shape that survives one."""
-        for name in value:
-            if not SOURCE_NAME.match(name):
-                raise ValueError(
-                    f"source name {name!r} should be lowercase letters, digits and single separators (-, _): "
-                    f"`algebra-aula` rather than `Algebra Aula`"
-                )
-        return value
-
-    @model_validator(mode="after")
-    def _cross_check_source_brains(self) -> ProjectConfig:
-        """A source may only feed a brain this project declares.
-
-        Deliberately a model validator and not a field one: a field validator cannot see a sibling field, so the
-        ``brains`` name check above is not a template for this. Caught here rather than at pull time because the
-        failure it prevents is unrecoverable -- a typo'd brain name that fell through to the default brain would
-        Merkle-commit one subject's material into another's, and content addressing has no undo.
-        """
-        if not self.brains:
-            return self  # A single-brain project: `brain` names nothing to cross-check against.
-        for name, spec in self.sources.items():
-            if spec.brain is not None and spec.brain not in self.brains:
-                known = ", ".join(sorted(self.brains)) or "none"
-                raise ValueError(
-                    f"source {name!r} feeds brain {spec.brain!r}, which this project does not declare "
-                    f"(declared: {known})"
-                )
-        return self
 
     def brain_path(self, name: str) -> Path | None:
         """
@@ -609,7 +588,18 @@ class ProjectConfig(BaseModel):
         base = self.source.parent if self.source is not None else Path()
         return (base / spec.path).expanduser().resolve()
 
-    def source_root(self, name: str) -> Path | None:
+    def sources_for(self, brain: str | None) -> dict[str, SourceSpec]:
+        """Return only the sources owned by one brain.
+
+        ``None`` identifies the single ``[brain]`` declaration. Named projects select one of
+        ``[brains.<name>]`` before a source command can run, so a declaration can never float between brains.
+        """
+        if brain is None:
+            return self.brain.sources
+        spec = self.brains.get(brain)
+        return spec.sources if spec is not None else {}
+
+    def source_root(self, name: str, *, brain: str | None) -> Path | None:
         """
         Where one source's ``path`` points, resolved against the configuration file.
 
@@ -618,40 +608,17 @@ class ProjectConfig(BaseModel):
         reproducibility artifact. A plugin author gets the resolved path and never has to know the rule.
 
         Args:
-            name (str): The source's name in this project.
+            name (str): The source's name in the selected brain.
+            brain (str | None): The selected named brain, or ``None`` for ``[brain]``.
 
         Returns:
             Path | None: The resolved root, or ``None`` when there is no such source or it declares no path.
         """
-        spec = self.sources.get(name)
+        spec = self.sources_for(brain).get(name)
         if spec is None or spec.path is None:
             return None
         base = self.source.parent if self.source is not None else Path()
         return (base / Path(spec.path).expanduser()).expanduser().resolve()
-
-    def brain_for_source(self, name: str, *, requested: str | None = None) -> str | None:
-        """
-        Which brain a source feeds, refusing a conflicting request rather than resolving it.
-
-        Args:
-            name (str): The source's name.
-            requested (str | None): A brain named on the command line.
-
-        Returns:
-            str | None: The brain to write into, or ``None`` when neither names one.
-
-        Raises:
-            ValueError: If a request contradicts the source's own declaration. Not an override: silently honouring
-                either side writes one subject's material into another brain, and the caller is better served by
-                being told the two disagree than by a coin flip.
-        """
-        declared = spec.brain if (spec := self.sources.get(name)) is not None else None
-        if declared and requested and declared != requested:
-            raise ValueError(
-                f"source {name!r} feeds brain {declared!r}, but {requested!r} was requested; drop --brain, or "
-                f"edit the source's `brain` if it is wrong"
-            )
-        return declared or requested
 
     def repository_for(self, name: str, *, account: str | None = None) -> str | None:
         """
@@ -750,6 +717,21 @@ class ResolvedConfig(BaseModel):
             if derived is not None:
                 return derived
         return self.project.registry.reference
+
+    @property
+    def sources(self) -> dict[str, SourceSpec]:
+        """The declarations owned by the selected brain, and no other brain's."""
+        return self.project.sources_for(self.brain_name)
+
+    def source_root(self, name: str) -> Path | None:
+        """Resolve one selected-brain source path against ``vitruvio.toml``."""
+        return self.project.source_root(name, brain=self.brain_name)
+
+    def source_config_key(self, name: str) -> str:
+        """The TOML key where a source for the selected brain is stored."""
+        if self.brain_name is not None:
+            return f"brains.{self.brain_name}.sources.{name}"
+        return f"brain.sources.{name}"
 
     @property
     def publish_allowed(self) -> bool:

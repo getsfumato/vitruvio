@@ -101,7 +101,7 @@ class TestOptionParsing:
         )
         from vitruvio.kernel import load_project
 
-        assert load_project(project / "vitruvio.toml").sources["papers"].options == {"recursive": False}
+        assert load_project(project / "vitruvio.toml").brain.sources["papers"].options == {"recursive": False}
 
     def test_an_option_without_an_equals_sign_is_a_usage_error(
         self, capsys: pytest.CaptureFixture[str], project: Path
@@ -132,7 +132,7 @@ class TestOptionParsing:
 
         from vitruvio.kernel import load_project
 
-        assert load_project(project / "vitruvio.toml").sources["papers"].options == {"glob": "*.txt"}
+        assert load_project(project / "vitruvio.toml").brain.sources["papers"].options == {"glob": "*.txt"}
 
     def test_a_pull_option_without_an_equals_sign_is_a_usage_error(
         self, capsys: pytest.CaptureFixture[str], project: Path
@@ -217,6 +217,16 @@ class TestExitCodes:
         self, capsys: pytest.CaptureFixture[str], project: Path
     ) -> None:
         assert main(["--json", "source", "pull", "--all"]) == ExitCode.CONFIG
+
+    def test_source_commands_require_a_brain_in_a_multi_brain_project(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "vitruvio.toml").write_text(
+            '[brains.algebra]\npath = "./brains/algebra"\n\n[brains.fisica]\npath = "./brains/fisica"\n',
+            encoding="utf-8",
+        )
+        assert main(["--json", "source", "status"]) == ExitCode.CONFIG
 
 
 class TestTheWarning:

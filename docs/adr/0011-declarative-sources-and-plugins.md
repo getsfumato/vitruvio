@@ -41,12 +41,17 @@ vitruvio cannot know a third-party plugin's fields. Validation happens in the su
 that does know. `path` stays first-class rather than living in `options`, because a relative path must resolve
 against **the configuration file's directory**, and that is a kernel rule a plugin author must not have to remember.
 
+A declaration belongs to a brain: `[brain.sources.<name>]` in a single-brain project and
+`[brains.<brain>.sources.<name>]` in a named project. It does not carry a `brain` field, and there is no project-wide
+`[sources]` table. The containment is the destination. This lets the same installed kind and the same source name
+hold different persistent options for two brains without invocation overrides or a second naming convention. It
+also makes the dangerous state unrepresentable: a source cannot claim one destination while the command selects
+another.
+
 A named `source pull` may supply repeatable `--option key=value` overrides. The runtime merges them over the
 declaration into an ephemeral `SourceSpec`, constructs the kind from that copy, and never rewrites
-`vitruvio.toml`. This lets one locally installed kind and one generic declaration serve several explicitly selected
-brains without turning invocation state into project state. `--all` refuses overrides: applying one kind's fields to
-every declared source would be ambiguous. A declaration that pins `brain` remains pinned; overrides do not weaken
-the conflicting-brain refusal.
+`vitruvio.toml`. This keeps one-off acquisition changes out of persistent brain state. `--all` refuses overrides:
+applying one kind's fields to every source declared by the selected brain would be ambiguous.
 
 Because origin dedup runs before fetch, a kind must project every option that changes remote identity into
 `Item.origin`. `aula://<course>/<resource>` is safe; `aula://<resource>` is not when two courses may reuse ids.
@@ -122,18 +127,16 @@ that cannot produce a stable origin: one wasted download, never a wrong result. 
 docstring says `None` is the *normal* case — Moodle's `contenthash` is SHA-1, an HTTP `ETag` is not a content hash,
 and a transcript has no digest until it is fetched.
 
-### 4. `pull --all`'s loop lives in the service
+### 4. Source commands and `pull --all` are scoped to the selected brain
 
 `dist push --all`'s equivalent sits in the CLI and is already the thinnest part of the service-layer boundary
 (ADR-0003). Repeating that here would mean the future MCP server reimplements "which failures are fatal", and a
 second implementation of that question is a second set of answers. Per-source failures accumulate; per-item failures
-accumulate inside one source. A source's declared brain wins over `--brain` and a conflict is an **error**, because
-registering one subject's material into another brain is the worst outcome available and content addressing has no
-undo for it.
-
-A source with no declared brain instead requires the ordinary explicit selection in a multi-brain project. That is
-the intentional reusable case: `--brain simulacion source pull aula --option course_id=30030` and another invocation
-may select another brain and course without mutating the declaration.
+accumulate inside one source. The selected brain supplies the complete source map. `status`, `add`, `remove`, a named
+`pull`, and `pull --all` therefore require ordinary brain resolution; a multi-brain project with no selection is
+refused. `--all` means all sources of that brain, never all sources across the project. Crossing brain boundaries
+would make one command capable of committing several unrelated histories and would reintroduce the ambiguity the
+configuration shape removes.
 
 ### 5. `ExitCode.SOURCE = 11`, and `UsageError`
 
@@ -163,6 +166,9 @@ revisited in the same commit as its first consumer.
 - **Everything a source registers lands in canonical memory and nowhere else.** Interpretation stays `task` /
   `ingest run`. A source cannot propose semantic blocks, which keeps the proposer boundary (ADR-0008) exactly where
   it was.
+- **Project-level source declarations are a breaking configuration error.** Move each one under the brain that owns
+  it and remove its `brain` field. A source intentionally used by several brains is duplicated as configuration
+  under those brains; the kind implementation remains shared.
 - **A `directory` source composes with `dist push` into a way to publish something nobody meant to.** Point one at
   the wrong folder and a private key becomes a canonical block in a public repository, which cannot be cleanly
   retracted. The containment rules are the mitigation and `source add` warns when a path leaves the project

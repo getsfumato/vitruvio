@@ -92,7 +92,7 @@ Acquire from a declared source and register what is new as canonical evidence.
 
 ### `vitruvio source status`
 
-What sources this project declares, and whether each one can be used.
+What sources the selected brain declares, and whether each one can be used.
 
 ### `vitruvio source kinds`
 
@@ -102,7 +102,7 @@ Every source kind this installation can construct, and where each came from.
 
 Write a starter plugin for a source kind vitruvio does not ship.
 
-### `vitruvio source add` `name` `--kind` *(required)* `--brain` `--path` `--media-type` `--normalize-with` `--license-id` `--option`
+### `vitruvio source add` `name` `--kind` *(required)* `--path` `--media-type` `--normalize-with` `--license-id` `--option`
 
 Declare a source in vitruvio.toml.
 
