@@ -8,6 +8,10 @@ Two refusals here rather than in the interface. There is nothing to browse witho
 is a usage error rather than an application that draws control codes into a file; and ``--json`` names an output
 mode this command has no output in, which is worth saying instead of silently opening an interface whose result
 no caller can read.
+
+The first refusal has one exemption, and it is the reason ``textual serve 'vitruvio browse'`` works: a served app
+is a subprocess whose stdout *is* the display protocol, so it is a pipe by construction and there is a terminal --
+a browser emulating one -- at the other end of it.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ def browse(
     memory_type
         Which module to open on. Defaults to canonical, where the evidence is.
     """
+    import os
     import sys
 
     console = current().console
@@ -57,7 +62,12 @@ def browse(
             "browse is an interactive interface and has no JSON output",
             hint="`vitruvio inspect blocks <memory-type> --json` is the same data, as an envelope",
         )
-    if not sys.stdout.isatty():
+    # `textual serve` runs this command as a subprocess and speaks its display protocol over the subprocess'
+    # stdout, so stdout is a pipe by construction and the tty check would refuse the one case where a pipe is
+    # exactly right. It announces itself by setting TEXTUAL_DRIVER to the web driver, which is what the condition
+    # below actually wants to know: not "is stdout a terminal" but "is there a terminal at the other end of it".
+    served = "web_driver" in os.environ.get("TEXTUAL_DRIVER", "")
+    if not served and not sys.stdout.isatty():
         raise UsageError(
             "browse needs a terminal, and stdout is not one",
             hint="run it directly, or use `vitruvio inspect blocks` when the output is being read by something",

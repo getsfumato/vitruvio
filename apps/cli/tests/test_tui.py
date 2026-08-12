@@ -69,6 +69,21 @@ class TestTheCommand:
         """capsys has already replaced stdout with something that is not a tty, which is the condition."""
         assert main(["--brain", str(brain), "browse"]) == ExitCode.USAGE
 
+    def test_a_served_app_is_allowed_a_stdout_that_is_not_a_terminal(
+        self, brain: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`textual serve` speaks its display protocol over the subprocess' stdout, so the pipe capsys already
+        installed is the *correct* condition there rather than the refused one. The app is stubbed because what
+        is under test is which side of the guard the command comes down on, not the interface."""
+        opened: list[str] = []
+        monkeypatch.setenv("TEXTUAL_DRIVER", "textual.drivers.web_driver:WebDriver")
+        monkeypatch.setattr(
+            "vitruvio.cli.tui.BrainBrowser.run",
+            lambda self, *args, **kwargs: opened.append(self.kind),
+        )
+        assert main(["--brain", str(brain), "browse"]) == ExitCode.OK
+        assert opened == ["canonical"]
+
     def test_a_memory_type_that_does_not_exist_is_refused_before_the_interface_opens(self, brain: Path) -> None:
         assert main(["--brain", str(brain), "browse", "--memory-type", "epistemic"]) == ExitCode.USAGE
 
