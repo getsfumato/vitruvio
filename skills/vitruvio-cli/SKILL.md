@@ -197,6 +197,10 @@ already read: no index is consulted and nothing is ranked. When relevance is wha
 For a person, not for you: it needs a terminal and refuses `--json`. `inspect blocks`, `inspect content` and
 `inspect links` are the same three reads it is built on, with an envelope.
 
+`s` opens the query workspace: query plus optional RFC3339 `since`/`until`, graph depth (blank means one), the first
+25 matches, the executed physical plan and selected indices. Graph, vector/PCA and ordered-range tabs are bounded
+inspection views of indices that actually ran; hash lookup is named in the plan and has no diagram.
+
 If you are telling a user how to drive it: arrows walk the blocks, `left`/`m` reaches the module sidebar and
 `right`/`enter` comes back, `i` says which brain is open and why, `t` swaps a PDF for its extracted text, `o`
 opens the bytes in the desktop's own viewer, `?` lists every key. A preview is a thumbnail — a page in a

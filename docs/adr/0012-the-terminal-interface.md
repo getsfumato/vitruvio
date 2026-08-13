@@ -149,6 +149,19 @@ It is also why `browse` is the one command that treats an unselected brain as a 
 instead of failing. A list is a better answer than five flag names to somebody who is trying to *look* at
 something. Every other command still refuses, because a non-interactive caller cannot answer a question.
 
+### 8. Query diagnostics describe the execution; the TUI does not inspect indices
+
+Added with the query workspace. `BrainService.search(..., diagnostics=True)` enriches the Evidence Bundle with the
+operators from the explanation that just ran and bounded, serializable views of only the consulted graph, vector and
+ordered indices. The option is off by default because projecting vectors is work and is not part of the Evidence
+Bundle contract.
+
+The interface renders that payload and never imports an index implementation. This keeps the service seam from
+ADR-0001 intact and prevents the subtle failure of running `EXPLAIN` after `search`: that would be a second planning
+decision whose winner could differ after statistics or cache state changed. Graph edges come from the stored CSR,
+vector points are a PCA view of the real embeddings, and the B-tree panel draws the actual sorted-array/bisect engine.
+An index that was available but not selected gets an explicit empty state, not a plausible-looking diagram.
+
 ## Consequences
 
 **Two things had to be added after the first person used it, and both were the same mistake.** The cursor started

@@ -78,6 +78,7 @@ class Executor:
         candidates: dict[str, fusion.Candidate] = {}
         exhausted = True
         searched: list[MemoryType] = []
+        masks: dict[MemoryType, set[str] | None] = {}
 
         for node_id, node in enumerate(plan.nodes):
             if node.op is Op.EMPTY:
@@ -94,6 +95,18 @@ class Executor:
 
             started = time.perf_counter()
             hits, node_exhausted = self._generate(node, module, plan, candidates)
+            if node.op is Op.GRAPH_EXPAND:
+                # GraphExpand is federated: its operator scope says where the plan placed the expansion, not which
+                # module owns every reached block. Apply each reached block's owning-module mask, or a filter from the
+                # seed scope can incorrectly discard a valid hit from another module.
+                hits = self._filter_federated_hits(hits, masks)
+            else:
+                if memory_type not in masks:
+                    held = self._mask(module)
+                    masks[memory_type] = None if held is None else set(held)
+                allowed = masks[memory_type]
+                if allowed is not None:
+                    hits = [hit for hit in hits if hit[0] in allowed]
             spent = (time.perf_counter() - started) * 1e6
 
             fusion.accumulate(
@@ -174,20 +187,70 @@ class Executor:
         ``None`` means "could not be evaluated, post-filter instead"; an empty tuple means "nothing matches". Those
         are different answers, and conflating them silently excludes everything.
         """
-        from vitruvio.indices import BitmapIndex, Combine, Facet, FacetClause, FacetQuery
+        from vitruvio.indices import (
+            BitmapIndex,
+            BTreeIndex,
+            Combine,
+            Facet,
+            FacetClause,
+            FacetQuery,
+            OrderedKey,
+            RangeQuery,
+        )
 
-        index = self._index(module, IndexKind.BITMAP)
-        if not isinstance(index, BitmapIndex):
-            return None
+        selected: set[str] | None = None
+        scope = module.memory_type.value
+        index = self._index(module, IndexKind.BITMAP) if self.capabilities.has(scope, IndexKind.BITMAP) else None
 
         clauses: list[FacetClause] = []
         if self.query.filters.subject:
             clauses.append(FacetClause(Facet.SUBJECT, (self.query.filters.subject,)))
         if self.query.filters.tags:
             clauses.append(FacetClause(Facet.TAG, tuple(self.query.filters.tags), combine=Combine.ALL))
-        if not clauses:
-            return None
-        return index.matching(FacetQuery(clauses=tuple(clauses)))
+        if clauses and isinstance(index, BitmapIndex):
+            matching = index.matching(FacetQuery(clauses=tuple(clauses)))
+            if matching is not None:
+                selected = set(matching)
+
+        filters = self.query.filters
+        ordered = self._index(module, IndexKind.BTREE) if self.capabilities.has(scope, IndexKind.BTREE) else None
+        if (filters.since or filters.until) and isinstance(ordered, BTreeIndex):
+            ranged = {
+                str(identity)
+                for identity, _score in ordered.search(
+                    RangeQuery(key=OrderedKey.OCCURRED_AT, low=filters.since, high=filters.until),
+                    limit=0,
+                )
+            }
+            selected = ranged if selected is None else selected & ranged
+        return None if selected is None else tuple(sorted(selected))
+
+    def _filter_federated_hits(
+        self,
+        hits: list[tuple[str, float]],
+        masks: dict[MemoryType, set[str] | None],
+    ) -> list[tuple[str, float]]:
+        """Apply masks to graph hits in the module that actually owns each identity.
+
+        A graph expansion can cross module boundaries. An identity is admitted when at least one installed owner
+        admits it; residual payload checks remain the final correctness boundary for unavailable or stale masks.
+        """
+        admitted: list[tuple[str, float]] = []
+        for identity, score in hits:
+            owners = [
+                (memory_type, module)
+                for memory_type, module in self.modules.items()
+                if BlockId.parse(identity) in module.composition.block_ids
+            ]
+            for memory_type, module in owners:
+                if memory_type not in masks:
+                    held = self._mask(module)
+                    masks[memory_type] = None if held is None else set(held)
+                allowed = masks[memory_type]
+                if allowed is None or identity in allowed:
+                    admitted.append((identity, score))
+                    break
+        return admitted
 
     def _exact(self, module: Module) -> list[tuple[str, float]]:
         """Resolve identity-shaped queries: a digest, or a label the hash map holds."""
@@ -305,7 +368,8 @@ class Executor:
         graphs = {
             memory_type.value: index
             for memory_type, held in self.modules.items()
-            if isinstance(index := self._index(held, IndexKind.GRAPH), GraphIndex)
+            if self.capabilities.has(memory_type.value, IndexKind.GRAPH)
+            and isinstance(index := self._index(held, IndexKind.GRAPH), GraphIndex)
         }
         if not graphs or not candidates:
             return []
@@ -351,6 +415,13 @@ class Executor:
                 (candidate, value)
                 for candidate, value in scored
                 if ledger.is_accessible(BlockId.parse(candidate.block_id))
+            ]
+
+        # Residual predicates run before the reserve/limit. Otherwise enough high-ranked non-matches can consume the
+        # reserve and hide a valid candidate that appears later in an exhaustive generator.
+        if self._has_block_filters():
+            scored = [
+                (candidate, value) for candidate, value in scored if self._candidate_matches_filters(candidate.block_id)
             ]
 
         # A reserve past the limit, so a verification drop is backfilled rather than shortening the bundle.
@@ -421,6 +492,9 @@ class Executor:
 
             content: dict[str, Any] = {}
             sources: list[SourceRef] = []
+            filters = self.query.filters
+            if not resolvable and any((filters.subject, filters.tags, filters.since, filters.until, filters.evidence)):
+                return None
             if resolvable:
                 try:
                     block = module.get(identity)
@@ -430,6 +504,8 @@ class Executor:
                     )
                     return None
                 content = block.payload()
+                if not self._matches_filters(content):
+                    return None
                 sources = [
                     SourceRef(block_id=BlockId.parse(cited), locator=ledger.locators.get(identity))
                     for cited in (content.get("evidence") or [])
@@ -447,6 +523,45 @@ class Executor:
                 superseded_by=ledger.superseded_by.get(identity),
             )
         return None
+
+    def _matches_filters(self, content: dict[str, Any]) -> bool:
+        """Apply every block-level predicate after resolution, including residual fallbacks.
+
+        Index masks are an optimization. This check is the correctness boundary: a stale or unavailable mask may cost
+        more work, but it cannot let a block outside the requested subject, tags, time window or evidence set through.
+        """
+        filters = self.query.filters
+        if filters.subject and content.get("subject") != filters.subject:
+            return False
+        if filters.tags and not set(filters.tags).issubset(set(content.get("tags") or [])):
+            return False
+        occurred_at = content.get("occurred_at")
+        if filters.since and (not occurred_at or str(occurred_at) < filters.since):
+            return False
+        if filters.until and (not occurred_at or str(occurred_at) > filters.until):
+            return False
+        if filters.evidence:
+            held = {str(item) for item in content.get("evidence") or []}
+            if not {str(item) for item in filters.evidence}.issubset(held):
+                return False
+        return True
+
+    def _candidate_matches_filters(self, block_id: str) -> bool:
+        """Resolve one candidate just far enough to apply residual predicates before ``TopK``."""
+        identity = BlockId.parse(block_id)
+        for module in self.modules.values():
+            if identity not in module.composition.block_ids or not module.store.is_resolvable(identity):
+                continue
+            try:
+                return self._matches_filters(module.get(identity).payload())
+            except Exception:
+                return False
+        return False
+
+    def _has_block_filters(self) -> bool:
+        """Whether candidate payloads need predicate checks before the result limit."""
+        filters = self.query.filters
+        return bool(filters.subject or filters.tags or filters.since or filters.until or filters.evidence)
 
     @staticmethod
     def _admissible_unresolvable(candidate: fusion.Candidate) -> bool:

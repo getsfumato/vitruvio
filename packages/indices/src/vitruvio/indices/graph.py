@@ -23,7 +23,7 @@ association and therefore cannot rank an expansion at all.
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, ClassVar
 
 from boltzmann.indices.base import IndexKind
@@ -293,6 +293,38 @@ class GraphIndex(VitruvioIndex):
             edge = self._kinds.get((neighbour, node) if inbound else (node, neighbour))
             if edge is not None:
                 found.append((self._nodes[neighbour], edge[0], edge[1]))
+        return found
+
+    def edges(
+        self,
+        identities: Iterable[str] | None = None,
+        *,
+        limit: int = 100,
+    ) -> list[tuple[str, str, str, str | None, float]]:
+        """Return real edges for inspection and visualization.
+
+        Args:
+            identities (Iterable[str] | None): Keep edges touching one of these nodes. ``None`` keeps the whole graph.
+            limit (int): Maximum edges to return, in deterministic order.
+
+        Returns:
+            list[tuple[str, str, str, str | None, float]]: Source, target, kind, predicate and weight.
+
+        The graph is stored as CSR arrays after a build, so callers must not inspect ``_edges``: a graph restored from
+        disk and one just built have the same adjacency but need not retain the same build-time list. Reconstructing
+        from the canonical node order makes this method describe the index that is actually queried.
+        """
+        if limit <= 0:
+            return []
+        wanted = set(identities) if identities is not None else None
+        found: list[tuple[str, str, str, str | None, float]] = []
+        for (tail, head), (kind, predicate, weight) in sorted(self._kinds.items()):
+            source, target = self._nodes[tail], self._nodes[head]
+            if wanted is not None and source not in wanted and target not in wanted:
+                continue
+            found.append((source, target, kind, predicate, weight))
+            if len(found) >= limit:
+                break
         return found
 
     def external(self) -> list[str]:

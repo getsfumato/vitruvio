@@ -12,7 +12,12 @@ Three of these tests are load-bearing rather than incidental:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import Any, cast
+
 import pytest
+from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.identity.digest import BlockId
 from boltzmann.query.request import Query, QueryFilters, QueryHints, RetrievalMode
 
 from vitruvio.kernel import PlannerConfig
@@ -33,6 +38,7 @@ from vitruvio.planner import (
     plan_recall,
     render,
 )
+from vitruvio.planner.execute import Executor
 from vitruvio.planner.planner import Capabilities
 from vitruvio.stats import Freshness, ModuleStats, StatsVersion, TermStats, VectorStats
 
@@ -83,7 +89,7 @@ def capabilities(*kinds: str) -> Capabilities:
 def chosen_plan(planner: CostBasedPlanner, query: Query, caps: Capabilities):
     """Plan without executing, and return the winner's explanation."""
     intent = planner._classify(query, {}, ("semantic",), caps)
-    available = planner._generators(("semantic",), caps)
+    available = planner._generators(query, ("semantic",), caps)
     scored = []
     for plan in planner._enumerate(query, ("semantic",), caps, intent):
         estimates = estimate(plan, planner.statistics, planner.calibration)
@@ -161,6 +167,93 @@ class TestIR:
 
         assert Op.BITMAP_FILTER.output is Output.MASK
         assert Op.TERM_SCAN.output is Output.ROWS
+
+    def test_a_time_window_materializes_the_btree_range_mask(self) -> None:
+        planner = CostBasedPlanner(PlannerConfig(), statistics=statistics(10_000))
+        query = Query(
+            text="fourier",
+            filters=QueryFilters(since="2026-05-01T00:00:00Z", until="2026-05-31T23:59:59Z"),
+            hints=QueryHints(),
+        )
+        caps = capabilities("hash_map", "inverted", "btree")
+        intent = planner._classify(query, {}, ("semantic",), caps)
+        plans = planner._enumerate(query, ("semantic",), caps, intent)
+        range_nodes = [node for plan in plans for node in plan.nodes if node.op is Op.RANGE_SCAN]
+        assert range_nodes
+        assert all(node.index == "btree" for node in range_nodes)
+        assert all(node.parameters["key"] == "occurred_at" for node in range_nodes)
+
+    def test_zero_graph_depth_excludes_graph_expansion(self) -> None:
+        planner = CostBasedPlanner(PlannerConfig(), statistics=statistics(10_000))
+        caps = capabilities("graph")
+
+        disabled = a_query(expand_depth=0)
+        disabled_intent = planner._classify(disabled, {}, ("semantic",), caps)
+        disabled_plans = planner._enumerate(disabled, ("semantic",), caps, disabled_intent)
+        assert not any(node.op is Op.GRAPH_EXPAND for plan in disabled_plans for node in plan.nodes)
+
+        enabled = a_query(expand_depth=1)
+        enabled_intent = planner._classify(enabled, {}, ("semantic",), caps)
+        enabled_plans = planner._enumerate(enabled, ("semantic",), caps, enabled_intent)
+        assert any(node.op is Op.GRAPH_EXPAND for plan in enabled_plans for node in plan.nodes)
+
+
+class TestExecutorMasks:
+    def test_an_unusable_filter_index_is_never_consulted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A stale B-tree excluded by capabilities cannot silently become an execution-time filter."""
+        query = Query(
+            text="fourier",
+            filters=QueryFilters(since="2026-05-01T00:00:00Z"),
+            hints=QueryHints(),
+        )
+        caps = Capabilities(available={"semantic": ["btree"]}, usable={"semantic": frozenset()})
+        executor = Executor(
+            planner=CostBasedPlanner(PlannerConfig()),
+            modules={},
+            query=query,
+            intent=classify(query.text, has_filters=True),
+            capabilities=caps,
+        )
+        module = cast(Any, SimpleNamespace(memory_type=MemoryType.SEMANTIC))
+        monkeypatch.setattr(
+            executor,
+            "_index",
+            lambda *_: pytest.fail("the capability gate excluded this index"),
+        )
+
+        assert executor._mask(module) is None
+
+    def test_federated_graph_hits_use_the_owning_module_mask(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A valid episodic neighbour must not be tested against the semantic seed scope's mask."""
+        semantic_id = "sha256:" + "11" * 32
+        episodic_id = "sha256:" + "22" * 32
+        semantic = cast(
+            Any,
+            SimpleNamespace(
+                memory_type=MemoryType.SEMANTIC,
+                composition=SimpleNamespace(block_ids=(BlockId.parse(semantic_id),)),
+            ),
+        )
+        episodic = cast(
+            Any,
+            SimpleNamespace(
+                memory_type=MemoryType.EPISODIC,
+                composition=SimpleNamespace(block_ids=(BlockId.parse(episodic_id),)),
+            ),
+        )
+        executor = Executor(
+            planner=CostBasedPlanner(PlannerConfig()),
+            modules={MemoryType.SEMANTIC: semantic, MemoryType.EPISODIC: episodic},
+            query=a_query(),
+            intent=classify("fourier", expand_depth=1),
+            capabilities=Capabilities(available={}, usable={}),
+        )
+
+        def mask(module: Any) -> tuple[str, ...]:
+            return () if module.memory_type is MemoryType.SEMANTIC else (episodic_id,)
+
+        monkeypatch.setattr(executor, "_mask", mask)
+        assert executor._filter_federated_hits([(episodic_id, 0.8)], {}) == [(episodic_id, 0.8)]
 
 
 class TestCostModel:

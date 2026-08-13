@@ -2773,6 +2773,7 @@ class BrainService:
         mode: str | None = None,
         limit: int = 10,
         expand_depth: int = 0,
+        diagnostics: bool = False,
     ) -> dict[str, Any]:
         """
         Retrieve evidence.
@@ -2793,6 +2794,8 @@ class BrainService:
             mode (str | None): A retrieval hint. It restricts the plans considered; it does not choose one.
             limit (int): How many matches to return.
             expand_depth (int): How far to expand along graph edges.
+            diagnostics (bool): Include query-scoped visual data for a human interface. Ordinary API calls leave it
+                off because projecting embeddings has a cost and is not part of an Evidence Bundle.
 
         Returns:
             dict[str, Any]: An Evidence Bundle. Blocks, provenance and scores -- never prose.
@@ -2821,11 +2824,25 @@ class BrainService:
             payload["plan"] = {
                 "signature": explanation.chosen.signature,
                 "intent": explanation.intent.kind,
-                "indices_consulted": explanation.indices_consulted,
+                "indices_consulted": {scope: list(kinds) for scope, kinds in explanation.indices_consulted.items()},
+                "indices_available": {scope: list(kinds) for scope, kinds in explanation.indices_available.items()},
+                "operators": [item.model_dump(mode="json") for item in explanation.chosen.operators],
                 "est_cost_us": explanation.chosen.total_est_cost_us,
                 "est_recall": explanation.chosen.est_recall,
                 "degradations": [item.model_dump(mode="json") for item in explanation.degradations],
             }
+            if diagnostics:
+                from vitruvio.runtime.query_diagnostics import query_diagnostics
+
+                visual = query_diagnostics(brain, text, list(payload.get("matches", [])), explanation)
+                payload["diagnostics"] = visual
+                # GraphExpand executes over a federated view, so its operator scope is not the complete set of graph
+                # indices touched. The human plan view names the actual scopes from the diagnostic pass.
+                for scope in visual["graph"]["scopes"]:
+                    kinds = payload["plan"]["indices_consulted"].setdefault(scope, [])
+                    if "graph" not in kinds:
+                        kinds.append("graph")
+                        kinds.sort()
         return payload
 
     def explain(

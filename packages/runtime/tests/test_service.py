@@ -161,6 +161,60 @@ class TestSearch:
         for match in service.search("markdown", memory_types=["canonical"])["matches"]:
             assert isinstance(match["score"], str)
 
+    def test_visual_diagnostics_are_opt_in_and_share_the_executed_plan(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        service.register(source_file, media_type="text/markdown")
+        ordinary = service.search("fourier")
+        visual = service.search("fourier", diagnostics=True)
+        assert "diagnostics" not in ordinary
+        assert visual["plan"]["operators"], "the service carries the operators from the search that just ran"
+        assert visual["diagnostics"].keys() == {"graph", "vector", "btree"}
+        assert all("selected" in visual["diagnostics"][kind] for kind in ("graph", "vector", "btree"))
+
+    def test_a_time_filter_cannot_admit_a_block_without_a_timestamp(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        service.register(source_file, media_type="text/markdown")
+        assert service.search("fourier", since="2026-01-01T00:00:00Z")["matches"] == []
+
+    def test_time_filtering_happens_before_the_result_limit(self, service: BrainService, source_file: Path) -> None:
+        """Out-of-window leaders must not spend the reserve and hide a later valid episode."""
+        from boltzmann.blocks.memory_type import MemoryType
+        from boltzmann.identity.digest import BlockId
+        from boltzmann.ingest.proposer import Candidate, CandidateSet
+
+        registered = service.register(source_file, media_type="text/markdown")
+        brain = service.brain(Capability.WRITE)
+        source = BlockId.parse(registered["block_id"])
+        task = brain.define_task(source, allowed=[MemoryType.EPISODIC])
+        candidates = CandidateSet(
+            task_id=task.task_id,
+            candidates=[
+                Candidate(
+                    memory_type=MemoryType.EPISODIC,
+                    evidence=[source],
+                    locator=f"episode:{position}",
+                    payload={
+                        "summary": "fourier",
+                        "occurred_at": (
+                            "2026-07-01T00:00:00Z" if position == 5 else f"2026-01-{position + 1:02d}T00:00:00Z"
+                        ),
+                    },
+                )
+                for position in range(6)
+            ],
+        )
+        brain.commit(brain.validate(candidates, task))
+
+        result = service.search(
+            "fourier",
+            memory_types=["episodic"],
+            since="2026-06-01T00:00:00Z",
+            limit=1,
+        )
+        assert [match["content"]["occurred_at"] for match in result["matches"]] == ["2026-07-01T00:00:00Z"]
+
 
 class TestCapabilityGate:
     def test_inspect_registers_no_index(self, config) -> None:

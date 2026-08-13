@@ -234,7 +234,7 @@ class CostBasedPlanner:
         intent = self._classify(query, modules, scopes, capabilities)
 
         candidates = self._enumerate(query, scopes, capabilities, intent)
-        available = self._generators(scopes, capabilities)
+        available = self._generators(query, scopes, capabilities)
 
         # Cost and score every plan first, and check the *validity* rule -- which is absolute and never relaxed --
         # before deciding what the recall floor should be.
@@ -530,7 +530,7 @@ class CostBasedPlanner:
             return estimated.note, estimated.rows / max(1, stats.cardinality), estimated.exact
         return None, None, False
 
-    def _generators(self, scopes: Sequence[str], capabilities: Capabilities) -> set[str]:
+    def _generators(self, query: Query, scopes: Sequence[str], capabilities: Capabilities) -> set[str]:
         """
         Which **index-backed** generators the installation could supply.
 
@@ -549,7 +549,7 @@ class CostBasedPlanner:
                 kinds.add("TermScan")
             if capabilities.has(scope, IndexKind.VECTOR):
                 kinds.add("VectorSearch")
-            if capabilities.has(scope, IndexKind.GRAPH):
+            if query.hints.expand_depth > 0 and capabilities.has(scope, IndexKind.GRAPH):
                 kinds.add("GraphExpand")
         return kinds
 

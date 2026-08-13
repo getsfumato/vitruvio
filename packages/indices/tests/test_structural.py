@@ -20,6 +20,7 @@ from vitruvio.indices import (
     Combine,
     FacetClause,
     FacetQuery,
+    GraphIndex,
     HashMapIndex,
     IdentityKey,
     IdQuery,
@@ -404,6 +405,34 @@ class TestBTreeIndex:
     def test_an_allow_mask_is_applied(self, index: BTreeIndex) -> None:
         query = RangeQuery(key=OrderedKey.OCCURRED_AT, allow=frozenset({0}))
         assert index.scan(query) == [0]
+
+    def test_a_diagnostic_window_reports_the_real_bisect_boundaries(self, index: BTreeIndex) -> None:
+        window = index.window(
+            OrderedKey.OCCURRED_AT,
+            low="2026-05-01T00:00:00Z",
+            high="2026-05-31T23:59:59Z",
+        )
+        assert window["engine"] == "sorted-array"
+        assert window["end"] - window["start"] == 2
+        assert sum(1 for entry in window["entries"] if entry["selected"]) == 2
+        assert all(entry["block_id"] for entry in window["entries"])
+
+
+class TestGraphIndex:
+    def test_diagnostic_edges_are_the_real_typed_edges(
+        self, procedural_block: ProceduralBlock, content: MemoryContent
+    ) -> None:
+        index = GraphIndex(MemoryType.PROCEDURAL)
+        index.build([procedural_block], content)
+        edges = index.edges([str(procedural_block.block_id)])
+        assert len(edges) == 1
+        source, target, kind, predicate, weight = edges[0]
+        assert source == str(procedural_block.block_id)
+        assert target != source
+        assert kind == "uses"
+        assert predicate is None
+        assert weight == 0.9
+        assert index.edges(limit=0) == []
 
 
 class TestPersistence:

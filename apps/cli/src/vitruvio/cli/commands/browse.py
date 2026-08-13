@@ -36,15 +36,16 @@ def browse(
     *,
     memory_type: Annotated[str | None, Parameter(name=["--memory-type", "-m"])] = None,
 ) -> ExitCode:
-    """Read the brain: modules on the left, their blocks in the middle, the selected block on the right.
+    """Read and query the brain in a terminal workspace that also shows the executed plan and selected indices.
 
     The preview draws what a terminal can draw of the bytes a block names — text and Markdown as themselves, an
     image or a PDF page as graphics with `vitruvio[vision]` installed — and `o` hands anything else to whatever
     the desktop opens it with. Beside it are the block's payload, the provenance records that name it, and its
     Merkle inclusion proof, checked.
 
-    The filter box narrows the rows on screen and consults no index. `s` opens the search screen, which is the
-    planner's answer; the two are deliberately not the same thing.
+    The filter box narrows the rows on screen and consults no index. `s` opens the query workspace, which shows the
+    planner's executed operators, selected indices, first 25 matches, and bounded graph/vector/ordered-index views;
+    the two are deliberately not the same thing.
 
     `?` lists every key.
 
