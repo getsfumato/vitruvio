@@ -9,16 +9,14 @@ The protocol says a brain conserves, validates and retrieves knowledge while an 
 Vitruvio fills them in: six index kinds, text and vision embeddings, and a cost-based planner that chooses indices
 from the shape of the query and can explain why.
 
-> Status: early. The CLI is complete and tested; nothing has been released to PyPI yet — the installer below
-> takes the wheels from the GitHub release instead, so it works today and keeps working once PyPI happens.
-
 ```console
 curl -fsSL https://raw.githubusercontent.com/getsfumato/vitruvio/main/install.sh | sh
 ```
 
-Installs the latest release into `~/.local/bin` with its own isolated environment, fetching a Python if the
-host has nothing new enough. `VITRUVIO_EXTRAS=all` for local and API embeddings, PDF pages and LLM proposers;
-`VITRUVIO_VERSION` to pin; `VITRUVIO_BIN_DIR` to install elsewhere. Or, once a release is on PyPI:
+Installs the latest release into `~/.local/bin` with its own isolated environment, taking the wheels from the
+GitHub release and fetching a Python if the host has nothing new enough. `VITRUVIO_EXTRAS=all` for local and API
+embeddings, PDF pages and LLM proposers; `VITRUVIO_VERSION` to pin; `VITRUVIO_BIN_DIR` to install elsewhere.
+Or, once vitruvio is on PyPI:
 
 ```console
 uv tool install vitruvio             # no torch, no downloads — still embeds, still indexes
