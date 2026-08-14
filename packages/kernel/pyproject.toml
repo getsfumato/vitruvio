@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.0.0,<3.0.0",
-    "pyboltzmann>=0.3.0,<0.4.0",
+    "pyboltzmann>=0.4.1,<0.5.0",
     # Reading TOML is stdlib (tomllib); writing it is not, and `config set`, `brain use` and the
     # model-tag write-back all need to write. Pure Python, no transitive dependencies.
     "tomli-w>=1.0.0",
