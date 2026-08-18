@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager, suppress
+from inspect import signature
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,16 @@ def _translated() -> Iterator[None]:
         raise
     except Exception as error:
         raise translate(error) from error
+
+
+def _require_vector_index_ignore(method: Any) -> None:
+    """Fail clearly when the CLI feature is used with an SDK that predates the supporting pull contract."""
+    if "ignore_vector_indices" in signature(method).parameters:
+        return
+    raise VitruvioError(
+        "the installed pyboltzmann does not support ignoring vector indices during a pull",
+        hint="upgrade pyboltzmann to a release whose Brain.pull exposes `ignore_vector_indices`, then retry",
+    )
 
 
 class BrainService:
@@ -2515,6 +2526,7 @@ class BrainService:
         *,
         tag: str | None = None,
         modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
         username: str | None = None,
         token: str | None = None,
         anonymous: bool = False,
@@ -2545,7 +2557,21 @@ class BrainService:
         brain = self.brain(Capability.INSPECT)
         with _translated():
             manifest = asyncio.run(client.resolve(effective, wanted_tag))
-            plan = asyncio.run(brain.plan_pull(client, effective, wanted_tag, modules=chosen))
+            if ignore_vector_indices:
+                _require_vector_index_ignore(brain.plan_pull)
+                plan = asyncio.run(
+                    brain.plan_pull(
+                        client,
+                        effective,
+                        wanted_tag,
+                        modules=chosen,
+                        ignore_vector_indices=True,
+                    )
+                )
+            else:
+                # Keep the ordinary pull compatible with the previous SDK API. Only the new opt-in path requires
+                # the SDK release that added `ignore_vector_indices`.
+                plan = asyncio.run(brain.plan_pull(client, effective, wanted_tag, modules=chosen))
         return {
             "reference": target,
             "tag": wanted_tag,
@@ -2560,6 +2586,7 @@ class BrainService:
         *,
         tag: str | None = None,
         modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
         username: str | None = None,
         token: str | None = None,
         anonymous: bool = False,
@@ -2585,9 +2612,37 @@ class BrainService:
         # Captured before, because after the pull the composition is the remote's and there is nothing left to
         # compare against. This is the only place the count can be exact rather than estimated.
         before = self._composition_ids(brain)
+        ignored: list[str] = []
         with _translated():
-            snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
+            if ignore_vector_indices:
+                _require_vector_index_ignore(brain.pull)
+                manifest = asyncio.run(client.resolve(effective, wanted_tag))
+                wanted = chosen if chosen is not None else manifest.modules
+                ignored = [
+                    memory_type.value for memory_type in wanted if manifest.vector_index_for(memory_type) is not None
+                ]
+                snapshot = asyncio.run(
+                    brain.pull(
+                        client,
+                        effective,
+                        wanted_tag,
+                        modules=chosen,
+                        ignore_vector_indices=True,
+                    )
+                )
+            else:
+                snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
         orphaned = sorted(before - self._composition_ids(brain))
+        # `plan_pull` may already have memoized an INSPECT-capability brain at the old head. A pull advances the
+        # pointer through the WRITE-capability instance, so every other cached view must be reopened before a caller
+        # asks for state or verification on this same service object.
+        self._cache.clear()
+        if ignored:
+            named = ", ".join(ignored)
+            warnings.append(
+                f"ignored published vector indices for {named}; run `vitruvio index build --force` to build "
+                "compatible local vectors before relying on semantic retrieval"
+            )
         return {
             "reference": target,
             "tag": wanted_tag,
@@ -2595,6 +2650,7 @@ class BrainService:
             "partial": chosen is not None,
             "discarded": len(orphaned),
             "discarded_blocks": orphaned[:20],
+            "ignored_vector_indices": ignored,
             "warnings": warnings,
         }
 

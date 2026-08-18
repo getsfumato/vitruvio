@@ -314,6 +314,25 @@ class TestLocalRoundTrip:
         plan = consumer.plan_pull(reference, tag="v1", local=registry_root)
         assert plan["fetch_vector_indices"], "no vector index was published"
 
+    def test_vector_indices_can_be_ignored_without_omitting_their_modules(
+        self, published: tuple[Path, str], tmp_path: Path
+    ) -> None:
+        registry_root, reference = published
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        consumer = BrainService(config)
+        consumer.init()
+
+        plan = consumer.plan_pull(reference, tag="v1", ignore_vector_indices=True, local=registry_root)
+        result = consumer.pull(reference, tag="v1", ignore_vector_indices=True, local=registry_root)
+
+        assert plan["fetch_vector_indices"] == []
+        assert plan["ignored_vector_indices"] == ["semantic"]
+        assert result["ignored_vector_indices"] == ["semantic"]
+        assert result["partial"] is False
+        assert consumer.verify()["verified"] is True
+        assert set(consumer.state()["installed"]) == {"canonical", "semantic", "provenance"}
+        assert any("index build --force" in warning for warning in result["warnings"])
+
     def test_a_reference_that_names_no_repository_is_a_usage_error(self, tmp_path: Path) -> None:
         """Checked on the remote path: a local layout takes the reference verbatim as a directory name, so there is no
         host to resolve and nothing to validate."""

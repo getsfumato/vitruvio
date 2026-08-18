@@ -336,6 +336,29 @@ class TestPushAll:
         assert code == ExitCode.OK
         assert verified["data"]["verified"] is True
 
+    def test_pull_exposes_the_sdk_option_to_ignore_vector_indices(
+        self, capsys: pytest.CaptureFixture[str], project: Path, tmp_path: Path
+    ) -> None:
+        registry = project / "registry"
+        assert envelope(capsys, "dist", "push", "--all", "--local", str(registry))[0] == ExitCode.OK
+
+        consumer = tmp_path / "consumer-without-vectors"
+        assert envelope(capsys, "brain", "init", str(consumer), "--actor", "c@d.e")[0] == ExitCode.OK
+        code, payload = envelope(
+            capsys,
+            "--brain",
+            str(consumer),
+            "dist",
+            "pull",
+            "docker.io/alex/facultad-algebra",
+            "--ignore-vector-indices",
+            "--local",
+            str(registry),
+        )
+
+        assert code == ExitCode.OK
+        assert "ignored_vector_indices" in payload["data"]
+
 
 class TestSingleBrainStillWorks:
     def test_a_project_of_one_brain_needs_no_name(
