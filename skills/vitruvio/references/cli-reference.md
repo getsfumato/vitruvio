@@ -242,11 +242,11 @@ Build the OCI artifact locally, without pushing.
 
 Publish the brain to a registry.
 
-### `vitruvio dist plan-pull` `[reference]` `--tag` `--module` `--anonymous` `--insecure` `--local`
+### `vitruvio dist plan-pull` `[reference]` `--tag` `--module` `--ignore-vector-indices` `--anonymous` `--insecure` `--local`
 
 Report what a pull would transfer, before transferring it.
 
-### `vitruvio dist pull` `[reference]` `--tag` `--module` `--anonymous` `--insecure` `--local`
+### `vitruvio dist pull` `[reference]` `--tag` `--module` `--ignore-vector-indices` `--anonymous` `--insecure` `--local`
 
 Install a published brain.
 

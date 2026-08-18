@@ -279,6 +279,7 @@ def plan_pull(
     *,
     tag: str | None = None,
     module: Annotated[list[str] | None, Parameter(name=["--module", "-m"], negative=())] = None,
+    ignore_vector_indices: bool = False,
     anonymous: bool = False,
     insecure: bool = False,
     local: Annotated[
@@ -303,6 +304,9 @@ def plan_pull(
         Which tag.
     module
         Install only these modules. Repeatable.
+    ignore_vector_indices
+        Do not transfer published vector indices. Modules remain complete and verified; build compatible
+        vectors locally with `vitruvio index build --force` before relying on semantic retrieval.
     anonymous
         Resolve without credentials, for a public repository.
     insecure
@@ -312,7 +316,15 @@ def plan_pull(
     result = (
         current()
         .service()
-        .plan_pull(reference, tag=tag, modules=module, anonymous=anonymous, insecure=insecure, local=local)
+        .plan_pull(
+            reference,
+            tag=tag,
+            modules=module,
+            ignore_vector_indices=ignore_vector_indices,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
     )
     _warn(result)
 
@@ -323,6 +335,7 @@ def plan_pull(
         ("fetch", ", ".join(result["fetch_layers"]) or "(nothing -- already current)"),
         ("reuse", ", ".join(result["reuse_layers"]) or "(none)"),
         ("vectors", ", ".join(result["fetch_vector_indices"]) or "(none)"),
+        ("ignored vectors", ", ".join(result["ignored_vector_indices"]) or "(none)"),
         # The one number worth paying attention to before agreeing to a transfer that can be gigabytes.
         ("transfer", render.count(f"{size / 1024:.1f} KiB") if size is not None else "(unknown)"),
     ]
@@ -339,6 +352,7 @@ def pull(
     *,
     tag: str | None = None,
     module: Annotated[list[str] | None, Parameter(name=["--module", "-m"], negative=())] = None,
+    ignore_vector_indices: bool = False,
     anonymous: bool = False,
     insecure: bool = False,
     local: Annotated[
@@ -362,6 +376,9 @@ def pull(
         Which tag.
     module
         Install only these modules. Repeatable.
+    ignore_vector_indices
+        Do not download or load published vector indices. The modules and their Merkle roots are still
+        installed and verified; run `vitruvio index build --force` afterwards for local vector search.
     anonymous
         Pull without credentials.
     insecure
@@ -371,13 +388,23 @@ def pull(
     result = (
         current()
         .service()
-        .pull(reference, tag=tag, modules=module, anonymous=anonymous, insecure=insecure, local=local)
+        .pull(
+            reference,
+            tag=tag,
+            modules=module,
+            ignore_vector_indices=ignore_vector_indices,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
     )
     _warn(result)
     if result["partial"]:
         console.warn("a selective install leaves the other modules missing; `inspect resolvability` reports which")
 
     pairs: list[tuple[str, object]] = [("pulled", f"{result['reference']}:{result['tag']}")]
+    if ignored := result["ignored_vector_indices"]:
+        pairs.append(("ignored vectors", ", ".join(ignored)))
     if discarded := int(result["discarded"]):
         # Counted exactly here rather than estimated: this is the one moment both compositions are known, so the
         # report says what happened instead of what was likely to. Stated after the fact because a pull is a

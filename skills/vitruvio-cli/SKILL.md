@@ -149,8 +149,8 @@ better than passing flags every time.
 |---|---|
 | `dist pack` | build the artifact locally. **Read the warnings** |
 | `dist push [REF]` | publish. `--tag`, `--all`, `--module`, `--local`, never `--force` |
-| `dist plan-pull [REF]` | what a pull would transfer **and what it would discard** |
-| `dist pull [REF]` | install. Adopts the published composition; read `discarded` |
+| `dist plan-pull [REF]` | what a pull would transfer **and what it would discard**; `--ignore-vector-indices` plans without derived vector layers |
+| `dist pull [REF]` | install. Adopts the published composition; read `discarded`; `--ignore-vector-indices` keeps modules and omits vector layers |
 | `dist tags [REF]` | what is published |
 
 ### `registry` — credentials

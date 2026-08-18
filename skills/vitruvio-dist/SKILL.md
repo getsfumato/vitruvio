@@ -24,6 +24,20 @@ vitruvio dist pull <REF> --tag v1 --json
 vitruvio brain verify --json          # do this after every pull
 ```
 
+If a published vector index is incompatible with the configured embedder, keep the strict refusal by default. When
+the user explicitly chooses to install the verified modules without those derived layers, plan and pull with
+`--ignore-vector-indices`, then rebuild compatible vectors locally:
+
+```bash
+vitruvio dist plan-pull <REF> --tag v1 --ignore-vector-indices --json
+vitruvio dist pull <REF> --tag v1 --ignore-vector-indices --json
+vitruvio index build --force --json
+vitruvio brain verify --json
+```
+
+This omits only vector-index layers, not memory modules. Read `ignored_vector_indices` in both results and surface the
+warning: until the rebuild completes, structural and lexical retrieval remain available but vector retrieval does not.
+
 A **selective** pull (`--module semantic`) is a legitimate, permanent state. The modules you did not take are
 *missing*, not broken, and `inspect resolvability` reports them as such — do not treat that report as corruption.
 

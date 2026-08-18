@@ -24,6 +24,24 @@ A canonical layer can be gigabytes. "How much is this going to cost" should be a
 A **selective** pull (`--module semantic`) is a legitimate, permanent state. The modules you did not take are *missing*,
 not broken, and `inspect resolvability` reports them as such. Run `brain verify` after every pull.
 
+### Installing without incompatible vector indices
+
+The default pull is strict: if a published vector index was built in a different representation space, Vitruvio
+refuses to load it rather than return meaningless similarity scores. To install every requested memory module while
+omitting only those derived vector layers, make that choice explicit in both the plan and the pull:
+
+```bash
+vitruvio dist plan-pull ghcr.io/org/brain --tag v1 --ignore-vector-indices
+vitruvio dist pull ghcr.io/org/brain --tag v1 --ignore-vector-indices
+vitruvio index build --force
+vitruvio brain verify
+```
+
+The pull still verifies each module against its published Merkle root. Structural and lexical retrieval remain
+available immediately; run the rebuild before relying on vector retrieval. Both distribution commands report
+`ignored_vector_indices`, so automation can distinguish this deliberate fallback from an artifact that carried no
+vectors at all.
+
 ## Two refusals from the protocol
 
 - **Exit 8, not a fast-forward.** Someone pushed since this brain was pulled. Pull, re-commit, push again. Never
@@ -116,4 +134,3 @@ editing `boltzmann/head.json` by hand. If you are working on a brain somebody el
 
 `plan-pull` estimates the count from two snapshot documents, which is why it needs no download. `pull` counts it
 exactly, because it is the one moment both compositions are known.
-
