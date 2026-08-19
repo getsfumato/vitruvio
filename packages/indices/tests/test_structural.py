@@ -34,7 +34,8 @@ from vitruvio.indices import (
     project,
 )
 from vitruvio.indices import format as envelope
-from vitruvio.indices.projection import Facet
+from vitruvio.indices.graph import quantize
+from vitruvio.indices.projection import Edge, EdgeKind, Facet, Projection
 
 
 class TestProtocolShape:
@@ -433,6 +434,40 @@ class TestGraphIndex:
         assert predicate is None
         assert weight == 0.9
         assert index.edges(limit=0) == []
+
+
+class TestGraphWeightQuantization:
+    """Edge weights persist as integer thousandths, so what is ranked with has to be what survives a reload."""
+
+    def test_a_weight_is_rounded_before_it_is_ranked_with(self) -> None:
+        """Not only before it is written. Rounding at dump time alone gave a freshly-built index and the same index
+        reloaded two different numbers for one edge, so `expand` ranked differently depending on which the process
+        happened to be holding -- and no in-memory test could see it, because they never reload."""
+        index = GraphIndex(MemoryType.SEMANTIC)
+        index._apply(
+            Projection(
+                block_id="a", memory_type=MemoryType.SEMANTIC, edges=(Edge(EdgeKind.RELATION, "b", weight=1 / 3),)
+            )
+        )
+        assert index._edges[0][4] == quantize(1 / 3) != 1 / 3
+
+    def test_a_lossy_weight_survives_a_dump_and_load_unchanged(self) -> None:
+        """The property that matters: the same edge weight before and after, for a weight that is not a thousandth."""
+        first = GraphIndex(MemoryType.SEMANTIC)
+        first._apply(
+            Projection(
+                block_id="a", memory_type=MemoryType.SEMANTIC, edges=(Edge(EdgeKind.RELATION, "b", weight=1 / 3),)
+            )
+        )
+        first._on_build_end(None)
+
+        second = GraphIndex(MemoryType.SEMANTIC)
+        second._load_body(first._dump_state())
+        assert second._edges[0][4] == first._edges[0][4]
+
+    def test_every_weight_the_projection_layer_emits_is_already_exact(self) -> None:
+        """A regression guard on the constant, not on the rounding: 1000 is only the right scale while it is."""
+        assert all(quantize(weight) == weight for weight in (1.0, 0.9))
 
 
 class TestPersistence:
