@@ -19,6 +19,7 @@ a screenshot: what is pinned is which blocks the panes hold, not how many spaces
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -356,6 +357,54 @@ class TestOpeningInTheDesktop:
         second = desktop.scratch("paper.pdf", "sha256:bbb")
         assert first != second
         assert first.name == second.name == "paper.pdf"
+
+    def test_an_export_lands_under_one_sweepable_root(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`mkdtemp(prefix="vitruvio-")` scattered siblings through the system temp directory, so collecting them
+        would have meant deleting whatever else matched the prefix."""
+        from vitruvio.cli.render import desktop
+
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+        target = desktop.scratch("paper.pdf", "sha256:aaa")
+        assert target.parent.parent == tmp_path / desktop.SCRATCH_ROOT
+
+    def test_what_an_earlier_open_left_behind_is_collected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every open writes a block's canonical bytes in the clear, outside the store, and nothing removed them.
+
+        The accumulation was unbounded and the plaintext permanent, in a directory `retain redact` cannot reach --
+        so a redacted brain still had the destroyed bytes sitting in a temporary file.
+        """
+        import os
+
+        from vitruvio.cli.render import desktop
+
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+        stale = desktop.scratch("secreto.pdf", "sha256:aaa")
+        stale.write_text("credentials", encoding="utf-8")
+        aged = time.time() - desktop.SCRATCH_TTL_SECONDS - 60
+        os.utime(stale.parent, (aged, aged))
+
+        fresh = desktop.scratch("otro.pdf", "sha256:bbb")
+        assert not stale.parent.exists(), "an export older than the TTL must not survive the next one"
+        assert fresh.parent.exists(), "and the directory just handed out must survive it"
+
+    def test_an_export_within_the_ttl_is_left_alone(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The bytes go to another process, so collecting them eagerly would pull the file out from under it."""
+        from vitruvio.cli.render import desktop
+
+        monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+        recent = desktop.scratch("paper.pdf", "sha256:aaa")
+        recent.write_text("still being read", encoding="utf-8")
+
+        desktop.scratch("otro.pdf", "sha256:bbb")
+        assert recent.exists()
+
+    def test_a_sweep_that_cannot_run_is_not_a_failed_open(self, tmp_path: Path) -> None:
+        """Housekeeping must never be the reason a document does not open."""
+        from vitruvio.cli.render import desktop
+
+        assert desktop.sweep(tmp_path / "never-opened-anything") == 0
 
     def test_inspect_content_open_writes_the_bytes_and_hands_them_over(
         self, brain: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

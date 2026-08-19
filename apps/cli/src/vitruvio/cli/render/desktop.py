@@ -19,6 +19,13 @@ suffix*, so a PDF written to a file called ``sha256-b0a1...`` opens in a text ed
 screenful of binary. Which is exactly what happened, on a brain whose blocks carry no origin at all -- a pulled
 one, where nobody recorded the filenames -- and it is why :func:`extension_for` exists. The block always knows its
 media type; that is part of its identity. Falling back to the content address must not throw it away.
+
+**What is written has to be collected.** Every open writes the block's canonical bytes, in the clear, outside the
+store -- and the bytes are handed to another process, so they cannot be deleted when the command returns. Left at
+that, `scratch` created one temporary directory per open and nothing ever removed it, so a brain's plaintext
+accumulated indefinitely in a place `retain redact` does not reach. :func:`scratch` therefore sweeps its own
+directory on the way in; see :data:`SCRATCH_TTL_SECONDS` for why that is the collection point rather than an exit
+hook.
 """
 
 from __future__ import annotations
@@ -165,9 +172,66 @@ def filename(name: str | None, digest: str, media_type: str | None = None) -> st
     return stem + extension_for(media_type)
 
 
+SCRATCH_ROOT = "vitruvio-open"
+"""The one directory every exported blob is written under, so that sweeping it cannot reach anything else.
+
+Previously each open called ``mkdtemp(prefix="vitruvio-")`` directly, which scattered siblings through the system
+temporary directory. Collecting those would have meant matching on a prefix and deleting whatever matched --
+including a directory some other tool chose the same prefix for.
+"""
+
+SCRATCH_TTL_SECONDS = 24 * 60 * 60
+"""How long an exported blob is allowed to outlive the command that wrote it.
+
+The awkward constraint is that the bytes are handed to *another process*: deleting them when the command returns
+would pull the file out from under the application that was just asked to open it, and an ``atexit`` hook is the
+same bug with better timing -- `inspect content --open` exits immediately after spawning the handler.
+
+So collection is deferred and happens on the way *in*: each call removes what earlier calls left behind once it is
+older than this. That bounds the accumulation at roughly a day of opens instead of forever, needs no lifecycle hook
+that a `--open` command cannot honour, and never touches the directory it is about to hand out. A day rather than an
+hour because the reader may still have the document open, and unlinking it is not worth saving a few megabytes.
+"""
+
+
+def sweep(root: Path, ttl_seconds: float = SCRATCH_TTL_SECONDS) -> int:
+    """
+    Remove exported blobs older than the TTL.
+
+    Never raises. A temporary directory that cannot be cleaned is not a reason to refuse to open a document, and the
+    next call will try again; a failure here would turn a housekeeping problem into a command that does not work.
+
+    Args:
+        root (Path): The scratch root. Missing is not an error -- it means nothing has been opened yet.
+        ttl_seconds (float): Age past which an entry is collected.
+
+    Returns:
+        int: How many entries were removed, for a caller that wants to report it.
+    """
+    import time
+
+    if not root.is_dir():
+        return 0
+
+    cutoff = time.time() - ttl_seconds
+    removed = 0
+    for entry in root.iterdir():
+        try:
+            if entry.stat().st_mtime >= cutoff:
+                continue
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+        except OSError:  # pragma: no cover - a racing sweep from a second process, or a permission we lack
+            continue
+    return removed
+
+
 def scratch(name: str | None, digest: str, media_type: str | None = None) -> Path:
     """
     Where to write bytes that are about to be handed to another application.
+
+    Sweeps what earlier opens left behind before allocating, which is the only collection point available to a
+    command that exits while another process still holds the file. See :data:`SCRATCH_TTL_SECONDS`.
 
     Args:
         name (str | None): The origin recorded when the block was registered, when there is one.
@@ -175,13 +239,29 @@ def scratch(name: str | None, digest: str, media_type: str | None = None) -> Pat
         media_type (str | None): The block's media type, which supplies the suffix when the name has none.
 
     Returns:
-        Path: A path inside a fresh temporary directory. Fresh per call rather than one shared directory,
-        because two blocks can legitimately share an origin filename -- a brain holding two editions of the same
-        paper is the ordinary case, not the odd one -- and the second write would replace what the first opened.
+        Path: A path inside a fresh directory under :data:`SCRATCH_ROOT`. Fresh per call rather than one shared
+        directory, because two blocks can legitimately share an origin filename -- a brain holding two editions of
+        the same paper is the ordinary case, not the odd one -- and the second write would replace what the first
+        opened.
     """
     import tempfile
 
-    return Path(tempfile.mkdtemp(prefix="vitruvio-")) / filename(name, digest, media_type)
+    root = Path(tempfile.gettempdir()) / SCRATCH_ROOT
+    root.mkdir(parents=True, exist_ok=True)
+    sweep(root)
+    return Path(tempfile.mkdtemp(dir=root)) / filename(name, digest, media_type)
 
 
-__all__ = ["EXTENSIONS", "OPENERS", "NoOpenerError", "extension_for", "filename", "open_path", "opener", "scratch"]
+__all__ = [
+    "EXTENSIONS",
+    "OPENERS",
+    "SCRATCH_ROOT",
+    "SCRATCH_TTL_SECONDS",
+    "NoOpenerError",
+    "extension_for",
+    "filename",
+    "open_path",
+    "opener",
+    "scratch",
+    "sweep",
+]
