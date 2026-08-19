@@ -267,6 +267,76 @@ class TestOllamaParticulars:
         assert ollama(base_url="http://gpu-box:11434/v1").base_url == "http://gpu-box:11434/v1"
 
 
+class TestOllamaReachabilityProbe:
+    """`available` does I/O, and `VectorIndex._apply` reads it once per block."""
+
+    def test_the_probe_runs_once_across_many_reads(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unmemoized, a rebuild of fifty thousand blocks was fifty thousand requests to /api/tags, each behind a
+        two-second timeout."""
+        embedder = ollama(dims=2)
+        calls: list[str] = []
+
+        def probe(url: str, **kwargs: Any) -> Any:
+            calls.append(url)
+            return reply([[1.0, 0.0]])
+
+        monkeypatch.setattr(httpx, "get", probe)
+        assert all(embedder.available for _ in range(50))
+        assert len(calls) == 1, f"the daemon was probed {len(calls)} times for one answer"
+        assert calls[0].endswith("/api/tags")
+
+    def test_the_answer_is_re_probed_once_the_ttl_lapses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Starting the daemon during a long-lived session has to be noticed without a restart."""
+        from vitruvio.embeddings import openai_api
+
+        embedder = ollama(dims=2)
+        calls: list[str] = []
+
+        def probe(url: str, **kwargs: Any) -> Any:
+            calls.append(url)
+            return reply([[1.0, 0.0]])
+
+        monkeypatch.setattr(httpx, "get", probe)
+
+        clock = [1000.0]
+        monkeypatch.setattr("time.monotonic", lambda: clock[0])
+        assert embedder.available
+        clock[0] += openai_api.PROBE_TTL_SECONDS + 1
+        assert embedder.available
+        assert len(calls) == 2
+
+    def test_an_unreachable_daemon_is_unavailable_and_says_why(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def refuse(url: str, **kwargs: Any) -> Any:
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr(httpx, "get", refuse)
+        embedder = ollama(dims=2)
+        assert embedder.available is False
+        assert "ConnectError" in (embedder.probe_failure or "")
+
+    def test_a_malformed_endpoint_is_not_reported_as_a_stopped_daemon(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The bare `except Exception` reported a typo'd base_url as "the daemon is not running", which sends the
+        user to restart a service that was never the problem."""
+
+        def reject(url: str, **kwargs: Any) -> Any:
+            raise httpx.UnsupportedProtocol("Request URL has an unsupported protocol 'htp://'")
+
+        monkeypatch.setattr(httpx, "get", reject)
+        embedder = ollama(dims=2, base_url="htp://localhost:11434/v1")
+        assert embedder.available is False
+        assert "UnsupportedProtocol" in (embedder.probe_failure or "")
+
+    def test_a_bug_in_the_probe_is_not_swallowed_as_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`except Exception` hid programming errors here too, as a permanent silent degradation."""
+
+        def broken(url: str, **kwargs: Any) -> Any:
+            raise TypeError("someone changed the signature")
+
+        monkeypatch.setattr(httpx, "get", broken)
+        with pytest.raises(TypeError):
+            _ = ollama(dims=2).available
+
+
 class TestFailure:
     def test_a_rate_limit_is_retried_then_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
         embedder = ollama(dims=1)
