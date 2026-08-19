@@ -214,13 +214,25 @@ class Console:
             print(json.dumps(data, indent=2, default=str))
         return ExitCode.OK
 
-    def fail(self, command: str, error: VitruvioError) -> ExitCode:
+    def fail(
+        self,
+        command: str,
+        error: VitruvioError,
+        *,
+        data: Any = None,
+        view: RenderableType | Sequence[RenderableType] | None = None,
+    ) -> ExitCode:
         """
         Write a failure, in whichever mode is active.
 
         Args:
             command (str): The dotted operation name.
             error (VitruvioError): What went wrong.
+            data (Any): Measurements that are the point of the failure rather than incidental to it -- a gate that
+                reports which threshold was missed. Carried in the *same* envelope, because the alternative is a
+                command emitting a success envelope and then raising, which puts two JSON objects on stdout.
+            view (RenderableType | Sequence[RenderableType] | None): Human rendering for the same case, printed
+                before the error goes to stderr.
 
         Returns:
             ExitCode: The error's own exit code, for the caller to return or exit with.
@@ -228,8 +240,13 @@ class Console:
         if self.json_mode:
             envelope = Envelope.failure(command, error)
             envelope.warnings = self._warnings
+            envelope.data = data
             print(json.dumps(envelope.to_dict(), indent=2, default=str))
         else:
+            if view is not None:
+                parts = [view] if isinstance(view, str) or not isinstance(view, (list, tuple)) else list(view)
+                for part in parts:
+                    self.rich().print(part)
             self._aside(f"error: {error.message}", "bad")
             if error.hint:
                 self._aside(f"hint: {error.hint}", "warn")

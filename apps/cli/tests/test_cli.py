@@ -74,6 +74,52 @@ class TestEnvelope:
         assert out.strip() == ""
 
 
+class TestFailureWithMeasurements:
+    """A failure whose numbers are the point still gets exactly one envelope.
+
+    `bench --gate` is the case: it emitted a success envelope and then raised, so main's handler printed a second
+    JSON document. Two objects on stdout, only on failure, for the one flag combination CI runs.
+    """
+
+    def _console(self) -> Any:
+        from vitruvio.cli.output import Console
+
+        return Console(json_mode=True)
+
+    def test_one_object_carries_both_the_error_and_the_data(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from vitruvio.kernel import VitruvioError
+
+        measurements = {"verdict": {"passed": False}, "recall_at_10": 0.61}
+        self._console().fail("bench", VitruvioError("gates not cleared", hint="see the rows"), data=measurements)
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is False
+        assert payload["command"] == "bench", "the failing command names itself rather than deferring to 'cli'"
+        assert payload["error"]["message"] == "gates not cleared"
+        assert payload["data"] == measurements, "a gate that hides what it measured makes CI re-run to find out"
+
+    def test_a_failure_without_data_still_carries_none(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """The existing callers pass no data, and their envelopes must not change shape."""
+        from vitruvio.kernel import VitruvioError
+
+        self._console().fail("cli", VitruvioError("nope"))
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"] is None
+        assert list(payload) == ["vitruvio", "command", "ok", "data", "warnings", "error"]
+
+    def test_the_human_path_puts_the_view_on_stdout_and_the_error_on_stderr(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Same split as `emit`: the measurements are the result, the error is an aside."""
+        from vitruvio.cli.output import Console
+        from vitruvio.kernel import VitruvioError
+
+        Console(json_mode=False).fail("bench", VitruvioError("gates not cleared"), view="recall 0.61 vs 0.74")
+        streams = capsys.readouterr()
+        assert "recall 0.61" in streams.out
+        assert "gates not cleared" in streams.err
+
+
 class TestFailures:
     def test_an_expected_failure_carries_a_code_and_a_hint(self, capsys: pytest.CaptureFixture[str]) -> None:
         code, payload = envelope(capsys, "brain", "use", "./absent")
