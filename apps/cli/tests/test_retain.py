@@ -8,6 +8,7 @@ worse than one that fails, because nothing downstream can tell.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -146,6 +147,55 @@ class TestDrop:
 
         _, module = envelope(capsys, "--brain", str(brain), "inspect", "module", "semantic")
         assert module["data"]["block_count"] == 2, "a refused confirmation must change nothing"
+
+    def test_a_non_interactive_run_without_json_is_a_usage_error_not_a_crash(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        populated: tuple[Path, str, list[str]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The guard checked `--json` only, so cron reached `input()` and took an EOFError.
+
+        main's last-resort handler then reported a missing `--yes` as "internal error: EOFError" plus "this is a bug
+        in vitruvio -- please report it", and exited 1 -- which this CLI documents as always being our bug.
+        """
+        brain, _, derived = populated
+
+        class NotATerminal:
+            def isatty(self) -> bool:
+                return False
+
+            def readline(self) -> str:  # pragma: no cover - reaching this means the guard did not fire
+                raise AssertionError("stdin was read despite there being no terminal")
+
+        monkeypatch.setattr(sys, "stdin", NotATerminal())
+        code = main(["--brain", str(brain), "retain", "drop", derived[0], "--memory-type", "semantic"])
+        streams = capsys.readouterr()
+
+        assert code == ExitCode.USAGE, "a missing --yes is something the caller can fix, not a bug in vitruvio"
+        assert "not a terminal" in streams.err
+        assert "--yes" in streams.err
+        assert "please report it" not in streams.err
+
+    def test_ctrl_d_at_the_prompt_cancels_rather_than_crashing(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        populated: tuple[Path, str, list[str]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A person declining and a person pressing Ctrl-D are the same answer."""
+        brain, _, derived = populated
+
+        class Terminal:
+            def isatty(self) -> bool:
+                return True
+
+        monkeypatch.setattr(sys, "stdin", Terminal())
+        monkeypatch.setattr("builtins.input", lambda _prompt: (_ for _ in ()).throw(EOFError()))
+        code = main(["--brain", str(brain), "retain", "drop", derived[0], "--memory-type", "semantic"])
+
+        assert code != ExitCode.OK
+        assert "cancelled" in capsys.readouterr().err
 
 
 class TestDropProducer:
