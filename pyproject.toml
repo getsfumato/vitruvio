@@ -203,10 +203,13 @@ markers = [
     "registry: needs a local OCI registry container on localhost:5000",
 ]
 filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
-    "ignore::UserWarning:pkg_resources",
-    "ignore::SyntaxWarning",
+    # Later entries take precedence, so an `ignore::` listed *before* `error` is dead and `error` is the whole
+    # policy. Four such lines sat above this one -- for DeprecationWarning, PendingDeprecationWarning, SyntaxWarning
+    # and pkg_resources -- and every one of them was inert; the suite has always run strict. They are gone rather
+    # than reordered, because reordering would have switched warnings off across the whole suite for the first time.
+    #
+    # To exempt something real, add it *below* `error` and narrow it to the module that emits it. A bare
+    # `ignore::DeprecationWarning` at the end silences every deprecation vitruvio's own code raises too.
     "error",
 ]
 
