@@ -302,6 +302,29 @@ class TestPushAll:
         skipped = [item["brain"] for item in payload["data"]["brains"] if item["skipped"]]
         assert skipped == ["analisis-ii"]
 
+    def test_anonymous_reaches_every_push(
+        self, capsys: pytest.CaptureFixture[str], project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--all` forwarded six of push's seven options and dropped `anonymous`, so the flag did nothing.
+
+        Silent in the worst direction: the user asked for no credentials and got whatever was in the keyring.
+        Asserted on the call, because `--local` needs no credentials and so no observable outcome differs.
+        """
+        from vitruvio.runtime import BrainService
+
+        seen: list[bool] = []
+        original = BrainService.push
+
+        def spy(self: BrainService, reference: str | None = None, **kwargs: object) -> dict[str, Any]:
+            seen.append(bool(kwargs.get("anonymous")))
+            return original(self, reference, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(BrainService, "push", spy)
+        code, _ = envelope(capsys, "dist", "push", "--all", "--anonymous", "--local", str(project / "registry"))
+        assert code == ExitCode.OK
+        assert seen, "no brain was pushed, so the flag was never exercised"
+        assert all(seen), "every brain in an --all run must be pushed with the flag the user passed"
+
     def test_all_refuses_a_reference_because_it_names_one_repository(
         self, capsys: pytest.CaptureFixture[str], project: Path
     ) -> None:
