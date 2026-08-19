@@ -1522,6 +1522,12 @@ class BrainService:
         Read so that editing a source's ``media_type`` or ``normalize_with`` re-registers instead of being skipped
         by the origin check. Both are inputs to the block's identity, so a silent skip would make the correction do
         nothing -- and the block that was meant to be fixed would still be wrong.
+
+        ``normalized`` is whether a view exists, not which pipeline produced it. A view carries only its blob,
+        media type and size; the pipeline's name lives in a separate ``NormalizationRecord`` keyed by the canonical
+        block, and nothing indexes that key -- reading it would make this the per-item scan that
+        :meth:`_registered_as` refuses to become. ``readable`` is kept apart from the two values because "no view"
+        and "could not be read" are different facts, and only one of them is evidence about a declaration.
         """
         from boltzmann.identity.digest import BlockId
 
@@ -1529,11 +1535,11 @@ class BrainService:
             with _translated():
                 block = brain.resolve(BlockId.parse(block_id))
         except VitruvioError:  # pragma: no cover - a record pointing at an absent block
-            return {"media_type": None, "pipeline": None}
-        view = getattr(block, "normalized_view", None)
+            return {"media_type": None, "normalized": None, "readable": False}
         return {
             "media_type": getattr(block, "media_type", None),
-            "pipeline": getattr(view, "pipeline", None) if view is not None else None,
+            "normalized": getattr(block, "normalized_view", None) is not None,
+            "readable": True,
         }
 
     @staticmethod
@@ -1542,12 +1548,21 @@ class BrainService:
         Whether what is already registered is what the declaration now asks for.
 
         A ``False`` here is what turns "I fixed the media type in vitruvio.toml" into a new block rather than into
-        nothing at all. Neither field is compared when the held block could not be read, because an unreadable
-        block is not evidence that the declaration changed.
+        nothing at all. Nothing is compared when the held block could not be read, because an unreadable block is
+        not evidence that the declaration changed.
+
+        Normalization is compared as presence, which decides the two cases that occur in practice: declaring
+        ``normalize_with`` on a source whose blocks predate it, and removing it from one whose blocks have a view.
+        Both converge -- the block registered next matches what is now declared. *Swapping* one pipeline name for
+        another is not detectable here, because which pipeline produced an existing view is not knowable in O(1)
+        (see :meth:`_canonical_shape`); that correction needs ``--refetch``.
         """
+        if not held.get("readable", True):
+            return True
         if held.get("media_type") is not None and held["media_type"] != media_type:
             return False
-        return not (normalize_with is not None and held.get("pipeline") not in (None, normalize_with))
+        view = held.get("normalized")
+        return view is None or view == (normalize_with is not None)
 
     # --- Retention ------------------------------------------------------------
     #

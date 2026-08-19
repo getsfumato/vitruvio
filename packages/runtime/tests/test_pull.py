@@ -157,6 +157,42 @@ class TestPull:
         result = second.pull_source("papers")
         assert result["registered"] == 2, "a declared media type that differs must produce new blocks"
 
+    def test_declaring_a_pipeline_reregisters_rather_than_skipping(self, project: BrainService, tmp_path: Path) -> None:
+        """The other half of the same correction: `normalize_with` is an input to a block's identity too.
+
+        A view is what a proposer reads, so a source that acquired forty PDFs before a pipeline was declared holds
+        forty blocks nothing can read. Skipping here would make declaring one do nothing at all."""
+        project.pull_source("papers")
+
+        config_file = tmp_path / "vitruvio.toml"
+        config_file.write_text(
+            PROJECT.format().replace(
+                'options = { glob = "*.md" }', 'options = { glob = "*.md" }\nnormalize_with = "markdown"'
+            ),
+            encoding="utf-8",
+        )
+        second = BrainService(resolve(brain=tmp_path / "brain", config=config_file))
+        result = second.pull_source("papers")
+        assert result["registered"] == 2, "a declared pipeline that the held blocks do not have must produce new blocks"
+
+    def test_undeclaring_a_pipeline_reregisters_rather_than_skipping(
+        self, project: BrainService, tmp_path: Path
+    ) -> None:
+        """And it converges: the blocks registered here have no view, so a third pull skips them."""
+        config_file = tmp_path / "vitruvio.toml"
+        with_pipeline = PROJECT.format().replace(
+            'options = { glob = "*.md" }', 'options = { glob = "*.md" }\nnormalize_with = "markdown"'
+        )
+        config_file.write_text(with_pipeline, encoding="utf-8")
+        BrainService(resolve(brain=tmp_path / "brain", config=config_file)).pull_source("papers")
+
+        config_file.write_text(PROJECT.format(), encoding="utf-8")
+        second = BrainService(resolve(brain=tmp_path / "brain", config=config_file))
+        assert second.pull_source("papers")["registered"] == 2, "removing a pipeline changes identity too"
+
+        third = BrainService(resolve(brain=tmp_path / "brain", config=config_file))
+        assert third.pull_source("papers")["registered"] == 0, "and the correction must not repeat every pull"
+
     def test_a_fetch_can_supply_metadata_the_listing_does_not_know(self, project: BrainService) -> None:
         """Moodle-like listings often omit the filename until a download redirect reveals it."""
 
