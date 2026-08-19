@@ -96,7 +96,12 @@ independent badly over-estimates the union. Refit from ``EXPLAIN ANALYZE`` sampl
 """
 
 BRUTE_THRESHOLD = 2048
-"""Below this many in-mask vectors, prefer an exact scan over an approximate probe. See :func:`vector_recall`."""
+"""Below this many in-mask vectors, prefer an exact scan over an approximate probe.
+
+The published default, kept in step with ``RetrievalSpec.brute_threshold``, which carries the same number. What the
+planner actually reads is the config knob -- this constant is the documented default and the value to reason about
+when explaining the crossover, not a floor under what an operator configured.
+"""
 
 
 def damped_conjunction(selectivities: Sequence[float]) -> float:

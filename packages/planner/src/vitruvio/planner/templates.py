@@ -22,7 +22,6 @@ from boltzmann.indices.base import IndexKind
 from boltzmann.query.request import Query
 
 from vitruvio.kernel import PlannerConfig
-from vitruvio.planner.cost import BRUTE_THRESHOLD
 from vitruvio.planner.intent import Intent, IntentKind, admissible_generators, requires
 from vitruvio.planner.ir import Op, Plan, PlanBuilder
 from vitruvio.planner.planner import Capabilities
@@ -339,7 +338,11 @@ def _generator_node(
         # visits a fixed number of nodes and only a fraction survive the filter -- so below a threshold an exact scan
         # of the masked vectors is both cheaper and perfectly accurate. The threshold is a knob; the reason it exists
         # is in the cost model, not here.
-        if vectors and vectors <= max(config.brute_threshold, BRUTE_THRESHOLD // 1):
+        #
+        # Read straight off the config, which is what documents itself as deciding this. It used to be
+        # `max(config.brute_threshold, BRUTE_THRESHOLD // 1)` -- the module default flooring the knob, so lowering
+        # `brute_threshold` to force approximate search did nothing, and only raising it had any effect.
+        if vectors and vectors <= config.brute_threshold:
             return builder.add(
                 Op.BRUTE_VECTOR,
                 scope=scope,

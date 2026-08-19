@@ -450,6 +450,33 @@ class TestCrossover:
         assert large_estimates.total_cost < estimate(small_plan, statistics(50_000)).total_cost
 
 
+class TestBruteThreshold:
+    """The knob that decides exact-versus-approximate vector search, and that it is the knob that decides it."""
+
+    def _vector_ops(self, threshold: int, blocks: int = 1000) -> set[Op]:
+        planner = CostBasedPlanner(PlannerConfig(brute_threshold=threshold), statistics=statistics(blocks, vector=True))
+        caps = capabilities(*STRUCTURAL, "inverted", "vector")
+        intent = planner._classify(a_query(), {}, ("semantic",), caps)
+        found: set[Op] = set()
+        for plan in planner._enumerate(a_query(), ("semantic",), caps, intent):
+            found |= {plan[node].op for node in plan.generators()}
+        return {op for op in found if op in {Op.BRUTE_VECTOR, Op.VECTOR_SEARCH}}
+
+    def test_lowering_it_forces_the_approximate_probe(self) -> None:
+        """The template read `max(config.brute_threshold, BRUTE_THRESHOLD // 1)`, so the module default floored the
+        knob: every value at or below 2048 behaved identically and only raising it did anything."""
+        assert self._vector_ops(999) == {Op.VECTOR_SEARCH}
+
+    def test_raising_it_still_forces_the_exact_scan(self) -> None:
+        """The direction that always worked has to keep working."""
+        assert self._vector_ops(4096) == {Op.BRUTE_VECTOR}
+
+    def test_the_crossover_is_where_the_configured_value_says(self) -> None:
+        """`vectors <= brute_threshold`, with nothing else deciding it."""
+        assert self._vector_ops(1000) == {Op.BRUTE_VECTOR}
+        assert self._vector_ops(999) == {Op.VECTOR_SEARCH}
+
+
 class TestMonotonicity:
     def test_adding_an_index_never_worsens_the_chosen_plan(self) -> None:
         """The property that justifies exhaustive enumeration over a memo, and would fail under a heuristic."""
