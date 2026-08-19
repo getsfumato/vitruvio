@@ -319,21 +319,40 @@ class BaseSource:
             raise SourceUnavailableError(f"source {self.name!r} needs an HTTP client; install vitruvio[api]") from error
 
         limit = timeout if timeout is not None else self.spec.timeout
+        cap = self.spec.max_bytes
+
+        # Streamed rather than fetched whole, so that `max_bytes` bounds what is *held* and not merely what is
+        # returned. `httpx.get` buffers the entire body into `response.content` before anything can be checked, so a
+        # declared cap of one megabyte did not stop a misconfigured endpoint putting gigabytes in memory first -- the
+        # refusal arrived after the damage it exists to prevent.
+        chunks: list[bytes] = []
+        size = 0
         try:
-            response = httpx.get(url, timeout=limit, headers=headers, follow_redirects=True)
+            with httpx.stream("GET", url, timeout=limit, headers=headers, follow_redirects=True) as response:
+                if response.status_code != 200:
+                    raise SourceError(f"source {self.name!r}: {url} answered {response.status_code}")
+
+                # A well-behaved server declares the length, which turns the refusal into one that costs no transfer
+                # at all. Not trusted as the only check: the header is optional, and it can disagree with the body.
+                declared = response.headers.get("content-length", "")
+                if cap is not None and declared.isdigit() and int(declared) > cap:
+                    raise SourceError(
+                        f"source {self.name!r}: {url} declares {int(declared)} bytes, over the declared max_bytes "
+                        f"({cap})"
+                    )
+
+                for chunk in response.iter_bytes():
+                    size += len(chunk)
+                    if cap is not None and size > cap:
+                        raise SourceError(
+                            f"source {self.name!r}: {url} returned over {cap} bytes, over the declared max_bytes "
+                            f"({cap}); the transfer was stopped rather than read to the end"
+                        )
+                    chunks.append(chunk)
         except httpx.HTTPError as error:
             raise SourceError(f"source {self.name!r} could not reach {url}: {error}") from error
 
-        if response.status_code != 200:
-            raise SourceError(f"source {self.name!r}: {url} answered {response.status_code}")
-
-        body = response.content
-        if self.spec.max_bytes is not None and len(body) > self.spec.max_bytes:
-            raise SourceError(
-                f"source {self.name!r}: {url} returned {len(body)} bytes, over the declared max_bytes "
-                f"({self.spec.max_bytes})"
-            )
-        return body
+        return b"".join(chunks)
 
     def contain(self, path: Path, *, allow_symlinks: bool = False) -> Path:
         """
