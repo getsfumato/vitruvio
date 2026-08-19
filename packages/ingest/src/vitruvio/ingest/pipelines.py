@@ -341,7 +341,11 @@ class PdfTextPipeline:
     NAME = "pdf-text"
     VERSION = "1"
     MAX_PAGES = 2048
-    """A guard, not a policy. A malformed PDF claiming millions of pages should fail fast rather than swap."""
+    """A guard, not a policy. A malformed PDF claiming millions of pages fails fast rather than swapping.
+
+    Enforced by refusing the document, never by truncating it: a view holding the first ``MAX_PAGES`` pages is
+    indistinguishable from a document that ends there, and it is the digest of that view that provenance records.
+    """
 
     @property
     def name(self) -> str:
@@ -409,8 +413,16 @@ class PdfTextPipeline:
             document.close()
 
     def _pages(self, document: object) -> Iterator[str]:
-        """Yield one marked section per page."""
-        count = min(len(document), self.MAX_PAGES)  # type: ignore[arg-type]
+        """Yield one marked section per page, refusing a document that claims more pages than the guard allows."""
+        count = len(document)  # type: ignore[arg-type]
+        if count > self.MAX_PAGES:
+            # Fail fast, which is what MAX_PAGES says this is for. Truncating produced a view indistinguishable from
+            # a PDF that genuinely ends at page MAX_PAGES: every citation into the tail was silently unfindable, and
+            # the digest recorded that as the document's normalized form.
+            raise RuntimeError(
+                f"this PDF claims {count} pages and the pdf-text pipeline caps at {self.MAX_PAGES}; register it "
+                "without --normalize-with and let a proposer read the original, or split it into smaller documents"
+            )
         for number in range(count):
             page = document[number]  # type: ignore[index]
             try:
