@@ -487,15 +487,28 @@ class TestPersistence:
     def test_the_bytes_depend_only_on_the_block_set(
         self, tmp_path: Path, semantic_blocks: list[SemanticBlock], content: MemoryContent
     ) -> None:
-        """Byte reproducibility is what makes a golden fixture stable and a published layer digest meaningful."""
+        """Byte reproducibility is what makes a golden fixture stable and a published layer digest meaningful.
+
+        Compared as *body* rather than as whole file, and the distinction is the test. The header carries
+        ``built_at``, a wall-clock stamp taken per build, so two builds that straddle a second boundary produce
+        different files from an identical block set -- which is what this used to assert, and it failed on CI at
+        19:12:06 against 19:12:07. The property being claimed is about the block set; the timestamp is about when
+        someone ran it, and recording it is deliberate. So the assertion is on the bytes the claim is about, plus
+        the digest the format keeps of them.
+
+        Restoring the whole-file comparison restores the flake.
+        """
         first = HashMapIndex(MemoryType.SEMANTIC, tmp_path / "a")
         first.build(semantic_blocks, content)
         second = HashMapIndex(MemoryType.SEMANTIC, tmp_path / "b")
         second.build(list(reversed(semantic_blocks)), content)
 
-        assert (tmp_path / "a" / "semantic.hash_map.vidx").read_bytes() == (
-            tmp_path / "b" / "semantic.hash_map.vidx"
-        ).read_bytes()
+        left = envelope.read(tmp_path / "a" / "semantic.hash_map.vidx")
+        right = envelope.read(tmp_path / "b" / "semantic.hash_map.vidx")
+        assert left is not None
+        assert right is not None
+        assert left[1] == right[1], "the body must depend only on the block set"
+        assert left[0].body_sha256 == right[0].body_sha256
 
     def test_an_empty_index_is_not_written(self, tmp_path: Path, content: MemoryContent) -> None:
         """A file claiming to hold an index and holding nothing is the failure this design guards against."""
