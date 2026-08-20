@@ -23,6 +23,7 @@ import pytest
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.inspection import InspectionOps
 from vitruvio.runtime.ops.registration import RegistrationOps
@@ -30,6 +31,7 @@ from vitruvio.runtime.ops.retention import RetentionOps
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 
 DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
+    (BrowsingOps, ("blocks", "content", "export_content", "related")),
     (EmbedderOps, ("embedders", "test_embedder")),
     (InspectionOps, ("resolvability", "resolve", "prove", "module", "roots")),
     (RegistrationOps, ("register", "replace", "put_content")),
