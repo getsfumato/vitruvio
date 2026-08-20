@@ -477,6 +477,48 @@ class TestBruteThreshold:
         assert self._vector_ops(999) == {Op.VECTOR_SEARCH}
 
 
+class TestLedgerCache:
+    """`Ledger.of` reads every provenance block, so it is cached -- and the key has to describe what it guards."""
+
+    def test_a_moved_root_on_any_module_misses_the_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The key named provenance alone while `Ledger.of` is handed every module, so a composition whose semantic
+        root moved while provenance stood still was answered from a ledger built against the old one.
+
+        Asserted on rebuilds rather than on the key, so it tests the caching and not its implementation.
+        """
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.planner import planner as planner_module
+
+        builds: list[dict[Any, Any]] = []
+
+        def record(cls: Any, modules: dict[Any, Any]) -> str:
+            builds.append(modules)
+            return "L"
+
+        monkeypatch.setattr(planner_module.Ledger, "of", classmethod(record))
+
+        planner = CostBasedPlanner(PlannerConfig())
+        provenance = cast(Any, SimpleNamespace(root="sha256:" + "11" * 32))
+        first = {
+            MemoryType.PROVENANCE: provenance,
+            MemoryType.SEMANTIC: cast(Any, SimpleNamespace(root="sha256:" + "22" * 32)),
+        }
+
+        planner.ledger_for(first)
+        assert len(builds) == 1
+
+        planner.ledger_for(first)
+        assert len(builds) == 1, "an unchanged composition must hit the cache"
+
+        moved = {
+            MemoryType.PROVENANCE: provenance,
+            MemoryType.SEMANTIC: cast(Any, SimpleNamespace(root="sha256:" + "33" * 32)),
+        }
+        planner.ledger_for(moved)
+        assert len(builds) == 2, "a moved semantic root was served from a ledger built before it moved"
+
+
 class TestMonotonicity:
     def test_adding_an_index_never_worsens_the_chosen_plan(self) -> None:
         """The property that justifies exhaustive enumeration over a memo, and would fail under a heuristic."""

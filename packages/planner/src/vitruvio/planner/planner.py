@@ -614,12 +614,19 @@ class CostBasedPlanner:
 
     def ledger_for(self, modules: Mapping[MemoryType, Module]) -> tuple[Ledger, float]:
         """
-        The provenance view, cached by the provenance module's root.
+        The provenance view, cached by the root of **every** module it was built from.
 
         ``Ledger.of`` decodes **every** provenance block, so on a brain with fifty thousand of them it costs seconds.
         Caching it per root is not an optimisation, it is the difference between a usable planner and one that is
         blamed for latency it did not cause -- and the cost is reported in EXPLAIN as ``prelude_us`` for the same
         reason.
+
+        Keyed on the whole composition rather than on provenance alone. ``Ledger.of`` is handed every module, so a
+        key naming one of them describes less than the value it guards: a composition whose semantic root moved
+        while provenance stood still would hit a cache built against the old one. Reaching that needs a module to
+        change without a provenance record beside it -- a selectively pulled module is the way -- and every path
+        there currently rebuilds the planner too, so this is the key being wrong rather than an observed staleness.
+        The cost of being right is one string join per query.
 
         Args:
             modules (Mapping[MemoryType, Module]): The installed modules.
@@ -627,8 +634,9 @@ class CostBasedPlanner:
         Returns:
             tuple[Ledger, float]: The ledger, and how many microseconds building it cost (zero on a cache hit).
         """
-        provenance = modules.get(MemoryType.PROVENANCE)
-        key = str(provenance.root) if provenance is not None else "none"
+        key = "|".join(
+            f"{kind.value}={module.root}" for kind, module in sorted(modules.items(), key=lambda i: i[0].value)
+        )
         if self._ledger is not None and self._ledger[0] == key:
             return self._ledger[1], 0.0
 
