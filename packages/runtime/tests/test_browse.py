@@ -9,6 +9,7 @@ verified or not at all.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -135,3 +136,48 @@ class TestRelated:
             "count": 0,
             "truncated": False,
         }
+
+
+class TestOriginsDegradeHonestly:
+    """A brain with no provenance is a shape; a provenance module that half-read is not."""
+
+    def test_a_brain_without_provenance_lists_by_media_type(self, service: BrainService, source_file: Path) -> None:
+        """The documented empty case: a selectively pulled brain can hold canonical evidence and no provenance."""
+        service.register(source_file, media_type="text/markdown")
+        rows = service.blocks("canonical")["rows"]
+        assert rows, "a brain with canonical evidence must still list"
+
+    def test_one_unreadable_record_does_not_cost_the_others_their_origin(
+        self, service: BrainService, source_file: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`suppress` wrapped the whole walk, so a store error partway through returned a partial map that looked
+        exactly like the documented empty one -- some rows with an origin, the rest without, and nothing saying
+        which had been skipped."""
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.runtime.assembly import Capability
+
+        service.register(source_file, media_type="text/markdown")
+        second = source_file.parent / "laplace.md"
+        second.write_text("# Laplace\n\nDe lo diferencial a lo algebraico.\n", encoding="utf-8")
+        service.register(second, media_type="text/markdown")
+
+        brain = service.brain(Capability.INSPECT)
+        module = brain.module(MemoryType.PROVENANCE)
+        original = module.get
+        seen: list[Any] = []
+
+        def flaky(identity: Any) -> Any:
+            seen.append(identity)
+            if len(seen) == 1:
+                raise RuntimeError("this one blob will not read")
+            return original(identity)
+
+        monkeypatch.setattr(module, "get", flaky)
+        monkeypatch.setattr(
+            brain, "module", lambda kind: module if kind is MemoryType.PROVENANCE else brain.module(kind)
+        )
+
+        origins = service.browsing_ops._origins(brain)
+        assert len(seen) > 1, "the walk stopped at the first unreadable record instead of continuing"
+        assert origins, "every record after the unreadable one lost its origin too"

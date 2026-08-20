@@ -8,7 +8,6 @@ The only module that calls :meth:`~vitruvio.runtime.session.BrainSession.invalid
 from __future__ import annotations
 
 from collections.abc import Iterable
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -130,7 +129,7 @@ class InstallOps:
         brain = self.session.brain(Capability.WRITE)
         # Captured before, because after the pull the composition is the remote's and there is nothing left to
         # compare against. This is the only place the count can be exact rather than estimated.
-        before = self._composition_ids(brain)
+        before, unreadable_before = self._composition_ids(brain)
         ignored: list[str] = []
         with translated():
             if ignore_vector_indices:
@@ -151,11 +150,20 @@ class InstallOps:
                 )
             else:
                 snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
-        orphaned = sorted(before - self._composition_ids(brain))
+        after, unreadable_after = self._composition_ids(brain)
+        orphaned = sorted(before - after)
         # `plan_pull` may already have memoized an INSPECT-capability brain at the old head. A pull advances the
         # pointer through the WRITE-capability instance, so every other cached view must be reopened before a caller
         # asks for state or verification on this same service object.
         self.session.invalidate()
+        unreadable = sorted(set(unreadable_before) | set(unreadable_after))
+        if unreadable:
+            # Said rather than folded into the number. `discarded` is what a caller reads to find out whether a
+            # pull cost them evidence, and a scan that skipped a module cannot produce it exactly.
+            warnings.append(
+                f"could not enumerate {', '.join(unreadable)} while comparing what this pull replaced, so "
+                "`discarded` is approximate; `vitruvio brain verify` reports what is actually resolvable"
+            )
         if ignored:
             named = ", ".join(ignored)
             warnings.append(
@@ -231,10 +239,26 @@ class InstallOps:
             return None
 
     @staticmethod
-    def _composition_ids(brain: Brain) -> set[str]:
-        """Every block identity currently a member of some installed module."""
+    def _composition_ids(brain: Brain) -> tuple[set[str], list[str]]:
+        """
+        Every block identity currently a member of some installed module, and which modules could not be read.
+
+        The second value is returned rather than suppressed because the caller subtracts two of these to report how
+        many blocks a pull discarded. A module skipped on the way *in* makes that count too small; one skipped on
+        the way *out* makes it too large. Either way it is the number that tells someone they lost evidence, so a
+        count taken over an incomplete scan has to say so rather than look exact.
+
+        Args:
+            brain (Brain): The brain to read.
+
+        Returns:
+            tuple[set[str], list[str]]: The identities, and one entry per module that would not enumerate.
+        """
         found: set[str] = set()
+        unreadable: list[str] = []
         for kind in brain.snapshot().installed:
-            with suppress(Exception):
+            try:
                 found.update(str(identity) for identity in brain.module(kind).block_ids)
-        return found
+            except Exception as error:  # a module that will not enumerate is a fact about the count, not a failure
+                unreadable.append(f"{kind.value} ({type(error).__name__})")
+        return found, unreadable

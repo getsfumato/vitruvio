@@ -9,7 +9,6 @@ Row construction itself lives in :mod:`vitruvio.runtime.browse`; what is here is
 
 from __future__ import annotations
 
-from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -146,18 +145,27 @@ class BrowsingOps:
             blocks are shown by media type rather than one that fails to list.
         """
         found: dict[str, str] = {}
-        with suppress(Exception):
+        try:
             module = brain.module(MemoryType.PROVENANCE)
             resolvable = module.resolvable()
-            for identity in module.block_ids:
-                if not resolvable.get(identity, True):
-                    continue
+        except Exception:  # provenance is not installed, which the docstring above says is a shape and not a fault
+            return found
+
+        # Scoped to one record rather than to the whole walk. Suppressing the loop meant a store error partway
+        # through returned a *partial* map that looked exactly like the documented empty one: some rows showed an
+        # origin, the rest showed a media type, and nothing said which had been skipped.
+        for identity in module.block_ids:
+            if not resolvable.get(identity, True):
+                continue
+            try:
                 record = module.get(identity).payload().get("record")
-                if not isinstance(record, dict) or record.get("record_type") != "registration":
-                    continue
-                block, origin = record.get("block"), record.get("origin")
-                if isinstance(block, str) and isinstance(origin, str) and origin:
-                    found[block] = origin
+            except Exception:  # one unreadable record must not cost the other thirty-nine their origins
+                continue
+            if not isinstance(record, dict) or record.get("record_type") != "registration":
+                continue
+            block, origin = record.get("block"), record.get("origin")
+            if isinstance(block, str) and isinstance(origin, str) and origin:
+                found[block] = origin
         return found
 
     def content(self, digest: str) -> bytes:
