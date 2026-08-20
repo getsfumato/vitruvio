@@ -27,12 +27,14 @@ from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.inspection import InspectionOps
 from vitruvio.runtime.ops.registration import RegistrationOps
 from vitruvio.runtime.ops.retention import RetentionOps
+from vitruvio.runtime.ops.retrieval import RetrievalOps
 
 DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (EmbedderOps, ("embedders", "test_embedder")),
     (InspectionOps, ("resolvability", "resolve", "prove", "module", "roots")),
     (RegistrationOps, ("register", "replace", "put_content")),
     (RetentionOps, ("plan_drop", "drop", "drop_by_producer", "supersede", "demote", "prune", "redact", "policy")),
+    (RetrievalOps, ("search", "explain")),
 )
 """Each operations class, and the names `BrainService` must expose for it.
 
