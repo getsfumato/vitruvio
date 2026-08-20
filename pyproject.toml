@@ -59,8 +59,19 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
+# Scoped to the linter, not to [tool.ruff]: `preview` there also switches the *formatter* to its preview style,
+# which reformatted 31 files that had nothing to do with this.
+preview = true
+# Only preview rules named by their exact code are enabled. Without this, `preview = true` turns on every preview
+# rule in every selected family at once -- which is a lint policy change, not the one ratchet that was wanted.
+explicit-preview-rules = true
+
 select = [
     "E",
+    # The ratchet on the god object. Before ADR-0013 this flagged exactly two classes in the workspace:
+    # BrainService at 60 public methods and the TUI's app at 29. The facade now sits just under the threshold, so a
+    # domain's worth of logic landing back on it trips a lint rather than being noticed at 3000 lines.
+    "PLR0904",
     "F",
     "I",
     "N",
@@ -108,12 +119,23 @@ ignore = [
     "N806",
     "DTZ005",
     "PLW2901",
+    # Turned on by `preview` alongside PLR0904, and wrong here: the character flagged is U+00B5 MICRO SIGN in
+    # "µs", which is the correct symbol for a unit. The rule wants U+03BC GREEK SMALL LETTER MU, which is the
+    # letter. Renaming a unit to satisfy a homoglyph check would be the lint editing the physics.
+    "RUF001",
+    "RUF002",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "E402", "RUF022"]
+# Textual event handlers, not protocol operations -- ADR-0012 already fixes that the TUI holds no protocol logic.
+# Exempted by name rather than by raising the threshold, so the number keeps meaning something for the service.
+"**/cli/tui/app.py" = ["PLR0904"]
 "tests/**/*.py" = ["ARG", "PLR2004", "S101", "N802", "N806", "PTH", "DTZ", "B007", "UP038", "SIM117", "E402", "C401"]
 "**/tests/**/*.py" = ["ARG", "PLR2004", "S101", "N802", "N806", "PTH", "DTZ", "B007", "UP038", "SIM117", "E402", "C401"]
+
+[tool.ruff.lint.pylint]
+max-public-methods = 80
 
 [tool.ruff.lint.isort]
 known-first-party = ["vitruvio"]
