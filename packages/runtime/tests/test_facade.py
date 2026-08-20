@@ -28,9 +28,12 @@ from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
 from vitruvio.runtime.ops.inspection import InspectionOps
+from vitruvio.runtime.ops.install import InstallOps
 from vitruvio.runtime.ops.lifecycle import LifecycleOps
 from vitruvio.runtime.ops.projects import ProjectOps
+from vitruvio.runtime.ops.publish import PublishOps
 from vitruvio.runtime.ops.registration import RegistrationOps
+from vitruvio.runtime.ops.remote import RemoteOps
 from vitruvio.runtime.ops.retention import RetentionOps
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.ops.sources import SourceOps
@@ -44,6 +47,9 @@ DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (InspectionOps, ("resolvability", "resolve", "prove", "module", "roots")),
     (LifecycleOps, ("init", "state", "verify", "history", "info")),
     (ProjectOps, ("project", "add_brain", "remove_brain")),
+    (RemoteOps, ("reference_for",)),
+    (PublishOps, ("pack", "registry_check", "push", "tags")),
+    (InstallOps, ("plan_pull", "pull")),
     (RegistrationOps, ("register", "replace", "put_content")),
     (RetentionOps, ("plan_drop", "drop", "drop_by_producer", "supersede", "demote", "prune", "redact", "policy")),
     (RetrievalOps, ("search", "explain")),

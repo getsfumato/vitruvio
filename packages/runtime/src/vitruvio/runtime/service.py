@@ -21,43 +21,30 @@ caller writes the answer.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from contextlib import suppress
 from functools import cached_property
-from inspect import signature
 from pathlib import Path
 from typing import Any
 
 from boltzmann.brain import Brain
 
-from vitruvio.kernel import ResolvedConfig, VitruvioError
-from vitruvio.runtime import wire
+from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime.assembly import Capability
-from vitruvio.runtime.coerce import memory_type as _memory_type
-from vitruvio.runtime.mapping import translate
-from vitruvio.runtime.mapping import translated as _translated
 from vitruvio.runtime.ops.benchmarking import BenchmarkOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
 from vitruvio.runtime.ops.inspection import InspectionOps
+from vitruvio.runtime.ops.install import InstallOps
 from vitruvio.runtime.ops.lifecycle import LifecycleOps
 from vitruvio.runtime.ops.projects import ProjectOps
+from vitruvio.runtime.ops.publish import PublishOps
 from vitruvio.runtime.ops.registration import RegistrationOps
+from vitruvio.runtime.ops.remote import RemoteOps
 from vitruvio.runtime.ops.retention import RetentionOps
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.ops.sources import SourceOps
 from vitruvio.runtime.ops.tasks import TaskOps
 from vitruvio.runtime.session import BrainSession
-
-
-def _require_vector_index_ignore(method: Any) -> None:
-    """Fail clearly when the CLI feature is used with an SDK that predates the supporting pull contract."""
-    if "ignore_vector_indices" in signature(method).parameters:
-        return
-    raise VitruvioError(
-        "the installed pyboltzmann does not support ignoring vector indices during a pull",
-        hint="upgrade pyboltzmann to a release whose Brain.pull exposes `ignore_vector_indices`, then retry",
-    )
 
 
 class BrainService:
@@ -597,103 +584,29 @@ class BrainService:
         See :meth:`vitruvio.runtime.ops.projects.ProjectOps.remove_brain`."""
         return self.project_ops.remove_brain(name)
 
+    # --- Distribution ---------------------------------------------------------
+
+    @cached_property
+    def remote_ops(self) -> RemoteOps:
+        """The remote operations."""
+        return RemoteOps(self.session)
+
     def reference_for(self, given: str | None = None) -> str:
-        """
-        Which repository this brain publishes to or pulls from.
+        """Which repository this brain publishes to or pulls from.
 
-        Four layers, and the lookups get more expensive as they go, so each is tried only when the ones before it
-        came up empty:
+        See :meth:`vitruvio.runtime.ops.remote.RemoteOps.reference_for`."""
+        return self.remote_ops.reference_for(given)
 
-        1. what the command was given;
-        2. this brain's own ``reference``, or one derived from ``[registry].namespace``;
-        3. one derived from whichever registry account is logged in -- the case that makes
-           ``registry login --from-docker`` once enough for a whole project;
-        4. nothing, and an error that names all three ways to fix it.
-
-        Args:
-            given (str | None): An explicit reference from the command line.
-
-        Returns:
-            str: The repository, without a tag.
-
-        Raises:
-            VitruvioError: If no layer names one.
-        """
-        from vitruvio.runtime.distribution import require_reference
-
-        if given:
-            return given
-
-        configured = self.config.repository()
-        if configured is None:
-            # Only now: this reads the keyring and possibly runs a credential helper, which is not something to
-            # do on a command that already knew its destination.
-            from vitruvio.runtime.registry import account_for
-
-            configured = self.config.repository(account_for())
-        return require_reference(configured, None)
-
-    def _client(
-        self,
-        reference: str,
-        *,
-        username: str | None = None,
-        token: str | None = None,
-        anonymous: bool = False,
-        allow_docker: bool = False,
-        insecure: bool | None = None,
-        local: Path | None = None,
-    ) -> tuple[Any, str, list[str]]:
-        """
-        A registry client, the effective reference, and anything worth warning about.
-
-        ``local`` selects a filesystem registry of OCI layouts. Not a mock: it goes through the same
-        ``resolve``/``pull_blob``/``push`` contract the SDK defines, so the travelling-index path can be exercised
-        end to end with no network, no credentials and no rate limits -- which is the right thing to prove before
-        pointing anything at Docker Hub.
-        """
-        from vitruvio.runtime.registry import build_client, credential_for, normalize_reference
-
-        if local is not None:
-            from vitruvio.runtime.distribution import local_registry
-
-            # A local layout has no host, so the reference is used verbatim as a repository name under `local`.
-            return local_registry(local), reference, []
-
-        _, effective = normalize_reference(reference)
-        credential = credential_for(
-            reference, username=username, token=token, anonymous=anonymous, allow_docker=allow_docker
-        )
-        client, warnings = build_client(
-            reference,
-            credential,
-            insecure=self.config.project.registry.insecure if insecure is None else insecure,
-        )
-        return client, effective, warnings
+    @cached_property
+    def publish_ops(self) -> PublishOps:
+        """The publish operations."""
+        return PublishOps(self.session)
 
     def pack(self, *, tag: str | None = None, modules: Iterable[str] | None = None) -> dict[str, Any]:
-        """
-        Build the OCI artifact locally, without pushing.
+        """Build the OCI artifact locally, without pushing.
 
-        Vouches for the vector index first: without that, ``pack`` silently omits the one layer a consumer cannot
-        rebuild. See :mod:`vitruvio.runtime.vouch`.
-
-        Args:
-            tag (str | None): The tag to file it under.
-            modules (Iterable[str] | None): Publish only these modules.
-
-        Returns:
-            dict[str, Any]: The manifest, with the digest a registry would file it under.
-        """
-        from vitruvio.runtime.vouch import vouch_travelling
-
-        chosen = [_memory_type(item) for item in modules] if modules else None
-        brain = self.brain(Capability.WRITE)
-        vouched = vouch_travelling(brain, chosen)
-
-        with _translated():
-            manifest = brain.pack(tag=tag or self.config.project.registry.tag, modules=chosen)
-        return {**wire.manifest(manifest), "vouched": vouched}
+        See :meth:`vitruvio.runtime.ops.publish.PublishOps.pack`."""
+        return self.publish_ops.pack(tag=tag, modules=modules)
 
     def registry_check(
         self,
@@ -705,27 +618,12 @@ class BrainService:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """
-        Test a registry with an artifact shaped exactly like a brain.
+        """Test a registry with an artifact shaped exactly like a brain.
 
-        Answers the question that a first push otherwise answers the hard way: does this registry accept a custom
-        ``config.mediaType``? Checked rather than assumed, because the manifest's shape is fixed by the protocol.
-
-        Returns:
-            dict[str, Any]: Per-check outcomes, and a hint naming the real alternatives when it fails.
-        """
-        import asyncio
-
-        from vitruvio.runtime.distribution import preflight
-
-        target = self.reference_for(reference)
-        client, _, warnings = self._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        See :meth:`vitruvio.runtime.ops.publish.PublishOps.registry_check`."""
+        return self.publish_ops.registry_check(
+            reference, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
         )
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            result = asyncio.run(preflight(target, client, brain.store))
-        return {**result, "warnings": warnings}
 
     def push(
         self,
@@ -740,77 +638,42 @@ class BrainService:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """
-        Publish the brain.
+        """Publish the brain.
 
-        The SDK's own guards apply: a push that would narrow the module set is refused, and a push that is not a
-        fast-forward is refused -- the latter failing *closed* on any error that is not a 404, so a refusal that looks
-        like an absence cannot disable the check.
-
-        Returns:
-            dict[str, Any]: The digest the registry filed the manifest under.
-
-        Raises:
-            PublishForbiddenError: If the brain declares ``publish = false``. Checked first, before the reference is
-                resolved and before a credential is read, because a refusal that happens after a credential lookup
-                has already told a keyring what you were about to do.
-        """
-        import asyncio
-
-        from vitruvio.runtime.vouch import vouch_travelling
-
-        self._require_publishable()
-        target = self.reference_for(reference)
-        chosen = [_memory_type(item) for item in modules] if modules else None
-        client, effective, warnings = self._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        See :meth:`vitruvio.runtime.ops.publish.PublishOps.push`."""
+        return self.publish_ops.push(
+            reference,
+            tag=tag,
+            modules=modules,
+            force=force,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
 
-        brain = self.brain(Capability.WRITE)
-        vouched = vouch_travelling(brain, chosen)
-        with _translated():
-            digest = asyncio.run(
-                brain.push(
-                    client,
-                    reference=effective,
-                    tag=tag or self.config.project.registry.tag,
-                    force=force,
-                    modules=chosen,
-                )
-            )
-        return {
-            "reference": target,
-            "effective": effective,
-            "tag": tag or self.config.project.registry.tag,
-            "digest": str(digest),
-            "vouched": vouched,
-            "warnings": warnings,
-        }
+    def tags(
+        self,
+        reference: str | None = None,
+        *,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Which tags a repository holds.
 
-    def _require_publishable(self) -> None:
-        """
-        Refuse a push the project declared off-limits.
-
-        The mistake this prevents is one command long and made by someone who does not expect to make it. A pulled
-        brain is a working copy like any other -- nothing in the protocol distinguishes a brain you authored from one
-        you installed -- so a stray ``dist push`` publishes a fork of somebody else's brain under whichever
-        repository this project derives, and the two lineages diverge with nobody informed.
-
-        Raises:
-            PublishForbiddenError: If the selected brain declares ``publish = false``.
-        """
-        from vitruvio.kernel import PublishForbiddenError
-
-        if self.config.publish_allowed:
-            return
-        name = self.config.brain_name or str(self.config.brain)
-        raise PublishForbiddenError(
-            f"brain {name!r} declares publish = false, so it is not published from here",
-            hint=(
-                "this is usually somebody else's upstream. If you really mean to publish a fork, set "
-                f"publish = true under [brains.{name}] and give it its own `reference` first"
-            ),
+        See :meth:`vitruvio.runtime.ops.publish.PublishOps.tags`."""
+        return self.publish_ops.tags(
+            reference, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
         )
+
+    @cached_property
+    def install_ops(self) -> InstallOps:
+        """The install operations."""
+        return InstallOps(self.session)
 
     def plan_pull(
         self,
@@ -825,52 +688,20 @@ class BrainService:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """
-        Report what a pull would transfer, before transferring it.
+        """Report what a pull would transfer, before transferring it.
 
-        A canonical layer can be gigabytes, so "how much will this cost" has to be answerable without paying it.
-
-        Reports ``local_work`` as well as the transfer, because cost is not the only thing worth knowing before a
-        pull: an install adopts the remote composition, so anything committed here since the last pull stops being a
-        member of it. Answered from the local head and nothing else, so it costs no extra round trip.
-
-        Returns:
-            dict[str, Any]: The plan, with the byte count taken from the resolved manifest.
-        """
-        import asyncio
-
-        target = self.reference_for(reference)
-        chosen = [_memory_type(item) for item in modules] if modules else None
-        client, effective, warnings = self._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        See :meth:`vitruvio.runtime.ops.install.InstallOps.plan_pull`."""
+        return self.install_ops.plan_pull(
+            reference,
+            tag=tag,
+            modules=modules,
+            ignore_vector_indices=ignore_vector_indices,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
-        wanted_tag = tag or self.config.project.registry.tag
-
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            manifest = asyncio.run(client.resolve(effective, wanted_tag))
-            if ignore_vector_indices:
-                _require_vector_index_ignore(brain.plan_pull)
-                plan = asyncio.run(
-                    brain.plan_pull(
-                        client,
-                        effective,
-                        wanted_tag,
-                        modules=chosen,
-                        ignore_vector_indices=True,
-                    )
-                )
-            else:
-                # Keep the ordinary pull compatible with the previous SDK API. Only the new opt-in path requires
-                # the SDK release that added `ignore_vector_indices`.
-                plan = asyncio.run(brain.plan_pull(client, effective, wanted_tag, modules=chosen))
-        return {
-            "reference": target,
-            "tag": wanted_tag,
-            **wire.install_plan(plan, manifest),
-            "local_work": self._local_work(brain),
-            "warnings": warnings,
-        }
 
     def pull(
         self,
@@ -885,180 +716,20 @@ class BrainService:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """
-        Install a published brain.
+        """Install a published brain.
 
-        Returns:
-            dict[str, Any]: The snapshot now installed.
-        """
-        import asyncio
-
-        target = self.reference_for(reference)
-        chosen = [_memory_type(item) for item in modules] if modules else None
-        client, effective, warnings = self._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        See :meth:`vitruvio.runtime.ops.install.InstallOps.pull`."""
+        return self.install_ops.pull(
+            reference,
+            tag=tag,
+            modules=modules,
+            ignore_vector_indices=ignore_vector_indices,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
-        wanted_tag = tag or self.config.project.registry.tag
-
-        brain = self.brain(Capability.WRITE)
-        # Captured before, because after the pull the composition is the remote's and there is nothing left to
-        # compare against. This is the only place the count can be exact rather than estimated.
-        before = self._composition_ids(brain)
-        ignored: list[str] = []
-        with _translated():
-            if ignore_vector_indices:
-                _require_vector_index_ignore(brain.pull)
-                manifest = asyncio.run(client.resolve(effective, wanted_tag))
-                wanted = chosen if chosen is not None else manifest.modules
-                ignored = [
-                    memory_type.value for memory_type in wanted if manifest.vector_index_for(memory_type) is not None
-                ]
-                snapshot = asyncio.run(
-                    brain.pull(
-                        client,
-                        effective,
-                        wanted_tag,
-                        modules=chosen,
-                        ignore_vector_indices=True,
-                    )
-                )
-            else:
-                snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
-        orphaned = sorted(before - self._composition_ids(brain))
-        # `plan_pull` may already have memoized an INSPECT-capability brain at the old head. A pull advances the
-        # pointer through the WRITE-capability instance, so every other cached view must be reopened before a caller
-        # asks for state or verification on this same service object.
-        self.session.invalidate()
-        if ignored:
-            named = ", ".join(ignored)
-            warnings.append(
-                f"ignored published vector indices for {named}; run `vitruvio index build --force` to build "
-                "compatible local vectors before relying on semantic retrieval"
-            )
-        return {
-            "reference": target,
-            "tag": wanted_tag,
-            "snapshot": wire.snapshot(snapshot),
-            "partial": chosen is not None,
-            "discarded": len(orphaned),
-            "discarded_blocks": orphaned[:20],
-            "ignored_vector_indices": ignored,
-            "warnings": warnings,
-        }
-
-    # --- What a pull would replace ---------------------------------------------
-    #
-    # `pull` adopts the remote snapshot verbatim and moves the head to it, with no fast-forward check -- the
-    # divergence guard lives on `push`, where overwriting means overwriting somebody *else's* work. That asymmetry
-    # is right: an install installs the other side's version.
-    #
-    # What was missing is that the loss was silent. Blocks committed locally since the last pull stop being members
-    # of any composition: they do not verify into a root, they do not appear in a search, and a pack does not carry
-    # them. The blobs stay on disk and the previous snapshot stays in `retained`, so the state is recoverable by
-    # hand -- but nothing said it happened, and the discovery came days later when a search returned nothing.
-
-    def _local_work(self, brain: Brain) -> dict[str, Any]:
-        """
-        What is installed here that no pull put here.
-
-        Answered from ``Origin``, which records the snapshot digest of the last pull, so the question "did I commit
-        anything since?" is a local comparison and costs no round trip. The count is a delta between two snapshot
-        documents rather than a set difference, because a plan must not download a composition to answer it.
-
-        Args:
-            brain (Brain): The opened brain.
-
-        Returns:
-            dict[str, Any]: ``diverged``, how many blocks are at stake, and which snapshot holds them.
-        """
-        snapshot = brain.snapshot()
-        installed = sum(reference.block_count for reference in snapshot.modules.values())
-        origin = brain.origin
-        clean = {"diverged": False, "blocks": 0, "snapshot": None, "pulled": None}
-
-        if installed == 0:
-            return clean
-        if origin is None:
-            # Never pulled, and it holds blocks: everything in it is local, and a pull replaces the lot.
-            return {"diverged": True, "blocks": installed, "snapshot": str(snapshot.digest), "pulled": None}
-        if str(snapshot.digest) == str(origin.snapshot):
-            return clean
-
-        baseline = self._snapshot_at(brain, str(origin.snapshot))
-        blocks = None if baseline is None else max(installed - baseline, 0)
-        return {
-            "diverged": True,
-            "blocks": blocks,
-            "snapshot": str(snapshot.digest),
-            "pulled": str(origin.snapshot),
-        }
-
-    @staticmethod
-    def _snapshot_at(brain: Brain, digest: str) -> int | None:
-        """
-        How many blocks one retained snapshot held, or ``None`` when it can no longer be read.
-
-        ``None`` rather than zero: a missing baseline means the size of the local work is *unknown*, and reporting
-        an unknown as "nothing" is the failure this whole report exists to prevent.
-        """
-        from boltzmann.brain import Snapshot
-        from boltzmann.identity.digest import OciDigest
-
-        try:
-            document = brain.store.get_bytes(OciDigest.parse(digest))
-        # Broad on purpose: a pruned or unreadable blob is not an error here, it is an unknown.
-        except Exception:
-            return None
-        try:
-            return sum(reference.block_count for reference in Snapshot.model_validate_json(document).modules.values())
-        except ValueError:  # pragma: no cover - a blob that is not a snapshot document
-            return None
-
-    @staticmethod
-    def _composition_ids(brain: Brain) -> set[str]:
-        """Every block identity currently a member of some installed module."""
-        found: set[str] = set()
-        for kind in brain.snapshot().installed:
-            with suppress(Exception):
-                found.update(str(identity) for identity in brain.module(kind).block_ids)
-        return found
-
-    def tags(
-        self,
-        reference: str | None = None,
-        *,
-        username: str | None = None,
-        token: str | None = None,
-        anonymous: bool = False,
-        insecure: bool | None = None,
-        local: Path | None = None,
-    ) -> dict[str, Any]:
-        """
-        Which tags a repository holds.
-
-        Returns:
-            dict[str, Any]: The tags, or an explanation when the registry does not offer a listing.
-        """
-        target = self.reference_for(reference)
-        client, effective, warnings = self._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
-        )
-        from boltzmann.exceptions import DistributionError, ReferenceNotFoundError
-
-        lister = getattr(client, "tags", None)
-        try:
-            if lister is None:
-                found = sorted(client.registry.get_tags(effective))
-            else:
-                found = sorted(lister(effective))
-        except (DistributionError, ReferenceNotFoundError):
-            # A repository with nothing published is the ordinary state before a first push, and "no tags" is the
-            # answer -- not an error, and certainly not an internal one, which is what an unwrapped raise produced.
-            found = []
-        except Exception as error:
-            raise translate(error) from error
-
-        return {"reference": target, "tags": found, "warnings": warnings, "published": bool(found)}
 
     # --- Retrieval ------------------------------------------------------------
 

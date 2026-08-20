@@ -1,0 +1,240 @@
+"""Installing a brain from a registry, and saying what that would replace first.
+
+The only module that calls :meth:`~vitruvio.runtime.session.BrainSession.invalidate`, and the reason it exists:
+`pull` advances the pointer, so every brain handed out before it describes the composition that was just replaced.
+`plan_pull` is a separate operation because a caller has to be able to see what it would lose before losing it.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from contextlib import suppress
+from pathlib import Path
+from typing import Any
+
+from boltzmann.brain import Brain
+
+from vitruvio.kernel import ResolvedConfig
+from vitruvio.runtime import wire
+from vitruvio.runtime.assembly import Capability
+from vitruvio.runtime.coerce import memory_type as coerce_memory_type
+from vitruvio.runtime.mapping import translated
+from vitruvio.runtime.ops.remote import RemoteOps, require_vector_index_ignore
+from vitruvio.runtime.session import BrainSession
+
+
+class InstallOps:
+    """Installing, as operations."""
+
+    def __init__(self, session: BrainSession) -> None:
+        """
+        Args:
+            session (BrainSession): The shared session.
+        """
+        self.session = session
+        self.remote = RemoteOps(session)
+
+    @property
+    def config(self) -> ResolvedConfig:
+        """The resolved configuration, read through the session that owns it."""
+        return self.session.config
+
+    def plan_pull(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """
+        Report what a pull would transfer, before transferring it.
+
+        A canonical layer can be gigabytes, so "how much will this cost" has to be answerable without paying it.
+
+        Reports ``local_work`` as well as the transfer, because cost is not the only thing worth knowing before a
+        pull: an install adopts the remote composition, so anything committed here since the last pull stops being a
+        member of it. Answered from the local head and nothing else, so it costs no extra round trip.
+
+        Returns:
+            dict[str, Any]: The plan, with the byte count taken from the resolved manifest.
+        """
+        import asyncio
+
+        target = self.remote.reference_for(reference)
+        chosen = [coerce_memory_type(item) for item in modules] if modules else None
+        client, effective, warnings = self.remote._client(
+            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        )
+        wanted_tag = tag or self.config.project.registry.tag
+
+        brain = self.session.brain(Capability.INSPECT)
+        with translated():
+            manifest = asyncio.run(client.resolve(effective, wanted_tag))
+            if ignore_vector_indices:
+                require_vector_index_ignore(brain.plan_pull)
+                plan = asyncio.run(
+                    brain.plan_pull(
+                        client,
+                        effective,
+                        wanted_tag,
+                        modules=chosen,
+                        ignore_vector_indices=True,
+                    )
+                )
+            else:
+                # Keep the ordinary pull compatible with the previous SDK API. Only the new opt-in path requires
+                # the SDK release that added `ignore_vector_indices`.
+                plan = asyncio.run(brain.plan_pull(client, effective, wanted_tag, modules=chosen))
+        return {
+            "reference": target,
+            "tag": wanted_tag,
+            **wire.install_plan(plan, manifest),
+            "local_work": self._local_work(brain),
+            "warnings": warnings,
+        }
+
+    def pull(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """
+        Install a published brain.
+
+        Returns:
+            dict[str, Any]: The snapshot now installed.
+        """
+        import asyncio
+
+        target = self.remote.reference_for(reference)
+        chosen = [coerce_memory_type(item) for item in modules] if modules else None
+        client, effective, warnings = self.remote._client(
+            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        )
+        wanted_tag = tag or self.config.project.registry.tag
+
+        brain = self.session.brain(Capability.WRITE)
+        # Captured before, because after the pull the composition is the remote's and there is nothing left to
+        # compare against. This is the only place the count can be exact rather than estimated.
+        before = self._composition_ids(brain)
+        ignored: list[str] = []
+        with translated():
+            if ignore_vector_indices:
+                require_vector_index_ignore(brain.pull)
+                manifest = asyncio.run(client.resolve(effective, wanted_tag))
+                wanted = chosen if chosen is not None else manifest.modules
+                ignored = [
+                    memory_type.value for memory_type in wanted if manifest.vector_index_for(memory_type) is not None
+                ]
+                snapshot = asyncio.run(
+                    brain.pull(
+                        client,
+                        effective,
+                        wanted_tag,
+                        modules=chosen,
+                        ignore_vector_indices=True,
+                    )
+                )
+            else:
+                snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
+        orphaned = sorted(before - self._composition_ids(brain))
+        # `plan_pull` may already have memoized an INSPECT-capability brain at the old head. A pull advances the
+        # pointer through the WRITE-capability instance, so every other cached view must be reopened before a caller
+        # asks for state or verification on this same service object.
+        self.session.invalidate()
+        if ignored:
+            named = ", ".join(ignored)
+            warnings.append(
+                f"ignored published vector indices for {named}; run `vitruvio index build --force` to build "
+                "compatible local vectors before relying on semantic retrieval"
+            )
+        return {
+            "reference": target,
+            "tag": wanted_tag,
+            "snapshot": wire.snapshot(snapshot),
+            "partial": chosen is not None,
+            "discarded": len(orphaned),
+            "discarded_blocks": orphaned[:20],
+            "ignored_vector_indices": ignored,
+            "warnings": warnings,
+        }
+
+    def _local_work(self, brain: Brain) -> dict[str, Any]:
+        """
+        What is installed here that no pull put here.
+
+        Answered from ``Origin``, which records the snapshot digest of the last pull, so the question "did I commit
+        anything since?" is a local comparison and costs no round trip. The count is a delta between two snapshot
+        documents rather than a set difference, because a plan must not download a composition to answer it.
+
+        Args:
+            brain (Brain): The opened brain.
+
+        Returns:
+            dict[str, Any]: ``diverged``, how many blocks are at stake, and which snapshot holds them.
+        """
+        snapshot = brain.snapshot()
+        installed = sum(reference.block_count for reference in snapshot.modules.values())
+        origin = brain.origin
+        clean = {"diverged": False, "blocks": 0, "snapshot": None, "pulled": None}
+
+        if installed == 0:
+            return clean
+        if origin is None:
+            # Never pulled, and it holds blocks: everything in it is local, and a pull replaces the lot.
+            return {"diverged": True, "blocks": installed, "snapshot": str(snapshot.digest), "pulled": None}
+        if str(snapshot.digest) == str(origin.snapshot):
+            return clean
+
+        baseline = self._snapshot_at(brain, str(origin.snapshot))
+        blocks = None if baseline is None else max(installed - baseline, 0)
+        return {
+            "diverged": True,
+            "blocks": blocks,
+            "snapshot": str(snapshot.digest),
+            "pulled": str(origin.snapshot),
+        }
+
+    @staticmethod
+    def _snapshot_at(brain: Brain, digest: str) -> int | None:
+        """
+        How many blocks one retained snapshot held, or ``None`` when it can no longer be read.
+
+        ``None`` rather than zero: a missing baseline means the size of the local work is *unknown*, and reporting
+        an unknown as "nothing" is the failure this whole report exists to prevent.
+        """
+        from boltzmann.brain import Snapshot
+        from boltzmann.identity.digest import OciDigest
+
+        try:
+            document = brain.store.get_bytes(OciDigest.parse(digest))
+        # Broad on purpose: a pruned or unreadable blob is not an error here, it is an unknown.
+        except Exception:
+            return None
+        try:
+            return sum(reference.block_count for reference in Snapshot.model_validate_json(document).modules.values())
+        except ValueError:  # pragma: no cover - a blob that is not a snapshot document
+            return None
+
+    @staticmethod
+    def _composition_ids(brain: Brain) -> set[str]:
+        """Every block identity currently a member of some installed module."""
+        found: set[str] = set()
+        for kind in brain.snapshot().installed:
+            with suppress(Exception):
+                found.update(str(identity) for identity in brain.module(kind).block_ids)
+        return found
