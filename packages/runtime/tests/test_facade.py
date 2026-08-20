@@ -28,6 +28,7 @@ from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
 from vitruvio.runtime.ops.inspection import InspectionOps
+from vitruvio.runtime.ops.lifecycle import LifecycleOps
 from vitruvio.runtime.ops.projects import ProjectOps
 from vitruvio.runtime.ops.registration import RegistrationOps
 from vitruvio.runtime.ops.retention import RetentionOps
@@ -40,6 +41,7 @@ DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (EmbedderOps, ("embedders", "test_embedder")),
     (IndexOps, ("index_list", "index_build", "index_stats", "index_verify", "index_gc")),
     (InspectionOps, ("resolvability", "resolve", "prove", "module", "roots")),
+    (LifecycleOps, ("init", "state", "verify", "history", "info")),
     (ProjectOps, ("project", "add_brain", "remove_brain")),
     (RegistrationOps, ("register", "replace", "put_content")),
     (RetentionOps, ("plan_drop", "drop", "drop_by_producer", "supersede", "demote", "prune", "redact", "policy")),

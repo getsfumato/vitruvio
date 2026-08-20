@@ -31,7 +31,7 @@ from boltzmann.brain import Brain
 
 from vitruvio.kernel import ResolvedConfig, VitruvioError
 from vitruvio.runtime import wire
-from vitruvio.runtime.assembly import Capability, open_brain
+from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as _memory_type
 from vitruvio.runtime.mapping import translate
 from vitruvio.runtime.mapping import translated as _translated
@@ -40,6 +40,7 @@ from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
 from vitruvio.runtime.ops.inspection import InspectionOps
+from vitruvio.runtime.ops.lifecycle import LifecycleOps
 from vitruvio.runtime.ops.projects import ProjectOps
 from vitruvio.runtime.ops.registration import RegistrationOps
 from vitruvio.runtime.ops.retention import RetentionOps
@@ -93,159 +94,40 @@ class BrainService:
 
     # --- Lifecycle ------------------------------------------------------------
 
+    @cached_property
+    def lifecycle_ops(self) -> LifecycleOps:
+        """The lifecycle operations."""
+        return LifecycleOps(self.session)
+
     def init(self, *, force: bool = False) -> dict[str, Any]:
-        """
-        Create a brain, and a ``vitruvio.toml`` beside it.
+        """Create a brain, and a ``vitruvio.toml`` beside it.
 
-        Writing the configuration file is the part that makes the brain reproducible: it records the actor, the
-        policy and the embedder, so a second clone retrieves comparably rather than by coincidence.
-
-        Args:
-            force (bool): Overwrite an existing ``vitruvio.toml``. The layout itself is never overwritten --
-                ``Brain`` opening an existing layout is a normal open, not a clobber.
-
-        Returns:
-            dict[str, Any]: The brain path, the configuration written, and the empty snapshot's digest.
-
-        Raises:
-            VitruvioError: If the path exists and holds something that is not a brain.
-        """
-        from vitruvio.kernel import CONFIG_FILE, is_layout, update_config
-
-        path = self.config.brain
-        existed = is_layout(path)
-        if path.exists() and not path.is_dir():
-            raise VitruvioError(f"{path} is a file, not a directory", hint="choose a path for the brain directory")
-        if path.exists() and any(path.iterdir()) and not existed:
-            raise VitruvioError(
-                f"{path} is not empty and is not a brain",
-                hint="choose an empty directory, or an existing brain",
-            )
-
-        with _translated():
-            brain = open_brain(self.config, Capability.INSPECT, create=True)
-
-        config_path = (self.config.config_file or path.parent / CONFIG_FILE).resolve()
-        wrote_config = False
-        if force or not config_path.exists():
-            try:
-                relative = path.resolve().relative_to(config_path.parent)
-                declared = f"./{relative}"
-            except ValueError:
-                # The brain is not under the configuration file's directory. An absolute path is correct here,
-                # and honest: this project is not self-contained.
-                declared = str(path.resolve())
-            update_config(config_path, "brain.path", declared)
-            if self.config.project.actor.id:
-                update_config(config_path, "actor.id", self.config.project.actor.id)
-                update_config(config_path, "actor.kind", self.config.project.actor.kind.value)
-            update_config(config_path, "policy.profile", self.config.project.policy.profile.value)
-            wrote_config = True
-
-        return {
-            "brain": str(path),
-            "created": not existed,
-            "config_file": str(config_path) if wrote_config else None,
-            "snapshot": wire.snapshot(brain.snapshot()),
-        }
+        See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.init`."""
+        return self.lifecycle_ops.init(force=force)
 
     def state(self) -> dict[str, Any]:
-        """
-        The brain's head pointer, snapshot and installed modules.
+        """The brain's head pointer, snapshot and installed modules.
 
-        Returns:
-            dict[str, Any]: Enough to answer "what is installed, at which version, pulled from where".
-        """
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            snapshot = brain.snapshot()
-            return {
-                "brain": str(self.config.brain),
-                "brain_origin": self.config.brain_origin.value,
-                "state": brain.state(),
-                "snapshot": wire.snapshot(snapshot),
-                "installed": [kind.value for kind in snapshot.installed],
-                "block_count": snapshot.block_count,
-                "origin": brain.origin.model_dump(mode="json") if brain.origin else None,
-                "ancestry": [str(digest) for digest in brain.ancestry()],
-                "actor": self.config.project.actor.model_dump(mode="json"),
-            }
+        See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.state`."""
+        return self.lifecycle_ops.state()
 
     def verify(self) -> dict[str, Any]:
-        """
-        Recompute every module's Merkle root from its blocks and compare.
+        """Recompute every module's Merkle root from its blocks and compare.
 
-        Returns:
-            dict[str, Any]: Whether the brain verifies, and each module's root.
-        """
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            snapshot = brain.snapshot()
-            return {
-                "verified": brain.verify(),
-                "roots": {kind.value: str(snapshot.root_of(kind)) for kind in snapshot.installed},
-                "block_count": snapshot.block_count,
-            }
+        See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.verify`."""
+        return self.lifecycle_ops.verify()
 
     def history(self, *, limit: int | None = None) -> dict[str, Any]:
-        """
-        The retained snapshots, most recent first.
+        """The retained snapshots, most recent first.
 
-        Args:
-            limit (int | None): How many to return.
-
-        Returns:
-            dict[str, Any]: The chain a prune walks, and an audit reads.
-        """
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            snapshots = brain.history()
-        chosen = snapshots[:limit] if limit else snapshots
-        return {"snapshots": [wire.snapshot(item) for item in chosen], "retained": len(snapshots)}
+        See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.history`."""
+        return self.lifecycle_ops.history(limit=limit)
 
     def info(self) -> dict[str, Any]:
-        """
-        Per-module shape: roots, block counts, and which indices are registered.
+        """Per-module shape: roots, block counts, and which indices are registered.
 
-        Returns:
-            dict[str, Any]: The brain's anatomy.
-        """
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            modules = brain.modules()
-            return {
-                "brain": str(self.config.brain),
-                "modules": [wire.module(module) for module in modules.values()],
-                # Read from disk rather than from `brain.travelling_indices`. At INSPECT capability no index is
-                # registered -- deliberately, so this command never constructs an embedder -- so the brain's own answer
-                # would be an honest "none about this session" and a misleading answer to the question actually being
-                # asked, which is whether a publish would carry a vector index.
-                "travelling_indices": self._travelling_on_disk(),
-                "policy": self.config.policy().model_dump(mode="json"),
-            }
-
-    def _travelling_on_disk(self) -> list[str]:
-        """
-        Which modules have a vector index persisted, by reading the sidecar headers.
-
-        No embedder is constructed and no model is loaded: the header carries the population and the model tag, which is
-        everything needed to answer "would a publish include this".
-
-        Returns:
-            list[str]: Memory types with a non-empty vector index on disk.
-        """
-        from vitruvio.indices import format as envelope
-
-        found: list[str] = []
-        home = self.config.derived / "indices"
-        for path in sorted(home.glob("*.vector.vidx")):
-            try:
-                read = envelope.read(path)
-            except envelope.IndexFormatError:
-                continue
-            if read is not None and read[0].population:
-                found.append(read[0].memory_type)
-        return found
+        See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.info`."""
+        return self.lifecycle_ops.info()
 
     # --- Inspection -----------------------------------------------------------
 
