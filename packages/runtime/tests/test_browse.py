@@ -181,3 +181,56 @@ class TestOriginsDegradeHonestly:
         origins = service.browsing_ops._origins(brain)
         assert len(seen) > 1, "the walk stopped at the first unreadable record instead of continuing"
         assert origins, "every record after the unreadable one lost its origin too"
+
+
+class TestPagingReadsOnlyThePage:
+    """`blocks` resolved every identity in the module and then threw away all but one page of rows."""
+
+    def _fill(self, service: BrainService, source_file: Path, count: int) -> None:
+        for index in range(count):
+            path = source_file.parent / f"nota-{index}.md"
+            path.write_text(f"# Nota {index}\n\nContenido {index}.\n", encoding="utf-8")
+            service.register(path, media_type="text/markdown")
+
+    def test_an_unfiltered_page_reads_only_its_own_rows(
+        self, service: BrainService, source_file: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without a filter every row matches, so `matched` is the module's own count and the rest is waste.
+
+        Counted rather than timed: on a module of fifty thousand blocks this was fifty thousand store reads to
+        return a hundred rows, and a timing assertion would pass on a fast machine.
+        """
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.runtime.assembly import Capability
+
+        self._fill(service, source_file, 12)
+        brain = service.brain(Capability.INSPECT)
+        module = brain.module(MemoryType.CANONICAL)
+        original = module.get
+        reads: list[Any] = []
+
+        def counted(identity: Any) -> Any:
+            reads.append(identity)
+            return original(identity)
+
+        # Only the canonical module's `get` is counted. `brain.module` caches, so patching the instance is enough --
+        # and patching `brain.module` itself made `_origins` walk canonical instead of provenance, which is how the
+        # first version of this test measured 15 reads and blamed the code.
+        monkeypatch.setattr(module, "get", counted)
+
+        result = service.browsing_ops.blocks("canonical", limit=3)
+        assert len(result["rows"]) == 3
+        assert result["matched"] == result["block_count"], "matched is the module's count when nothing is filtered"
+        assert len(reads) == 3, f"read {len(reads)} blocks to return 3 rows"
+
+    def test_a_filtered_page_still_reports_the_whole_match_count(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """The scan is the answer here, not waste: `matched` is how many rows match in the module, which a page
+        cannot tell you. That cost is what the docstring means by "a filter is not a query"."""
+        self._fill(service, source_file, 12)
+        result = service.browsing_ops.blocks("canonical", limit=2, contains="Nota")
+        assert len(result["rows"]) == 2
+        assert result["matched"] == 12
+        assert result["truncated"] is True
