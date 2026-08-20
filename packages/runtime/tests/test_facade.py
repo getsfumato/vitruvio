@@ -25,10 +25,12 @@ from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.inspection import InspectionOps
+from vitruvio.runtime.ops.registration import RegistrationOps
 
 DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (EmbedderOps, ("embedders", "test_embedder")),
     (InspectionOps, ("resolvability", "resolve", "prove", "module", "roots")),
+    (RegistrationOps, ("register", "replace", "put_content")),
 )
 """Each operations class, and the names `BrainService` must expose for it.
 
