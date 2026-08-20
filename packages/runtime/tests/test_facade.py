@@ -33,6 +33,7 @@ from vitruvio.runtime.ops.projects import ProjectOps
 from vitruvio.runtime.ops.registration import RegistrationOps
 from vitruvio.runtime.ops.retention import RetentionOps
 from vitruvio.runtime.ops.retrieval import RetrievalOps
+from vitruvio.runtime.ops.sources import SourceOps
 from vitruvio.runtime.ops.tasks import TaskOps
 
 DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
@@ -46,6 +47,10 @@ DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (RegistrationOps, ("register", "replace", "put_content")),
     (RetentionOps, ("plan_drop", "drop", "drop_by_producer", "supersede", "demote", "prune", "redact", "policy")),
     (RetrievalOps, ("search", "explain")),
+    (
+        SourceOps,
+        ("sources", "source_kinds", "scaffold_source", "add_source", "remove_source", "pull_source", "pull_all"),
+    ),
     (TaskOps, ("define_task", "task_schema", "validate_candidates", "commit_candidates", "ingest_run", "pipelines")),
 )
 """Each operations class, and the names `BrainService` must expose for it.
