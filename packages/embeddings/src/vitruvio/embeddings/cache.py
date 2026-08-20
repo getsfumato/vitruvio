@@ -200,11 +200,18 @@ class EmbeddingCache:
         version; only 3.13 said so.
 
         Guarded, because during interpreter shutdown a module global can already be ``None``.
-        """
-        import contextlib
 
-        with contextlib.suppress(Exception):  # pragma: no cover - interpreter shutdown
+        The guard is a bare ``try`` rather than ``contextlib.suppress`` for the same reason it exists at all. Setting
+        the suppression up needed ``import contextlib``, and by the time a finalizer runs at shutdown the import
+        machinery may already be gone -- so the import raised ``ImportError: sys.meta_path is None`` *before* there
+        was anything to suppress it, and Python printed the traceback this guard was written to prevent. ``try`` is
+        syntax: it depends on no import and no module global.
+        """
+        # The suppression SIM105 asks for is exactly what broke this, so the rule is waived rather than followed.
+        try:  # noqa: SIM105
             self.close()
+        except Exception:  # pragma: no cover - interpreter shutdown
+            pass
 
 
 class MemoryCache:

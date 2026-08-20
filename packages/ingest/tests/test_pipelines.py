@@ -169,3 +169,44 @@ class TestPdf:
             pytest.skip("the [vision] extra is installed, so there is nothing to refuse")
         with pytest.raises(RuntimeError, match=r"\[vision\]"):
             pipeline.normalize(b"%PDF-1.4")
+
+    def test_a_document_over_the_page_guard_is_refused_rather_than_truncated(self) -> None:
+        """What `MAX_PAGES` says it does: fail fast rather than swap. Truncating is neither.
+
+        A view holding the first `MAX_PAGES` pages is indistinguishable from a PDF that genuinely ends there, so a
+        citation into the tail resolves to nothing while provenance records the truncation as the document's
+        normalized form. Driven through `_pages` with a stand-in document rather than a real PDF, so the guard is
+        covered whether or not the [vision] extra is installed.
+        """
+
+        class Enormous:
+            def __len__(self) -> int:
+                return PdfTextPipeline.MAX_PAGES + 1
+
+            def __getitem__(self, index: int) -> object:  # pragma: no cover - the guard must fire first
+                raise AssertionError("refused documents must not have their pages read")
+
+        with pytest.raises(RuntimeError, match=rf"caps at {PdfTextPipeline.MAX_PAGES}"):
+            list(PdfTextPipeline()._pages(Enormous()))
+
+    def test_a_document_at_the_page_guard_is_still_normalized(self) -> None:
+        """The cap is inclusive: exactly `MAX_PAGES` pages is a large document, not a malformed claim."""
+
+        class Page:
+            def get_textpage(self) -> Page:
+                return self
+
+            def get_text_range(self) -> str:
+                return "senos y cosenos"
+
+            def close(self) -> None:
+                return None
+
+        class AtTheCap:
+            def __len__(self) -> int:
+                return PdfTextPipeline.MAX_PAGES
+
+            def __getitem__(self, index: int) -> Page:
+                return Page()
+
+        assert next(PdfTextPipeline()._pages(AtTheCap())).startswith("[page 1]")

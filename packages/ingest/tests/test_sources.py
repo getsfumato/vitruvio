@@ -95,6 +95,78 @@ class TestContainment:
             source.contain(target)
 
 
+class TestHttpBounds:
+    """`max_bytes` has to bound what is *held*, not only what is returned."""
+
+    def _streamer(self, chunks: Sequence[bytes], *, declared: str | None = None) -> Any:
+        """A stand-in for `httpx.stream` that records how much of the body was actually pulled."""
+        import contextlib
+
+        drawn: list[bytes] = []
+
+        class Response:
+            status_code = 200
+            headers = {"content-length": declared} if declared is not None else {}
+
+            def iter_bytes(self) -> Any:
+                for chunk in chunks:
+                    drawn.append(chunk)
+                    yield chunk
+
+        @contextlib.contextmanager
+        def stream(method: str, url: str, **kwargs: Any) -> Any:
+            yield Response()
+
+        return stream, drawn
+
+    def test_an_oversized_body_stops_the_transfer_instead_of_buffering_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`httpx.get` buffers the whole body into `response.content` before any check can run, so a declared cap of
+        one megabyte did not stop a misconfigured endpoint putting gigabytes in memory first. The refusal arrived
+        after the damage it exists to prevent."""
+        import httpx
+
+        source = make(tmp_path, max_bytes=8)
+        stream, drawn = self._streamer([b"0" * 8, b"0" * 8, b"0" * 8])
+        monkeypatch.setattr(httpx, "stream", stream)
+
+        with pytest.raises(SourceError, match="over the declared max_bytes"):
+            source.get("https://example.test/big.bin")
+        assert len(b"".join(drawn)) < 24, "the whole body was read before the cap was enforced"
+
+    def test_a_declared_length_over_the_cap_costs_no_transfer_at_all(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A well-behaved server says how big it is, and that is the cheapest possible refusal."""
+        import httpx
+
+        source = make(tmp_path, max_bytes=8)
+        stream, drawn = self._streamer([b"0" * 64], declared="64")
+        monkeypatch.setattr(httpx, "stream", stream)
+
+        with pytest.raises(SourceError, match="declares 64 bytes"):
+            source.get("https://example.test/big.bin")
+        assert drawn == [], "the body was pulled despite the header already refusing it"
+
+    def test_a_body_within_the_cap_is_returned_whole(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Streaming must not change what a fetch that fits returns."""
+        import httpx
+
+        source = make(tmp_path, max_bytes=64)
+        stream, _ = self._streamer([b"senos", b" y ", b"cosenos"])
+        monkeypatch.setattr(httpx, "stream", stream)
+        assert source.get("https://example.test/ok.txt") == b"senos y cosenos"
+
+    def test_no_cap_declared_still_returns_the_body(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        source = make(tmp_path)
+        stream, _ = self._streamer([b"fourier"])
+        monkeypatch.setattr(httpx, "stream", stream)
+        assert source.get("https://example.test/ok.txt") == b"fourier"
+
+
 class TestSubprocessBounds:
     def test_a_command_runs_with_closed_stdin_under_a_timeout_and_never_through_a_shell(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -472,6 +472,16 @@ class OpenRouterEmbedder(OpenAICompatibleEmbedder):
         return super().interpret(status, body)
 
 
+PROBE_TTL_SECONDS = 30.0
+"""How long a reachability probe's answer is reused before the daemon is asked again.
+
+``VectorIndex._apply`` reads ``available`` once per block, so the probe has to be memoized or a rebuild becomes one
+HTTP request per block. A TTL rather than a permanent answer because the interesting state change -- starting Ollama
+while a TUI session is open -- happens on a human timescale, and thirty seconds is short enough to notice it and long
+enough that no build pays for the probe more than once.
+"""
+
+
 class OllamaEmbedder(OpenAICompatibleEmbedder):
     """
     Embeddings from a local Ollama.
@@ -502,23 +512,53 @@ class OllamaEmbedder(OpenAICompatibleEmbedder):
             )
         return super().interpret(status, body)
 
+    def __init__(self, spec: EmbedderSpec, *, timeout: float = 60.0) -> None:
+        """As the base, plus the memo :attr:`available` needs. See :data:`PROBE_TTL_SECONDS`."""
+        super().__init__(spec, timeout=timeout)
+        self._probe: tuple[float, bool] | None = None
+        self.probe_failure: str | None = None
+        """Why the last probe decided the daemon was unreachable, or ``None``.
+
+        Kept because ``available`` has to answer with a bool and a configuration mistake and a stopped daemon are
+        not the same problem. A caller reporting unavailability can say which one it was.
+        """
+
     @property
     def available(self) -> bool:
         """
-        Whether the daemon is reachable.
+        Whether the daemon is reachable, probed at most once per :data:`PROBE_TTL_SECONDS`.
 
         Probed rather than assumed, because "Ollama is installed" and "Ollama is running" are different states and
         only the second one can answer. A short timeout: this runs on the path that decides whether to degrade, and
         waiting sixty seconds to find out a local port is closed would make a search hang on a laptop.
+
+        Memoized because of where it is read from. ``VectorIndex._apply`` consults it once per block, so an
+        unmemoized probe turned a rebuild of fifty thousand blocks into fifty thousand requests to ``/api/tags``,
+        each with a two-second timeout in front of it. A TTL rather than a permanent answer, so that starting the
+        daemon during a long-lived session is noticed without restarting it.
         """
+        import time
         from importlib.util import find_spec
 
         if find_spec("httpx") is None:
             return False
-        try:
-            import httpx
 
+        now = time.monotonic()
+        if self._probe is not None and now - self._probe[0] < PROBE_TTL_SECONDS:
+            return self._probe[1]
+
+        import httpx
+
+        failure: str | None = None
+        try:
             httpx.get(self.base_url.removesuffix("/v1") + "/api/tags", timeout=2.0)
-        except Exception:
-            return False
-        return True
+        except (httpx.HTTPError, httpx.InvalidURL) as error:
+            # Narrowed from a bare `except Exception`, which reported a typo'd `base_url` and a TLS failure as
+            # "the daemon is not running" -- sending the user to restart a service that was never the problem.
+            # `InvalidURL` is named separately because it does not descend from `HTTPError`. Anything else is a bug
+            # here rather than an unreachable endpoint, and is left to surface as one.
+            failure = f"{type(error).__name__}: {error}"
+
+        self._probe = (now, failure is None)
+        self.probe_failure = failure
+        return failure is None

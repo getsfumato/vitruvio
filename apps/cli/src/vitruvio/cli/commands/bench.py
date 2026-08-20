@@ -115,13 +115,21 @@ def bench(
             render.verdict(bool(latency["passed"]), yes="ok", no="FAIL"),
         )
 
-    console.emit("bench", result, view=render.stack(head, "", table, "" if gates else None, gates))
+    view = render.stack(head, "", table, "" if gates else None, gates)
     if gate and not verdict.get("passed", False):
-        raise VitruvioError(
-            "the planner did not clear both gates",
-            hint="recall@10 must be at least the scan's, and p95 within 3x of it; the rows above show which failed",
+        # One envelope, carrying the measurements. Emitting the success envelope and *then* raising printed a second
+        # JSON document from main's handler, so `--json --gate` -- the only combination CI runs -- broke the
+        # one-object contract for precisely the callers that parse it, and did so only on failure.
+        return console.fail(
+            "bench",
+            VitruvioError(
+                "the planner did not clear both gates",
+                hint="recall@10 must be at least the scan's, and p95 within 3x of it; the rows above show which failed",
+            ),
+            data=result,
+            view=view,
         )
-    return ExitCode.OK
+    return console.emit("bench", result, view=view)
 
 
 @app.command(name="corpus")

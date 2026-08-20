@@ -33,8 +33,9 @@ Verifies the binding itself -- the index's ``bound_root`` must equal the module'
 ``Brain._build`` for that one index, which is the SDK's own vouching path. Rebuilding is cheap because every vector
 comes back from the embedding cache: no model call, no network.
 
-Pinned to an SDK version, and covered by a test that fails loudly if ``_vouched`` disappears. That test is the point:
-when the private goes away, the failure is a red build rather than a brain that quietly publishes nothing.
+Pinned to an SDK version, and covered by ``packages/runtime/tests/test_vouch.py``, which fails loudly if either
+private moves. That guard is the point, and it is not optional: :func:`supported` degrades to a *reported* warning,
+so without it the private going away is a green suite and a brain that quietly publishes nothing.
 """
 
 from __future__ import annotations

@@ -132,7 +132,15 @@ def push(
     """
     console = current().console
     if all_:
-        return _push_all(tag=tag, modules=module, force=force, insecure=insecure, local=local, reference=reference)
+        return _push_all(
+            tag=tag,
+            modules=module,
+            force=force,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+            reference=reference,
+        )
 
     result = (
         current()
@@ -155,6 +163,7 @@ def _push_all(
     tag: str | None,
     modules: list[str] | None,
     force: bool,
+    anonymous: bool,
     insecure: bool,
     local: Path | None,
     reference: str | None,
@@ -212,7 +221,9 @@ def _push_all(
             continue
 
         try:
-            outcome = service.push(None, tag=tag, modules=modules, force=force, insecure=insecure, local=local)
+            outcome = service.push(
+                None, tag=tag, modules=modules, force=force, anonymous=anonymous, insecure=insecure, local=local
+            )
             _warn(outcome)
             console.note(f"ok    {name:<18} {outcome['reference']}:{outcome['tag']}")
             results.append({"brain": name, "ok": True, "skipped": False, **outcome})

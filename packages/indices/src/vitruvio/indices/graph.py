@@ -47,6 +47,33 @@ costing from fiction into arithmetic.
 MAX_MEASURED_DEPTH = 4
 """How deep to measure. Beyond this the planner labels its estimate a guess rather than an interpolation."""
 
+WEIGHT_SCALE = 1000
+"""Edge weights are held, and persisted, as integer thousandths of their float value.
+
+Integers because the serialized body is content-addressed: a float's shortest-repr is not a stable thing to hash
+across interpreters, and a graph index whose digest moves without the graph moving is not one a consumer can verify.
+
+Quantizing on the way *in* -- see :func:`quantize` -- rather than only on the way out is what makes that safe. A
+weight rounded at dump time only would give a freshly-built index and the same index reloaded two different numbers
+for one edge, so `expand` would rank differently depending on which one the process happened to be holding, and no
+in-memory test could see it. Rounded at both ends, the two are the same value by construction.
+"""
+
+
+def quantize(weight: float) -> float:
+    """
+    An edge weight as it survives a round trip through the serialized body.
+
+    Args:
+        weight (float): The projected weight.
+
+    Returns:
+        float: The weight to the nearest thousandth. Every weight vitruvio projects today (1.0, and 0.9 for a
+        procedural ``uses`` edge) is already exact at this scale; the function is what keeps that a property of the
+        code rather than a coincidence a new edge kind could break.
+    """
+    return round(weight * WEIGHT_SCALE) / WEIGHT_SCALE
+
 
 class GraphIndex(VitruvioIndex):
     """
@@ -76,7 +103,9 @@ class GraphIndex(VitruvioIndex):
     def _apply(self, projection: Projection) -> None:
         """Collect this block's outgoing edges."""
         for edge in projection.edges:
-            self._edges.append((projection.block_id, edge.target, edge.kind.value, edge.predicate, edge.weight))
+            self._edges.append(
+                (projection.block_id, edge.target, edge.kind.value, edge.predicate, quantize(edge.weight))
+            )
 
     def _on_build_end(self, delta: Any) -> None:
         """Compile the edge list into adjacency arrays, in canonical node order."""
@@ -185,7 +214,7 @@ class GraphIndex(VitruvioIndex):
         return {
             "nodes": list(self._nodes),
             "edges": sorted(
-                [source, target, kind, predicate, round(weight * 1000)]
+                [source, target, kind, predicate, round(weight * WEIGHT_SCALE)]
                 for source, target, kind, predicate, weight in self._edges
             ),
         }
@@ -194,7 +223,7 @@ class GraphIndex(VitruvioIndex):
         """Restore the edges and recompile the adjacency."""
         self._reset()
         self._edges = [
-            (source, target, kind, predicate, weight / 1000)
+            (source, target, kind, predicate, weight / WEIGHT_SCALE)
             for source, target, kind, predicate, weight in body.get("edges", [])
         ]
         self._table = type(self._table)(body.get("identities", []))

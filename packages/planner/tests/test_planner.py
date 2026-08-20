@@ -256,6 +256,71 @@ class TestExecutorMasks:
         assert executor._filter_federated_hits([(episodic_id, 0.8)], {}) == [(episodic_id, 0.8)]
 
 
+class TestGraphExpansionTruncation:
+    """`truncated` is the only flag that says "there may be more", and a graph expansion has two ways to hide some."""
+
+    def _executor(self, *, k: int, targets: int) -> tuple[Any, dict[str, Any], Any]:
+        """An executor over one real graph index whose single seed relates to `targets` installed blocks."""
+        from boltzmann.indices.base import IndexKind
+
+        from vitruvio.indices import GraphIndex
+        from vitruvio.indices.projection import Edge, EdgeKind, Projection
+        from vitruvio.planner import fusion
+
+        seed = "sha256:" + "11" * 32
+        reached = [f"sha256:{index:02x}" + "22" * 31 for index in range(targets)]
+
+        graph = GraphIndex(MemoryType.SEMANTIC)
+        graph._apply(
+            Projection(
+                block_id=seed,
+                memory_type=MemoryType.SEMANTIC,
+                edges=tuple(Edge(EdgeKind.RELATION, target) for target in reached),
+            )
+        )
+        graph._on_build_end(None)
+
+        module = cast(
+            Any,
+            SimpleNamespace(
+                memory_type=MemoryType.SEMANTIC,
+                composition=SimpleNamespace(block_ids=tuple(BlockId.parse(item) for item in [seed, *reached])),
+            ),
+        )
+        executor = Executor(
+            planner=CostBasedPlanner(PlannerConfig()),
+            modules={MemoryType.SEMANTIC: module},
+            query=a_query(),
+            intent=classify("fourier", expand_depth=1),
+            capabilities=Capabilities(available={"semantic": ["graph"]}, usable={"semantic": frozenset({"graph"})}),
+        )
+        executor._index = lambda held, kind: graph if kind is IndexKind.GRAPH else None  # type: ignore[assignment]
+
+        node = cast(Any, SimpleNamespace(parameters={"k": k, "depth": 1}))
+        candidates = {seed: fusion.Candidate(block_id=seed, depth=0)}
+        return executor, candidates, node
+
+    def test_dropping_reached_nodes_at_the_limit_reports_it(self) -> None:
+        """`_associative` ends in `[:limit]` and its caller hardcoded `exhausted=True`, so a graph plan that threw
+        away two thirds of what it reached still reported `truncated=False`."""
+        executor, candidates, node = self._executor(k=2, targets=6)
+        hits, exhausted = executor._associative(executor.modules[MemoryType.SEMANTIC], node, candidates)
+        assert len(hits) == 2
+        assert exhausted is False, "hits were discarded, so the domain was not enumerated"
+
+    def test_an_expansion_that_fits_is_not_reported_as_truncated(self) -> None:
+        """The other direction matters as much: a flag that is always true says nothing."""
+        executor, candidates, node = self._executor(k=20, targets=3)
+        hits, exhausted = executor._associative(executor.modules[MemoryType.SEMANTIC], node, candidates)
+        assert len(hits) == 3
+        assert exhausted is True
+
+    def test_nothing_to_expand_from_is_exhausted_rather_than_truncated(self) -> None:
+        """An empty expansion enumerated its whole domain, which happened to be empty."""
+        executor, _, node = self._executor(k=20, targets=3)
+        assert executor._associative(executor.modules[MemoryType.SEMANTIC], node, {}) == ([], True)
+
+
 class TestCostModel:
     def test_embedding_a_query_can_cost_more_than_reading_a_small_module(self) -> None:
         """The single number that argues for a cost model over a heuristic router."""
@@ -383,6 +448,33 @@ class TestCrossover:
         _, large_plan, large_estimates, _ = chosen_plan(large, a_query(), caps)
         assert small_plan.signature != large_plan.signature
         assert large_estimates.total_cost < estimate(small_plan, statistics(50_000)).total_cost
+
+
+class TestBruteThreshold:
+    """The knob that decides exact-versus-approximate vector search, and that it is the knob that decides it."""
+
+    def _vector_ops(self, threshold: int, blocks: int = 1000) -> set[Op]:
+        planner = CostBasedPlanner(PlannerConfig(brute_threshold=threshold), statistics=statistics(blocks, vector=True))
+        caps = capabilities(*STRUCTURAL, "inverted", "vector")
+        intent = planner._classify(a_query(), {}, ("semantic",), caps)
+        found: set[Op] = set()
+        for plan in planner._enumerate(a_query(), ("semantic",), caps, intent):
+            found |= {plan[node].op for node in plan.generators()}
+        return {op for op in found if op in {Op.BRUTE_VECTOR, Op.VECTOR_SEARCH}}
+
+    def test_lowering_it_forces_the_approximate_probe(self) -> None:
+        """The template read `max(config.brute_threshold, BRUTE_THRESHOLD // 1)`, so the module default floored the
+        knob: every value at or below 2048 behaved identically and only raising it did anything."""
+        assert self._vector_ops(999) == {Op.VECTOR_SEARCH}
+
+    def test_raising_it_still_forces_the_exact_scan(self) -> None:
+        """The direction that always worked has to keep working."""
+        assert self._vector_ops(4096) == {Op.BRUTE_VECTOR}
+
+    def test_the_crossover_is_where_the_configured_value_says(self) -> None:
+        """`vectors <= brute_threshold`, with nothing else deciding it."""
+        assert self._vector_ops(1000) == {Op.BRUTE_VECTOR}
+        assert self._vector_ops(999) == {Op.VECTOR_SEARCH}
 
 
 class TestMonotonicity:

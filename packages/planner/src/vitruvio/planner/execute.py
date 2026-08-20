@@ -160,7 +160,7 @@ class Executor:
             return self._semantic(module, node, limit)
 
         if node.op is Op.GRAPH_EXPAND:
-            return self._associative(module, node, candidates), True
+            return self._associative(module, node, candidates)
 
         return [], True
 
@@ -354,12 +354,17 @@ class Executor:
 
     def _associative(
         self, module: Module, node: Any, candidates: dict[str, fusion.Candidate]
-    ) -> list[tuple[str, float]]:
+    ) -> tuple[list[tuple[str, float]], bool]:
         """
         Expand from the **fused** hits rather than from one index's.
 
         Which means expansion follows consensus rather than whichever index happened to be consulted first -- the
         invariant expressed structurally rather than as a preference.
+
+        Returns:
+            tuple[list[tuple[str, float]], bool]: Hits, and whether the expansion enumerated its domain. The second
+            value used to be hardcoded ``True`` at the call site, which made ``truncated`` unable to report the one
+            thing it exists for whenever a graph plan dropped what it had reached.
         """
         from vitruvio.indices import FederatedGraphView, GraphIndex, TraversalQuery
 
@@ -372,27 +377,38 @@ class Executor:
             and isinstance(index := self._index(held, IndexKind.GRAPH), GraphIndex)
         }
         if not graphs or not candidates:
-            return []
+            return [], True
 
         # Seeded from the *fused* hits rather than from one index's, so expansion follows consensus rather than whichever
         # generator happened to run first. That is the no-single-authority invariant expressed structurally.
         seeds = tuple(candidate.block_id for candidate in candidates.values() if candidate.depth == 0)
         if not seeds:
-            return []
+            return [], True
 
+        limit = int(node.parameters.get("k", 20))
+        max_nodes = limit * 4
         reached = FederatedGraphView(graphs).expand(
             TraversalQuery(
                 seeds=seeds,
                 depth=int(node.parameters.get("depth", 1)),
                 decay=0.5,
-                max_nodes=int(node.parameters.get("k", 20)) * 4,
+                max_nodes=max_nodes,
             )
         )
-        limit = int(node.parameters.get("k", 20))
         # Only installed blocks: a caller cannot resolve an identity that is not here, and the graph index reports the
         # external ones separately for the callers that want them.
         installed = {str(identity) for held in self.modules.values() for identity in held.composition.block_ids}
-        return [(identity, score) for identity, score, _ in reached if identity in installed][:limit]
+        resolvable = [(identity, score) for identity, score, _ in reached if identity in installed]
+
+        # Two independent ways this pool is not the domain: the traversal stops at `max_nodes`, and what survives is
+        # then cut to `k`. Excluding an *external* target is neither -- it can never be returned to a caller, so
+        # counting it would leave `truncated` permanently true for any brain that cites something it does not hold.
+        #
+        # The ceiling test adds the seeds back because `max_nodes` bounds the visited set, which `reached` has already
+        # had the seeds removed from. Without that, a traversal stopped by the ceiling could still report itself
+        # exhausted -- and of the two ways to be wrong here, claiming completeness is the one that misleads.
+        exhausted = len(resolvable) <= limit and len(reached) + len(seeds) < max_nodes
+        return resolvable[:limit], exhausted
 
     # --- The fixed tail -------------------------------------------------------
 

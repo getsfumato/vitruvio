@@ -26,6 +26,7 @@ personal data, credentials, or licensed material -- not for cleanup. Wrong knowl
 
 from __future__ import annotations
 
+import sys
 from typing import Annotated
 
 from cyclopts import App, Parameter
@@ -35,7 +36,7 @@ from rich.text import Text
 from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
-from vitruvio.kernel import ExitCode, VitruvioError
+from vitruvio.kernel import ExitCode, UsageError, VitruvioError
 
 app = App(
     name="retain",
@@ -124,14 +125,32 @@ def _confirm(prompt: str, yes: bool) -> None:
     if yes:
         return
     console = current().console
+
+    # There is nobody to prompt. Refusing beats prompting into a pipe that will never answer, and beats assuming
+    # consent from the absence of a terminal.
+    #
+    # Both arms are `UsageError` rather than a bare `VitruvioError`: a missing `--yes` is something the caller can
+    # fix, and exit 1 is documented as "always a bug in vitruvio". Telling someone their invocation is our bug costs
+    # them a real investigation, which is the reason UsageError exists.
     if console.json_mode:
-        # There is nobody to prompt. Refusing beats prompting into a pipe that will never answer, and beats assuming
-        # consent from the absence of a terminal.
-        raise VitruvioError(
+        raise UsageError(
             "this operation needs confirmation and --json has no one to ask",
             hint="pass --yes once you have read the plan",
         )
-    answer = input(f"{prompt} [type yes to proceed] ")
+    if not sys.stdin.isatty():
+        # The check the comment above always described and the code did not do. Without it a scheduled `retain drop`
+        # reached `input()`, took an EOFError, and main's last-resort handler reported a missing `--yes` as
+        # "internal error: EOFError" followed by "this is a bug in vitruvio -- please report it".
+        raise UsageError(
+            "this operation needs confirmation and stdin is not a terminal",
+            hint="pass --yes once you have read the plan",
+        )
+
+    try:
+        answer = input(f"{prompt} [type yes to proceed] ")
+    except EOFError:
+        # Ctrl-D at the prompt is a person declining, which is the same outcome as typing anything but yes.
+        raise VitruvioError("cancelled", hint="nothing was changed") from None
     if answer.strip().lower() != "yes":
         raise VitruvioError("cancelled", hint="nothing was changed")
 
