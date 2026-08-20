@@ -39,6 +39,7 @@ from vitruvio.runtime.coerce import memory_type as _memory_type
 from vitruvio.runtime.mapping import translate
 from vitruvio.runtime.mapping import translated as _translated
 from vitruvio.runtime.ops.embedders import EmbedderOps
+from vitruvio.runtime.ops.inspection import InspectionOps
 from vitruvio.runtime.session import BrainSession
 
 
@@ -243,92 +244,40 @@ class BrainService:
 
     # --- Inspection -----------------------------------------------------------
 
+    @cached_property
+    def inspection_ops(self) -> InspectionOps:
+        """The composition-reading operations."""
+        return InspectionOps(self.session)
+
     def resolvability(self) -> dict[str, Any]:
-        """
-        Which blocks are readable, which are tombstoned, and which are simply absent.
+        """Which blocks are readable, which are tombstoned, and which are simply absent.
 
-        The three are different and must not be conflated: a redacted block is a verifiable member whose bytes
-        were destroyed under policy, and a caller has to be able to tell that from corruption.
-
-        Returns:
-            dict[str, Any]: The report, with counts per module.
-        """
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            return wire.resolvability(brain.resolvability())
+        See :meth:`vitruvio.runtime.ops.inspection.InspectionOps.resolvability`."""
+        return self.inspection_ops.resolvability()
 
     def resolve(self, block_id: str) -> dict[str, Any]:
-        """
-        Read one block by identity, verified by hash on the way out of the store.
+        """Read one block by identity, verified by hash on the way out of the store.
 
-        Args:
-            block_id (str): A ``sha256:...`` block identity.
-
-        Returns:
-            dict[str, Any]: The block's identity, memory type and payload.
-        """
-        from boltzmann.identity.digest import BlockId
-
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            identity = BlockId.parse(block_id)
-            block = brain.resolve(identity)
-            return wire.block(block, block.MEMORY_TYPE)
+        See :meth:`vitruvio.runtime.ops.inspection.InspectionOps.resolve`."""
+        return self.inspection_ops.resolve(block_id)
 
     def prove(self, block_id: str, memory_type: str) -> dict[str, Any]:
-        """
-        A Merkle inclusion proof for one block, already checked against the module's root.
+        """A Merkle inclusion proof for one block, already checked against the module's root.
 
-        Args:
-            block_id (str): The block.
-            memory_type (str): Which module should contain it.
-
-        Returns:
-            dict[str, Any]: The audit path, the root, and whether it verifies.
-        """
-        from boltzmann.identity.digest import BlockId
-
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            kind = _memory_type(memory_type)
-            proof = brain.prove(BlockId.parse(block_id), kind)
-            return wire.proof(proof, brain.root_of(kind))
+        See :meth:`vitruvio.runtime.ops.inspection.InspectionOps.prove`."""
+        return self.inspection_ops.prove(block_id, memory_type)
 
     def module(self, memory_type: str, *, limit: int = 20) -> dict[str, Any]:
-        """
-        One module's shape and a sample of its block identities.
+        """One module's shape and a sample of its block identities.
 
-        Args:
-            memory_type (str): Which module.
-            limit (int): How many identities to list.
-
-        Returns:
-            dict[str, Any]: The module, plus a bounded list of block ids.
-        """
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            module = brain.module(_memory_type(memory_type))
-            identities = [str(identity) for identity in module.block_ids]
-            return {
-                **wire.module(module),
-                "block_ids": identities[:limit],
-                "truncated": len(identities) > limit,
-            }
+        See :meth:`vitruvio.runtime.ops.inspection.InspectionOps.module`."""
+        return self.inspection_ops.module(memory_type, limit=limit)
 
     def roots(self) -> dict[str, Any]:
-        """
-        Every installed module's Merkle root.
+        """Every installed module's Merkle root.
 
-        Returns:
-            dict[str, Any]: Roots by memory type, plus the snapshot digest that pins the set.
-        """
-        brain = self.brain(Capability.INSPECT)
-        with _translated():
-            snapshot = brain.snapshot()
-            return {
-                "snapshot": str(snapshot.digest),
-                "roots": {kind.value: str(snapshot.root_of(kind)) for kind in snapshot.installed},
-            }
+        See :meth:`vitruvio.runtime.ops.inspection.InspectionOps.roots`."""
+        return self.inspection_ops.roots()
 
     # --- Browsing -------------------------------------------------------------
     #

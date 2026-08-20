@@ -24,8 +24,12 @@ import pytest
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.ops.embedders import EmbedderOps
+from vitruvio.runtime.ops.inspection import InspectionOps
 
-DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = ((EmbedderOps, ("embedders", "test_embedder")),)
+DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
+    (EmbedderOps, ("embedders", "test_embedder")),
+    (InspectionOps, ("resolvability", "resolve", "prove", "module", "roots")),
+)
 """Each operations class, and the names `BrainService` must expose for it.
 
 Extended as each domain moves. The second element is deliberately explicit rather than derived from the class: a
