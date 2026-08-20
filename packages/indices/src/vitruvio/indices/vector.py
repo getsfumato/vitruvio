@@ -206,8 +206,18 @@ class VectorIndex(VitruvioIndex):
 
     @property
     def queryable(self) -> bool:
-        """Whether a probe can be made. False when the embedder cannot run, which degrades rather than fails."""
-        return bool(self.embedder.available)
+        """
+        Whether a probe can be made *and* scored. False degrades rather than fails: nothing is embedded and no
+        query runs, so the planner simply has no vector generator to choose.
+
+        Two reasons, and the second is not obvious. Scoring here is a dot product, which equals cosine only for
+        unit vectors. ``ModelTag.normalization`` is a parsed field whose other legal value is ``none``, and
+        providers arrive through a plugin registry -- so an embedder declaring ``none`` would be ranked by dot
+        product, which favours whichever passage happens to have the longest vector, and reported as cosine. Every
+        embedder vitruvio ships declares ``l2``, so this never fires today; it is here because ranking wrong looks
+        exactly as plausible as ranking right.
+        """
+        return bool(self.embedder.available) and self.embedder.tag.normalization == "l2"
 
     # --- Build ----------------------------------------------------------------
 
@@ -486,9 +496,20 @@ class VectorIndex(VitruvioIndex):
     # --- Query ----------------------------------------------------------------
 
     def _exact_search(self, space: str, probe: Vector, limit: int) -> list[int]:
-        """Brute-force cosine over one space. Exact, and the fallback when no graph was built."""
+        """
+        Brute-force cosine over one space. Exact, and the fallback when no graph was built.
+
+        A dot product, which is cosine **only because every vector here is L2-normalized** -- the tag says so, and
+        :meth:`_load_body` refuses an index whose tag differs from the configured embedder's, so the probe and the
+        stored vectors always come from the same model. :attr:`queryable` asserts the half of that the tag check
+        cannot: that the model in question normalizes at all.
+
+        ``strict=True`` on the zip for the same reason. The widths cannot differ once the tag matches, so a mismatch
+        is a broken invariant rather than a short vector to pad over -- and truncating one silently would rank by a
+        prefix of the embedding and still call it cosine.
+        """
         scored = [
-            (key, sum(a * b for a, b in zip(probe, vector, strict=False)))
+            (key, sum(a * b for a, b in zip(probe, vector, strict=True)))
             for key, vector in self._vectors.items()
             if self._rows[key][1] == space
         ]

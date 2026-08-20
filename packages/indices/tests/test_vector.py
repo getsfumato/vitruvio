@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 from boltzmann.blocks.memory_type import MemoryType
@@ -432,3 +433,54 @@ class TestTravel:
         second = VectorIndex(MemoryType.SEMANTIC, embedder=embedder, cache=cache)
         second.build(semantic_blocks, content)
         assert Counting.calls == after_first, "the second build re-embedded what the cache already held"
+
+
+class TestCosineNeedsUnitVectors:
+    """The score is a dot product, which is cosine only if every vector has length one."""
+
+    def _embedder(self, normalization: str) -> Any:
+        """A hashing embedder whose tag declares a normalization.
+
+        Wrapped rather than mutated: `tag` is a property that builds a fresh frozen `ModelTag` per call, so
+        assigning to the one it returns changes nothing -- which is itself worth knowing when writing these.
+        """
+        from dataclasses import replace
+
+        from vitruvio.embeddings import HashingEmbedder
+
+        class Declaring(HashingEmbedder):
+            @property
+            def tag(self) -> Any:
+                return replace(super().tag, normalization=normalization)
+
+        return Declaring(dimensions=8)
+
+    def test_an_embedder_that_does_not_normalize_cannot_serve_the_index(self) -> None:
+        """Nothing vitruvio ships declares `none`, but `ModelTag.normalization` parses it and providers are plugins.
+
+        Ranked by dot product the longest vector wins rather than the closest one -- and the result looks exactly as
+        plausible as a correct ranking, which is why this degrades instead of scoring.
+        """
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.indices import VectorIndex
+
+        assert VectorIndex(MemoryType.SEMANTIC, embedder=self._embedder("l2")).queryable is True
+        assert VectorIndex(MemoryType.SEMANTIC, embedder=self._embedder("none")).queryable is False
+
+    def test_a_width_mismatch_is_loud_rather_than_truncated(self) -> None:
+        """`zip(..., strict=False)` scored against a prefix of the embedding and still called it cosine.
+
+        It cannot happen while the tag check holds -- probe and stored vectors come from one model -- so a mismatch
+        is a broken invariant, and padding over it silently is the one response that hides the breakage.
+        """
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.indices import VectorIndex
+
+        index = VectorIndex(MemoryType.SEMANTIC, embedder=self._embedder("l2"))
+        index._vectors = {0: (1.0, 0.0, 0.0)}
+        index._rows = {0: ("sha256:aa", "text", 0, None, b"")}
+
+        with pytest.raises(ValueError, match="zip"):
+            index._exact_search("text", (1.0, 0.0), 5)
