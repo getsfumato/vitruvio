@@ -19,6 +19,7 @@ from vitruvio.indices import (
     query_terms,
     tokenize,
 )
+from vitruvio.indices import format as envelope
 from vitruvio.indices.text import (
     ENGLISH_STOPWORDS,
     SPANISH_STOPWORDS,
@@ -312,9 +313,23 @@ class TestInvertedPersistence:
         second = InvertedIndex(MemoryType.SEMANTIC, tmp_path / "b")
         second.build(list(reversed(semantic_blocks)), content)
 
-        assert (tmp_path / "a" / "semantic.inverted.vidx").read_bytes() == (
-            tmp_path / "b" / "semantic.inverted.vidx"
-        ).read_bytes()
+        """Byte reproducibility is what makes a golden fixture stable and a published layer digest meaningful.
+
+        Compared as *body* rather than as whole file, and the distinction is the test. The header carries
+        ``built_at``, a wall-clock stamp taken per build, so two builds that straddle a second boundary produce
+        different files from an identical block set -- which is what this used to assert, and it failed on CI at
+        19:12:06 against 19:12:07. The property being claimed is about the block set; the timestamp is about when
+        someone ran it, and recording it is deliberate. So the assertion is on the bytes the claim is about, plus
+        the digest the format keeps of them.
+
+        Restoring the whole-file comparison restores the flake.
+        """
+        left = envelope.read(tmp_path / "a" / "semantic.inverted.vidx")
+        right = envelope.read(tmp_path / "b" / "semantic.inverted.vidx")
+        assert left is not None
+        assert right is not None
+        assert left[1] == right[1], "the body must depend only on the block set"
+        assert left[0].body_sha256 == right[0].body_sha256
 
     def test_a_reloaded_index_answers_identically(
         self, tmp_path: Path, semantic_blocks: list[SemanticBlock], content: MemoryContent
