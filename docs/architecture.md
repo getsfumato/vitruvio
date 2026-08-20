@@ -29,6 +29,82 @@ third and fourth implementation of the same behaviour.
 The one exception that nearly existed — `--actor-kind`, whose values are an SDK enum — was removed by having the CLI
 take a string and the kernel coerce it. An exception list in `.importlinter` is a boundary that has started leaking.
 
+## Inside the service layer
+
+`BrainService` is the surface every interface drives — one method per protocol operation, as ADR-0003 has it — and
+it delegates each to the domain that owns it. It was one class of 3034 lines, four times the next largest file in
+the workspace, and it grew that way because it was the only place an operation could land.
+
+```mermaid
+classDiagram
+    class BrainService {
+        +config
+        +brain(capability)
+        +60 operations, each delegated
+    }
+    class BrainSession {
+        +config
+        +brain(capability)
+        +invalidate()
+    }
+    BrainService o-- BrainSession : owns one
+    BrainService ..> LifecycleOps
+    BrainService ..> InspectionOps
+    BrainService ..> BrowsingOps
+    BrainService ..> RegistrationOps
+    BrainService ..> TaskOps
+    BrainService ..> SourceOps
+    BrainService ..> RetentionOps
+    BrainService ..> IndexOps
+    BrainService ..> PublishOps
+    BrainService ..> InstallOps
+    BrainService ..> ProjectOps
+    BrainService ..> BenchmarkOps
+    BrainService ..> EmbedderOps
+    BrainService ..> RetrievalOps
+    SourceOps o-- FetchOps : one item at a time
+    PublishOps o-- RemoteOps : shared endpoint
+    InstallOps o-- RemoteOps
+    LifecycleOps --> BrainSession
+    InstallOps --> BrainSession
+    RetrievalOps --> BrainSession
+```
+
+Only three arrows back to the session are drawn; every operations class takes it. That is the load-bearing part
+rather than a detail: `InstallOps.pull` advances the pointer and calls `invalidate()`, so a brain handed out
+earlier describes the composition that was just replaced. It can only invalidate what it can reach, which is why
+
+> an operations class may hold the session, and may never hold a `Brain`.
+
+| module | operations | capability |
+|---|---|---|
+| `ops/lifecycle.py` | init, state, verify, history, info | INSPECT, creates |
+| `ops/inspection.py` | resolvability, resolve, prove, module, roots | INSPECT |
+| `ops/browsing.py` | blocks, content, export_content, related | INSPECT |
+| `ops/registration.py` | register, replace, put_content | WRITE |
+| `ops/tasks.py` | define_task, task_schema, validate_candidates, commit_candidates, ingest_run, pipelines | RETRIEVE, WRITE |
+| `ops/sources.py` | sources, source_kinds, scaffold_source, add_source, remove_source, pull_source, pull_all | INSPECT, WRITE |
+| `ops/fetch.py` | one item of a pull: dedup, the redaction guard, registration | — |
+| `ops/retention.py` | plan_drop, drop, drop_by_producer, supersede, demote, prune, redact, policy | WRITE |
+| `ops/indices.py` | index_list, index_build, index_stats, index_verify, index_gc | INSPECT, RETRIEVE |
+| `ops/remote.py` | reference_for, and the client both publishing and installing need | — |
+| `ops/publish.py` | pack, registry_check, push, tags | INSPECT, WRITE |
+| `ops/install.py` | plan_pull, pull | INSPECT, WRITE |
+| `ops/projects.py` | project, add_brain, remove_brain | INSPECT, WRITE |
+| `ops/benchmarking.py` | bench | RETRIEVE, over its own corpus |
+| `ops/embedders.py` | embedders, test_embedder | — |
+| `ops/retrieval.py` | search, explain | RETRIEVE |
+
+`ops/*.py` are the operations, which open brains. `runtime/*.py` beside them — `wire`, `mapping`, `assembly`,
+`browse`, `registry`, `distribution`, `indexset`, `vouch`, `query_diagnostics` — are stateless helpers, which do
+not. The naming is close enough to be worth stating: `ops/publish.py` publishes, `runtime/distribution.py`
+transports; `ops/registration.py` registers a block, `runtime/registry.py` talks to an OCI registry.
+
+**Heavy imports stay inside functions.** `import vitruvio.runtime` costs ~124ms, and eager `vitruvio.indices`
+(+24ms), `asyncio` (+17ms), `stats`, `embeddings` and `bench` would add ~50ms to every invocation, `--help`
+included. `packages/runtime/tests/test_import_cost.py` fails if any of them leaks, in a subprocess because by the
+time pytest runs it has imported most of them itself.
+
 ## Why a cost model rather than a heuristic router
 
 Embedding one query costs about 4.5 ms locally. On a brain of a couple of hundred blocks that is more expensive than

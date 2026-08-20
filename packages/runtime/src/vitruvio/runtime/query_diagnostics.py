@@ -11,7 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 
-def query_diagnostics(
+# one statement over the default; it assembles one payload and has no branch worth extracting.
+def query_diagnostics(  # noqa: PLR0915
     brain: Any,
     text: str,
     matches: list[dict[str, Any]],

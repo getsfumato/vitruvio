@@ -455,7 +455,8 @@ def update_config(path: Path, key: str, value: Any) -> Path:
     return path
 
 
-def _brain_from_layers(
+# a precedence chain: one branch and one return per selection rule, in the order the rules apply.
+def _brain_from_layers(  # noqa: PLR0911, PLR0912
     brain_flag: Path | None,
     project: ProjectConfig,
 ) -> tuple[Path, Origin, str | None]:

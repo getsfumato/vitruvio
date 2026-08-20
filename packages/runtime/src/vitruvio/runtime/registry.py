@@ -330,7 +330,8 @@ def _run_helper(helper: str, host: str) -> tuple[str, str] | None:
     return None
 
 
-def credential_for(
+# a precedence chain over credential sources, one return each, in the order they are consulted.
+def credential_for(  # noqa: PLR0911
     reference: str,
     *,
     username: str | None = None,

@@ -127,12 +127,12 @@ class TestPull:
         broken = incoming / "vanishes.md"
         broken.write_text("# gone\n", encoding="utf-8")
 
-        source = project._source("papers", project.config.sources["papers"])
+        source = project.source_ops.fetch._source("papers", project.config.sources["papers"])
         listed = list(source.list())
         broken.unlink()
 
         rows = [
-            project._pull_one(project.brain(), source, source.spec, item, dry_run=False, refetch=False)
+            project.source_ops.fetch._pull_one(project.brain(), source, source.spec, item, dry_run=False, refetch=False)
             for item in listed
         ]
         by_title = {str(row["title"]): str(row["outcome"]) for row in rows}
@@ -208,9 +208,11 @@ class TestPull:
         spec = project.config.sources["papers"]
         brain = project.brain(Capability.WRITE)
 
-        first = project._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
+        first = project.source_ops.fetch._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
         reopened = BrainService(project.config)
-        second = reopened._pull_one(reopened.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False)
+        second = reopened.source_ops.fetch._pull_one(
+            reopened.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False
+        )
 
         assert first["outcome"] == "registered"
         assert first["media_type"] == "application/pdf"
@@ -237,10 +239,10 @@ class TestPull:
         spec = project.config.sources["papers"]
         brain = project.brain(Capability.WRITE)
 
-        generic = project._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
+        generic = project.source_ops.fetch._pull_one(brain, source, spec, item, dry_run=False, refetch=False)
         source.specific = True
         reopened = BrainService(project.config)
-        corrected = reopened._pull_one(
+        corrected = reopened.source_ops.fetch._pull_one(
             reopened.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False
         )
 

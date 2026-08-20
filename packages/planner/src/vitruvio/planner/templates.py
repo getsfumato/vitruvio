@@ -287,7 +287,8 @@ def _mask_for(
     return mask
 
 
-def _generator_node(
+# known debt: the operator dispatch again, and here it is stringly-typed -- a typo falls through to None.
+def _generator_node(  # noqa: PLR0911
     *,
     builder: PlanBuilder,
     generator: str,

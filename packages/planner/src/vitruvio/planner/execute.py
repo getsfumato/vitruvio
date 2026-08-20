@@ -464,7 +464,8 @@ class Executor:
             truncated=dropped_at_limit or not exhausted,
         )
 
-    def _verify(self, candidate: fusion.Candidate, score: float, ledger: Any) -> Match | None:
+    # one return per reason a candidate is dropped; collapsing them would report the wrong reason.
+    def _verify(self, candidate: fusion.Candidate, score: float, ledger: Any) -> Match | None:  # noqa: PLR0911
         """
         Resolve one candidate and prove its membership, or drop it.
 

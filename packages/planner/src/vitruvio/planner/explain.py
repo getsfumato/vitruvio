@@ -279,7 +279,8 @@ def describe_plan(
     )
 
 
-def render_tree(explanation: Explanation) -> list[str]:
+# one statement over the default, and flat: a helper extracted to satisfy the count would only move lines.
+def render_tree(explanation: Explanation) -> list[str]:  # noqa: PLR0915
     """
     The human form: the chosen plan as a tree, then what it was traded against.
 

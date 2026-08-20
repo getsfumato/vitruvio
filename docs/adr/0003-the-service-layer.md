@@ -18,7 +18,8 @@ constructs an embedder, imports sentence-transformers, and imports torch.
 **One service layer, `vitruvio.runtime`, with one method per protocol operation, each returning a plain
 dictionary.** The CLI renders those dictionaries; the MCP server and the API will serialize the same ones.
 
-Four modules carry it:
+Four modules carry it (see ADR-0013: `service` was later decomposed into one module per domain, with
+`BrainService` kept as the facade — the decision below is unchanged, only its internal shape):
 
 - `service.BrainService` -- the operations. Nothing here decides how a result is displayed, and nothing writes
   prose.
