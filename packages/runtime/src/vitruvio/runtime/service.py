@@ -20,32 +20,24 @@ caller writes the answer.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from collections.abc import Iterable, Mapping
+from contextlib import suppress
 from inspect import signature
 from pathlib import Path
 from typing import Any
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.brain import Brain
-from boltzmann.identity.digest import BlockId
 from boltzmann.query.request import Query
 
 from vitruvio.kernel import ResolvedConfig, VitruvioError
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability, open_brain
+from vitruvio.runtime.coerce import block_id as _block_id
+from vitruvio.runtime.coerce import memory_type as _memory_type
 from vitruvio.runtime.mapping import translate
-
-
-@contextmanager
-def _translated() -> Iterator[None]:
-    """Re-raise anything the SDK throws as the error type every interface reports."""
-    try:
-        yield
-    except VitruvioError:
-        raise
-    except Exception as error:
-        raise translate(error) from error
+from vitruvio.runtime.mapping import translated as _translated
+from vitruvio.runtime.session import BrainSession
 
 
 def _require_vector_index_ignore(method: Any) -> None:
@@ -77,7 +69,7 @@ class BrainService:
             config (ResolvedConfig): The resolved configuration.
         """
         self.config = config
-        self._cache: dict[Capability, Brain] = {}
+        self.session = BrainSession(config)
 
     def brain(self, capability: Capability = Capability.INSPECT) -> Brain:
         """
@@ -89,10 +81,7 @@ class BrainService:
         Returns:
             Brain: The brain.
         """
-        if capability not in self._cache:
-            with _translated():
-                self._cache[capability] = open_brain(self.config, capability)
-        return self._cache[capability]
+        return self.session.brain(capability)
 
     # --- Lifecycle ------------------------------------------------------------
 
@@ -2651,7 +2640,7 @@ class BrainService:
         # `plan_pull` may already have memoized an INSPECT-capability brain at the old head. A pull advances the
         # pointer through the WRITE-capability instance, so every other cached view must be reopened before a caller
         # asks for state or verification on this same service object.
-        self._cache.clear()
+        self.session.invalidate()
         if ignored:
             named = ", ".join(ignored)
             warnings.append(
@@ -2974,26 +2963,6 @@ class BrainService:
         return payload
 
 
-def _memory_type(value: str) -> MemoryType:
-    """
-    Coerce a string into a memory type, listing the valid ones when it will not coerce.
-
-    Args:
-        value (str): The name.
-
-    Returns:
-        MemoryType: The coerced value.
-
-    Raises:
-        VitruvioError: If the string names no module.
-    """
-    try:
-        return MemoryType(value)
-    except ValueError as error:
-        permitted = ", ".join(item.value for item in MemoryType)
-        raise VitruvioError(f"{value!r} is not a memory type; expected one of: {permitted}") from error
-
-
 def _mentions(record: dict[str, Any]) -> set[str]:
     """
     Every block identity a provenance record names, at any depth.
@@ -3024,11 +2993,3 @@ def _mentions(record: dict[str, Any]) -> set[str]:
 
     walk(record)
     return found
-
-
-def _block_id(value: str) -> BlockId:
-    """Parse a block identity, reporting a malformed one as a usage error rather than a protocol failure."""
-    from boltzmann.identity.digest import BlockId
-
-    with _translated():
-        return BlockId.parse(value)

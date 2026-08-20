@@ -13,6 +13,7 @@ the distinction is the whole point.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from boltzmann.exceptions import (
@@ -202,12 +203,32 @@ def translate(error: BaseException) -> VitruvioError:
         return error
 
     report = report_for(error)
-    translated = VitruvioError(str(error) or type(error).__name__, hint=report.hint)
+    wrapped = VitruvioError(str(error) or type(error).__name__, hint=report.hint)
     # Set on the instance rather than by subclassing: the table is the single declaration of these values, and
     # a parallel hierarchy of thirteen exception classes mirroring it would be a second place to keep in sync.
-    translated.code = report.code
-    translated.exit_code = report.exit_code
-    return translated
+    wrapped.code = report.code
+    wrapped.exit_code = report.exit_code
+    return wrapped
+
+
+@contextmanager
+def translated() -> Iterator[None]:
+    """
+    Re-raise anything the SDK throws as the error type every interface reports.
+
+    The boundary itself, wrapped around every call into the SDK. It lives beside :func:`translate` because it is
+    the only thing that calls it: a caller that needs the conversion needs it as a scope, not as a function.
+
+    A ``VitruvioError`` passes through untouched. Something already carrying a code and an exit status has been
+    through the table once, and translating it again would replace a specific failure with the generic reading of
+    whatever type it happens to be.
+    """
+    try:
+        yield
+    except VitruvioError:
+        raise
+    except Exception as error:
+        raise translate(error) from error
 
 
 def known_codes() -> Iterator[str]:
