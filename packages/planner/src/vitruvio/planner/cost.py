@@ -254,7 +254,8 @@ class Objective:
         return True, None
 
 
-def estimate(
+# known debt: this is one of the three places the operator dispatch is written, and the largest.
+def estimate(  # noqa: PLR0912, PLR0915
     plan: Plan,
     statistics: Mapping[str, ModuleStats],
     calibration: Calibration = DEFAULT_CALIBRATION,

@@ -91,7 +91,8 @@ def launcher(
     return app(tokens)
 
 
-def main(argv: list[str] | None = None) -> int:
+# one return per failure class, which is the exit-code contract this function exists to state in one place.
+def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     """
     Run the CLI and return a process exit status.
 

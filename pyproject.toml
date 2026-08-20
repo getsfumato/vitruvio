@@ -72,6 +72,12 @@ select = [
     # BrainService at 60 public methods and the TUI's app at 29. The facade now sits just under the threshold, so a
     # domain's worth of logic landing back on it trips a lint rather than being noticed at 3000 lines.
     "PLR0904",
+    # Returns, branches and statements. Ten sites trip these today and each carries a `noqa` naming why; the value
+    # is that the eleventh cannot appear unnoticed. Two of the ten are the planner's duplicated operator dispatch,
+    # which is real debt and now says so at the line rather than in a review that scrolls away.
+    "PLR0911",
+    "PLR0912",
+    "PLR0915",
     "F",
     "I",
     "N",
@@ -99,17 +105,20 @@ select = [
 
 ignore = [
     "E501",
+    # Too many *arguments*, still off. 55 hits, and the shape is deliberate: every wide signature here is
+    # keyword-only, which is why PLR0917 (too many *positional* arguments) reports zero and is not in this list.
+    # The facade doubled the count on purpose -- a delegator repeats its operation's signature by definition -- so
+    # this rule would now be measuring the pattern ADR-0013 chose rather than a defect.
     "PLR0913",
-    "PLR0917",
-    "PLR0912",
-    "PLR0915",
-    "PLR0911",
     "PLR2004",
     "TRY003",
     "B008",
     "ISC001",
     "EM101",
     "EM102",
+    # Imports inside functions: 252 of them, and they are the architecture rather than laziness. `vitruvio.indices`
+    # alone costs 24ms to import and the whole deferred set ~50ms, on every invocation including `--help`. The
+    # discipline is enforced positively instead, by packages/runtime/tests/test_import_cost.py.
     "PLC0415",
     "SIM108",
     "TRY300",
