@@ -23,6 +23,7 @@ import pytest
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.ops.benchmarking import BenchmarkOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
@@ -34,6 +35,7 @@ from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.ops.tasks import TaskOps
 
 DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
+    (BenchmarkOps, ("bench",)),
     (BrowsingOps, ("blocks", "content", "export_content", "related")),
     (EmbedderOps, ("embedders", "test_embedder")),
     (IndexOps, ("index_list", "index_build", "index_stats", "index_verify", "index_gc")),

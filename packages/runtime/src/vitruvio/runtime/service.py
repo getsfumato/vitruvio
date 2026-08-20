@@ -27,7 +27,6 @@ from inspect import signature
 from pathlib import Path
 from typing import Any
 
-from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.brain import Brain
 
 from vitruvio.kernel import ResolvedConfig, VitruvioError
@@ -36,6 +35,7 @@ from vitruvio.runtime.assembly import Capability, open_brain
 from vitruvio.runtime.coerce import memory_type as _memory_type
 from vitruvio.runtime.mapping import translate
 from vitruvio.runtime.mapping import translated as _translated
+from vitruvio.runtime.ops.benchmarking import BenchmarkOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
@@ -1164,87 +1164,18 @@ class BrainService:
         See :meth:`vitruvio.runtime.ops.indices.IndexOps.index_gc`."""
         return self.index_ops.index_gc(apply=apply)
 
-    # --- Distribution ---------------------------------------------------------
-
     # --- Benchmarking ---------------------------------------------------------
 
+    @cached_property
+    def benchmark_ops(self) -> BenchmarkOps:
+        """The benchmarking operations."""
+        return BenchmarkOps(self.session)
+
     def bench(self, *, tier: int = 1000, seed: int = 1234, queries: int = 24, limit: int = 10) -> dict[str, Any]:
-        """
-        Generate a corpus with known answers, and measure four retrieval strategies over it.
+        """Generate a corpus with known answers, and measure four retrieval strategies over it.
 
-        Runs against a **generated** brain rather than the configured one, and that is the point: recall can only be
-        measured where the answers are known, and they are known here because the corpus was built from them. Pointing
-        this at a real brain would produce latency numbers and no way to say whether the results were right.
-
-        Args:
-            tier (int): Corpus size, in blocks. Below a few hundred an exhaustive scan legitimately wins, so a small tier
-                measures the scan rather than the indices -- which is why the default is above that.
-            seed (int): Makes the corpus reproducible, so two runs are comparable.
-            queries (int): How many judged queries.
-            limit (int): Results per query.
-
-        Returns:
-            dict[str, Any]: One measurement per configuration, and the verdict on whether the planner earned its cost.
-        """
-        import tempfile
-        from pathlib import Path
-
-        from boltzmann.query.request import Query, QueryFilters, QueryHints, RetrievalMode
-
-        from vitruvio.bench.corpus import generate
-        from vitruvio.bench.harness import CONFIGURATIONS, compare, measure
-
-        with tempfile.TemporaryDirectory(prefix="vitruvio-bench-") as workspace:
-            root = Path(workspace) / "corpus"
-            with _translated():
-                corpus = generate(root, blocks=tier, seed=seed, queries=queries)
-
-            # A service over the generated brain, sharing this project's embedder and index configuration -- so the
-            # numbers describe *your* setup rather than a default one. Which is what makes the comparison actionable:
-            # switching to Ollama and re-running is how you find out whether it helped.
-            from vitruvio.kernel import resolve as resolve_config
-
-            config = resolve_config(brain=root, config=self.config.config_file, actor_id="bench@vitruvio")
-            service = BrainService(config)
-
-            index_report = service.index_build()
-
-            # A hint per configuration. `lexical` excludes the vector generator and `semantic` requires it, which is
-            # what isolates each index -- and `auto` lets the cost model choose, which is the row under test.
-            modes = {
-                "scan": RetrievalMode.AUTO,
-                "lexical": RetrievalMode.LEXICAL,
-                "vector": RetrievalMode.SEMANTIC,
-                "planner": RetrievalMode.AUTO,
-            }
-
-            def run(configuration: str, text: str) -> list[str]:
-                """One query under one strategy, returning block identities in rank order."""
-                brain = service.brain(Capability.RETRIEVE)
-                query = Query(
-                    text=text,
-                    filters=QueryFilters(memory_types=[MemoryType.SEMANTIC]),
-                    hints=QueryHints(limit=limit, mode=modes[configuration]),
-                )
-                if configuration == "scan":
-                    from boltzmann.query.scan import scan
-
-                    bundle = scan(query, brain.modules())
-                else:
-                    bundle = brain.search(query)
-                return [str(match.block_id) for match in bundle.matches]
-
-            measurements = [measure(corpus, run, name, limit=limit) for name in CONFIGURATIONS]
-
-        return {
-            "blocks": corpus.blocks,
-            "queries": len(corpus.judgements),
-            "seed": seed,
-            "embedder": self.config.project.text_embedder.uri,
-            "indices_built": index_report.get("written"),
-            "measurements": [item.as_dict() for item in measurements],
-            "verdict": compare(measurements),
-        }
+        See :meth:`vitruvio.runtime.ops.benchmarking.BenchmarkOps.bench`."""
+        return self.benchmark_ops.bench(tier=tier, seed=seed, queries=queries, limit=limit)
 
     # --- Embedders ------------------------------------------------------------
 
