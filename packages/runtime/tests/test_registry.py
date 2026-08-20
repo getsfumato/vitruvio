@@ -107,6 +107,59 @@ class TestCredentials:
         assert forget("ghcr.io") is True
         assert credential_for("ghcr.io/a/b").anonymous
 
+    def test_a_keyring_that_refuses_is_reported_rather_than_called_a_logout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`logout` printing "logged out of" over a secret that still authenticates is worse than failing.
+
+        The delete was wrapped in `except Exception: pass`, so a backend that refused produced a successful-looking
+        logout as long as *some* other store had something to remove.
+        """
+        from vitruvio.kernel import CredentialError
+        from vitruvio.runtime import registry
+
+        class Refusing:
+            def get_password(self, service: str, key: str) -> str | None:
+                return "token"
+
+            def set_password(self, service: str, key: str, value: str) -> None:
+                return None
+
+            def delete_password(self, service: str, key: str) -> None:
+                raise RuntimeError("the keychain is locked")
+
+        monkeypatch.setattr(registry, "_keyring", Refusing)
+        store("ghcr.io", "alex", "token")
+
+        with pytest.raises(CredentialError, match="would not delete"):
+            forget("ghcr.io")
+
+    def test_a_refused_delete_does_not_orphan_the_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The username mapping is how vitruvio addresses a keyring entry, and it was popped either way.
+
+        So a refused delete left a secret that still authenticated and that `forget` could never find again --
+        undeletable by vitruvio, and invisible to `whoami`.
+        """
+        from vitruvio.runtime import registry
+
+        class Refusing:
+            def get_password(self, service: str, key: str) -> str | None:
+                return "token"
+
+            def set_password(self, service: str, key: str, value: str) -> None:
+                return None
+
+            def delete_password(self, service: str, key: str) -> None:
+                raise RuntimeError("the keychain is locked")
+
+        monkeypatch.setattr(registry, "_keyring", Refusing)
+        store("ghcr.io", "alex", "token")
+        assert "ghcr.io" in registry._read_usernames()
+
+        with pytest.raises(Exception, match="would not delete"):
+            forget("ghcr.io")
+        assert "ghcr.io" in registry._read_usernames(), "the mapping is the only way back to that secret"
+
     def test_anonymous_is_explicit(self) -> None:
         assert credential_for("docker.io/a/b", anonymous=True).anonymous is True
 
