@@ -9,7 +9,7 @@ Row construction itself lives in :mod:`vitruvio.runtime.browse`; what is here is
 
 from __future__ import annotations
 
-from contextlib import suppress
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -104,20 +104,27 @@ class BrowsingOps:
             origins = self._origins(brain) if kind is MemoryType.CANONICAL else {}
 
             rows: list[dict[str, Any]] = []
-            seen = 0
-            for identity in identities:
-                if resolvable.get(identity, True):
-                    try:
-                        entry = browse.row(module.get(identity), kind, origin=origins.get(str(identity)))
-                    except Exception as error:  # the store disagreed with the composition; say so, do not stop
-                        entry = browse.unreadable(str(identity), kind.value, f"{type(error).__name__}: {error}")
-                else:
-                    entry = browse.unreadable(str(identity), kind.value, "not resolvable (redacted or not installed)")
-                if contains and not browse.matches(entry, contains):
-                    continue
-                seen += 1
-                if seen > offset and len(rows) < limit:
-                    rows.append(entry)
+            if contains is None:
+                # Only the page is read. Without a filter every row matches, so `matched` is the module's own count
+                # and there is nothing to learn from the rest -- while the walk below resolves a block per identity,
+                # which on a large module meant tens of thousands of store reads to return a hundred rows.
+                seen = len(identities)
+                rows = [
+                    self._entry(module, kind, identity, resolvable, origins)
+                    for identity in identities[offset : offset + limit]
+                ]
+            else:
+                # With a filter the scan is the answer: `matched` is how many rows match in the whole module, and
+                # that is not knowable from a page. The cost is stated in this method's own docstring -- a filter is
+                # not a query, and `search` is where an index decides what to read.
+                seen = 0
+                for identity in identities:
+                    entry = self._entry(module, kind, identity, resolvable, origins)
+                    if not browse.matches(entry, contains):
+                        continue
+                    seen += 1
+                    if seen > offset and len(rows) < limit:
+                        rows.append(entry)
 
             return {
                 "memory_type": kind.value,
@@ -133,6 +140,40 @@ class BrowsingOps:
             }
 
     @staticmethod
+    def _entry(
+        module: Any,
+        kind: MemoryType,
+        identity: Any,
+        resolvable: Mapping[Any, bool],
+        origins: Mapping[str, str],
+    ) -> dict[str, Any]:
+        """
+        One row, whether or not the block behind it can be read.
+
+        Failure is per block on purpose: a version naming a block whose bytes are gone -- tombstoned under an
+        erasure policy, or never installed by a selective pull -- still lists, marked unreadable. Dropping those
+        rows would make a redacted brain look like a smaller one.
+
+        Args:
+            module (Module): The module being listed.
+            kind (MemoryType): Which module, for the row's own label.
+            identity (BlockId): The block.
+            resolvable (Mapping[Any, bool]): The module's resolvability map, read once by the caller.
+            origins (Mapping[str, str]): Block identity to origin, empty for every module but canonical.
+
+        Returns:
+            dict[str, Any]: The row.
+        """
+        from vitruvio.runtime import browse
+
+        if not resolvable.get(identity, True):
+            return browse.unreadable(str(identity), kind.value, "not resolvable (redacted or not installed)")
+        try:
+            return browse.row(module.get(identity), kind, origin=origins.get(str(identity)))
+        except Exception as error:  # the store disagreed with the composition; say so, do not stop
+            return browse.unreadable(str(identity), kind.value, f"{type(error).__name__}: {error}")
+
+    @staticmethod
     def _origins(brain: Brain) -> dict[str, str]:
         """
         Where each canonical block came from, according to its registration record.
@@ -146,18 +187,27 @@ class BrowsingOps:
             blocks are shown by media type rather than one that fails to list.
         """
         found: dict[str, str] = {}
-        with suppress(Exception):
+        try:
             module = brain.module(MemoryType.PROVENANCE)
             resolvable = module.resolvable()
-            for identity in module.block_ids:
-                if not resolvable.get(identity, True):
-                    continue
+        except Exception:  # provenance is not installed, which the docstring above says is a shape and not a fault
+            return found
+
+        # Scoped to one record rather than to the whole walk. Suppressing the loop meant a store error partway
+        # through returned a *partial* map that looked exactly like the documented empty one: some rows showed an
+        # origin, the rest showed a media type, and nothing said which had been skipped.
+        for identity in module.block_ids:
+            if not resolvable.get(identity, True):
+                continue
+            try:
                 record = module.get(identity).payload().get("record")
-                if not isinstance(record, dict) or record.get("record_type") != "registration":
-                    continue
-                block, origin = record.get("block"), record.get("origin")
-                if isinstance(block, str) and isinstance(origin, str) and origin:
-                    found[block] = origin
+            except Exception:  # one unreadable record must not cost the other thirty-nine their origins
+                continue
+            if not isinstance(record, dict) or record.get("record_type") != "registration":
+                continue
+            block, origin = record.get("block"), record.get("origin")
+            if isinstance(block, str) and isinstance(origin, str) and origin:
+                found[block] = origin
         return found
 
     def content(self, digest: str) -> bytes:

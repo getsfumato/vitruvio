@@ -120,6 +120,68 @@ class TestFailureWithMeasurements:
         assert "gates not cleared" in streams.err
 
 
+class TestTheLauncherAlwaysEmitsAnEnvelope:
+    """`--json` promises exactly one object. It was promising zero for two whole classes of failure.
+
+    A caller is told to branch on `ok` and then on `error.code` without knowing which command it ran. An empty
+    stream is the one shape that contract cannot survive: it cannot be told apart from a command that printed
+    nothing, and `json.loads` raises on it rather than reporting a failure.
+    """
+
+    def test_a_mistyped_flag_is_an_envelope_in_json_mode(self, capsys: pytest.CaptureFixture[str]) -> None:
+        code, payload = envelope(capsys, "brain", "state", "--flag-that-does-not-exist")
+        assert code == ExitCode.USAGE
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "USAGE"
+
+    def test_even_a_flag_mistyped_before_the_context_exists(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """`vitruvio --json --typo` fails while parsing the meta app, before a context is installed -- so the
+        console has to be reconstructed from the tokens or the caller gets nothing."""
+        code, payload = envelope(capsys, "--typo-that-is-not-a-flag")
+        assert code == ExitCode.USAGE
+        assert payload["error"]["code"] == "USAGE"
+
+    def test_an_internal_error_is_an_envelope_in_json_mode(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The last-resort handler wrote to stderr and left stdout empty, so a crash and a silent success looked
+        identical to whatever was parsing. Forced with a real unexpected exception, not a simulated one."""
+        from vitruvio.cli import main as launcher
+
+        def explode(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("something nobody predicted")
+
+        monkeypatch.setattr(type(launcher.app.meta), "__call__", explode)
+        code, payload = envelope(capsys, "config", "show")
+
+        assert code == ExitCode.INTERNAL
+        assert payload["ok"] is False
+        assert "something nobody predicted" in payload["error"]["message"]
+        assert "please report it" in (payload["error"]["hint"] or "")
+
+    def test_an_internal_error_in_human_mode_still_goes_to_stderr(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """stdout is the result and stderr is everything else, which a crash does not get to change."""
+        from vitruvio.cli import main as launcher
+
+        def explode(*args: object, **kwargs: object) -> None:
+            raise RuntimeError("something nobody predicted")
+
+        monkeypatch.setattr(type(launcher.app.meta), "__call__", explode)
+        code, out, err = run(capsys, "config", "show")
+
+        assert code == ExitCode.INTERNAL
+        assert out.strip() == ""
+        assert "internal error: RuntimeError" in err
+
+    def test_human_mode_still_does_not_print_the_usage_error_twice(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """cyclopts already wrote a better message to stderr; stdout stays empty."""
+        code, out, _ = run(capsys, "brain", "state", "--flag-that-does-not-exist")
+        assert code == ExitCode.USAGE
+        assert out.strip() == ""
+
+
 class TestFailures:
     def test_an_expected_failure_carries_a_code_and_a_hint(self, capsys: pytest.CaptureFixture[str]) -> None:
         code, payload = envelope(capsys, "brain", "use", "./absent")

@@ -26,7 +26,7 @@ from cyclopts.exceptions import CycloptsError
 from vitruvio.cli import commands
 from vitruvio.cli.context import Context, install
 from vitruvio.cli.output import Console
-from vitruvio.kernel import ExitCode, VitruvioError, __version__
+from vitruvio.kernel import ExitCode, UsageError, VitruvioError, __version__
 
 app = App(
     name="vitruvio",
@@ -91,7 +91,32 @@ def launcher(
     return app(tokens)
 
 
-# one return per failure class, which is the exit-code contract this function exists to state in one place.
+ISSUES_URL = "https://github.com/getsfumato/vitruvio/issues"
+"""Where a bug goes. Named once, because it is printed from two paths that must not drift."""
+
+
+def _console(tokens: list[str]) -> Console:
+    """
+    The console to report a launcher-level failure through.
+
+    Built from the tokens rather than read from the installed context, and that is not a shortcut. The context
+    lives in a ``ContextVar`` that outlives one call, so an in-process caller -- the test suite, and anything that
+    embeds ``main`` -- would otherwise inherit the previous run's mode: a plain invocation after a ``--json`` one
+    would print an envelope nobody asked for. It also has to work when the failure happened *before* the meta app
+    installed anything, which is exactly the ``vitruvio --json --typo`` case this exists for.
+
+    ``--json`` is the only spelling of the flag (`main.py` declares it with no alias and no negative form), so
+    membership is the whole test.
+
+    Args:
+        tokens (list[str]): The argument list, as the launcher received it.
+
+    Returns:
+        Console: A console matching what this invocation asked for.
+    """
+    return Console(json_mode="--json" in tokens)
+
+
 def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     """
     Run the CLI and return a process exit status.
@@ -122,6 +147,13 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         # reimplementing here. What it would do next is exit 1, and exit 1 in this CLI means "a bug in
         # vitruvio". A mistyped flag is not that, so it is remapped onto the code that says "you asked wrong,
         # rephrase" and nothing is printed twice.
+        #
+        # In --json mode the envelope still has to appear. A caller is told to branch on `ok` and then on
+        # `error.code`, and it was getting empty stdout to parse -- the one output shape the contract in
+        # output.py rules out. Human mode stays silent, because cyclopts already wrote the better message.
+        console = _console(tokens)
+        if console.json_mode:
+            return int(console.fail("cli", UsageError("the command line could not be parsed")))
         return int(ExitCode.USAGE)
     except SystemExit as exit_request:
         # --help and --version are implemented by cyclopts as an exit. In-process callers, including the test
@@ -133,11 +165,18 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     except Exception as error:
         # The last line of defence. Catching broadly is the point: an unhandled traceback tells a user
         # nothing actionable, and in --json mode it would corrupt the stream a caller is parsing.
+        #
+        # It was corrupting it by omission instead: nothing reached stdout, so a caller parsing the envelope
+        # found an empty stream and could not tell a crash from a command that printed nothing.
+        console = _console(tokens)
+        if console.json_mode:
+            wrapped = VitruvioError(
+                f"internal error: {type(error).__name__}: {error}",
+                hint=f"this is a bug in vitruvio -- please report it at {ISSUES_URL}",
+            )
+            return int(console.fail("cli", wrapped))
         print(f"internal error: {type(error).__name__}: {error}", file=sys.stderr)
-        print(
-            "hint: this is a bug in vitruvio -- please report it at https://github.com/getsfumato/vitruvio/issues",
-            file=sys.stderr,
-        )
+        print(f"hint: this is a bug in vitruvio -- please report it at {ISSUES_URL}", file=sys.stderr)
         return int(ExitCode.INTERNAL)
 
     if isinstance(result, int):

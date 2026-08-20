@@ -188,20 +188,32 @@ def forget(host: str) -> bool:
     Args:
         host (str): The registry host.
 
+    Both stores are attempted even if the first one refuses, so a file credential is still removed when the keyring
+    balks. A keyring that refused is then reported rather than swallowed: ``logout`` printing "logged out of" over a
+    secret that still authenticates is the one outcome worse than failing.
+
     Returns:
         bool: Whether anything was removed.
+
+    Raises:
+        CredentialError: If a store held a credential and would not give it up.
     """
     removed = False
+    refused: str | None = None
     module = _keyring()
     usernames = _read_usernames()
     if module is not None and host in usernames:
         try:
             module.delete_password(SERVICE, f"{host}\x00{usernames[host]}")
+        except Exception as error:  # any backend failure is the same outcome to a caller: the secret is still there
+            refused = f"{type(error).__name__}: {error}"
+        else:
             removed = True
-        except Exception:
-            pass
-        usernames.pop(host, None)
-        _write_usernames(usernames)
+            # Popped only on success. Removing the mapping after a failed delete leaves a secret in the keyring
+            # that vitruvio can no longer address: `forget` would never find it again, and `whoami` would stop
+            # reporting a credential that still authenticates.
+            usernames.pop(host, None)
+            _write_usernames(usernames)
 
     path = credentials_file()
     held = _read_file(path)
@@ -209,6 +221,12 @@ def forget(host: str) -> bool:
         held.pop(host)
         path.write_text(json.dumps(held, indent=2, sort_keys=True), encoding="utf-8")
         removed = True
+
+    if refused is not None:
+        raise CredentialError(
+            f"the keyring would not delete the credential for {host} ({refused})",
+            hint="remove it with the platform's own keychain tool; `vitruvio registry whoami` shows what is still held",
+        )
     return removed
 
 
