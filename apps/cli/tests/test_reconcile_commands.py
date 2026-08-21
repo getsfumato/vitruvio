@@ -162,6 +162,25 @@ def halting(tmp_path: Path) -> tuple[Path, Path]:
     return registry, beto_config
 
 
+@pytest.fixture
+def halted(halting: tuple[Path, Path]) -> tuple[Any, Path]:
+    """A reconciliation already open, and the service to drive it with.
+
+    Synchronous on purpose. `fetch`, like `push` and `pull`, drives the registry through `asyncio.run`, which
+    cannot be called from inside a running event loop -- so the setup for an async interface test has to happen
+    before the loop exists. The resolver itself only calls synchronous operations, which is why it can.
+    """
+    from vitruvio.kernel import resolve
+    from vitruvio.runtime import BrainService
+
+    registry, beto_config = halting
+    beto = BrainService(resolve(brain=registry.parent / "beto" / "brain", config=beto_config))
+    fetched = beto.fetch("demo/brain", tag="v2", reconcile=False, local=registry)
+    halted_result = beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="incorporate Ana")
+    assert halted_result["halted"] is True, "the fixture must halt for the interface tests to have anything to show"
+    return beto, beto_config
+
+
 class TestExitCodes:
     def test_a_diverged_push_exits_8(
         self, capsys: pytest.CaptureFixture[str], diverged: tuple[Path, Path, Path]
@@ -369,3 +388,84 @@ class TestTheInteractiveRefusals:
 
         assert code == ExitCode.USAGE
         assert "exactly one decision" in payload["error"]["message"]
+
+
+async def _settle(pilot: Any, ticks: int = 25) -> None:
+    """Let the worker threads finish. Same reason `test_tui` has one: every read here runs off the event loop."""
+    from textual.app import App
+
+    app: App[Any] = pilot.app
+    for _ in range(ticks):
+        await pilot.pause()
+        if not any(worker.is_running for worker in app.workers):
+            await pilot.pause()
+            return
+
+
+class TestTheResolverInterface:
+    """The workspace itself, driven by keys.
+
+    Worth exercising rather than trusting: it is the one surface that *starts* a reconciliation, and its footer
+    hides decisions the protocol forbids -- a claim that is only true if `check_action` really is consulted.
+    """
+
+    async def test_it_lists_the_open_questions_and_hides_admit_on_a_rejection(
+        self, halted: tuple[Any, Path]
+    ) -> None:
+        from textual.widgets import DataTable
+
+        from vitruvio.cli.tui.reconcile import Resolver
+
+        beto, _ = halted
+        app = Resolver(beto, strategy="merge")
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+
+            assert app.status["open"] is True
+            assert app.query_one("#questions", DataTable).row_count == len(app.questions)
+
+            for entry in app.questions:
+                available = app._available(entry)
+                assert "reject" in available, "declining is always available"
+                if entry["status"] == "rejected":
+                    assert "admit" not in available
+                    assert app.check_action("admit", ()) in {False, None} or app.selected is not entry
+
+    async def test_rejecting_and_concluding_walks_the_whole_loop(self, halted: tuple[Any, Path]) -> None:
+        """`r` then `k` then `c`, which is the sequence a person actually types."""
+        from vitruvio.cli.tui.reconcile import Resolver
+
+        beto, _ = halted
+        before = beto.state()["snapshot"]["digest"]
+
+        app = Resolver(beto, strategy="merge")
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            for _ in range(len(app.questions)):
+                await pilot.press("r")
+                await _settle(pilot)
+            if not app.status.get("removals_accepted", True):
+                await pilot.press("k")
+                await _settle(pilot)
+            assert app.status["is_resolved"] is True, "every question answered"
+            await pilot.press("c")
+            await _settle(pilot)
+
+        assert beto.reconcile_ops.status()["open"] is False, "the loop concluded"
+        assert beto.state()["snapshot"]["digest"] != before
+        assert beto.verify()["verified"] is True
+
+    async def test_it_says_so_when_there_is_nothing_open(self, tmp_path: Path) -> None:
+        """An empty table would read as "no questions"; the difference matters, so it is stated."""
+        from vitruvio.cli.tui.reconcile import Resolver
+        from vitruvio.kernel import resolve
+        from vitruvio.runtime import BrainService
+
+        config = make(tmp_path, "solo", reconcile="merge")
+        service = BrainService(resolve(brain=tmp_path / "solo" / "brain", config=config))
+
+        app = Resolver(service, strategy="merge")
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert app.sub_title == "nothing open"
+            assert app.questions == []
