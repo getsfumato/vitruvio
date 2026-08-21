@@ -439,7 +439,7 @@ def divergence(data: Mapping[str, Any]) -> list[RenderableType]:
             theme.kind(name),
             str(len(module.get("added_by_us") or ())),
             str(len(module.get("added_by_them") or ())),
-            Text(str(len(module.get("removed") or ())), style="warn" if module.get("removed") else None),
+            Text(str(len(module.get("removed") or ())), style="warn" if module.get("removed") else ""),
             str(len(module.get("block_ids") or ())),
         )
     return theme.stack(theme.fields(head), "", rows)

@@ -158,9 +158,7 @@ def diverged(tmp_path: Path) -> tuple[Path, str, BrainService]:
 
 
 class TestTheDivergenceItself:
-    def test_a_diverged_push_exits_8_and_is_not_retryable(
-        self, diverged: tuple[Path, str, BrainService]
-    ) -> None:
+    def test_a_diverged_push_exits_8_and_is_not_retryable(self, diverged: tuple[Path, str, BrainService]) -> None:
         """The regression this feature was built on top of.
 
         `DivergenceError` was absent from the mapping table, so it matched its parent `DistributionError` and
@@ -180,9 +178,7 @@ class TestTheDivergenceItself:
 
 
 class TestFetch:
-    def test_it_brings_a_history_without_moving_the_pointer(
-        self, diverged: tuple[Path, str, BrainService]
-    ) -> None:
+    def test_it_brings_a_history_without_moving_the_pointer(self, diverged: tuple[Path, str, BrainService]) -> None:
         registry, reference, beto = diverged
         before = beto.state()["snapshot"]["digest"]
 
@@ -234,9 +230,7 @@ class TestFetch:
         assert "reconcile" in outcome["hint"]
         assert beto.state()["snapshot"]["digest"] == before
 
-    def test_fetching_a_contained_history_twice_mints_nothing(
-        self, diverged: tuple[Path, str, BrainService]
-    ) -> None:
+    def test_fetching_a_contained_history_twice_mints_nothing(self, diverged: tuple[Path, str, BrainService]) -> None:
         """Idempotence, and it was not free.
 
         `ReconcilePlan.is_noop` reads like "their history is already in here" and is not: it reports that the
@@ -256,9 +250,7 @@ class TestFetch:
         assert beto.state()["snapshot"]["digest"] == settled
         assert beto.history()["retained"] == versions, "a repeated fetch must not add versions"
 
-    def test_a_reconciled_push_is_a_fast_forward_again(
-        self, diverged: tuple[Path, str, BrainService]
-    ) -> None:
+    def test_a_reconciled_push_is_a_fast_forward_again(self, diverged: tuple[Path, str, BrainService]) -> None:
         """The whole point, end to end: the push that was refused now succeeds, with both sides' work in it."""
         registry, reference, beto = diverged
         mine = members(beto)
@@ -298,9 +290,7 @@ class TestTheThreeStrategies:
             derive(beto, own, "Teorema de Nyquist")
             fetched = beto.fetch("demo/brain", tag="v2", reconcile=False, local=registry)
 
-            result = beto.reconcile_ops.reconcile(
-                fetched["digest"], strategy=strategy, reason=f"testing {strategy}"
-            )
+            result = beto.reconcile_ops.reconcile(fetched["digest"], strategy=strategy, reason=f"testing {strategy}")
             assert result["halted"] is False, f"{strategy} should not have halted on a clean plan"
             seen[strategy] = {
                 "evidential": evidential(beto),
@@ -365,9 +355,7 @@ class TestTheMessagesUseOurVocabulary:
         assert "force=True" not in text
         assert "--force" in text, "the advice itself is sound and must survive the translation"
 
-    def test_no_sdk_method_name_survives_into_a_message(
-        self, dirty: tuple[Path, str, BrainService]
-    ) -> None:
+    def test_no_sdk_method_name_survives_into_a_message(self, dirty: tuple[Path, str, BrainService]) -> None:
         """Every reconciliation message names an operation to run next. None may name it as Python."""
         registry, reference, beto = dirty
         fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
@@ -475,9 +463,7 @@ class TestWhenItCannotBeSettledMechanically:
         assert beto.verify()["verified"] is True
         assert beto.reconcile_ops.status()["open"] is False
 
-    def test_an_open_reconciliation_refuses_an_ordinary_write(
-        self, dirty: tuple[Path, str, BrainService]
-    ) -> None:
+    def test_an_open_reconciliation_refuses_an_ordinary_write(self, dirty: tuple[Path, str, BrainService]) -> None:
         """Exit 12, and the message must not hand the user the SDK's own method names."""
         registry, reference, beto = dirty
         fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
@@ -553,9 +539,7 @@ def rejecting(tmp_path: Path) -> tuple[Path, str, BrainService]:
 class TestARejectionCannotBeAdmitted:
     """The one place this departs from version control on purpose, and the claim the docs lean on hardest."""
 
-    def test_the_incoming_block_is_rejected_and_diagnosed(
-        self, rejecting: tuple[Path, str, BrainService]
-    ) -> None:
+    def test_the_incoming_block_is_rejected_and_diagnosed(self, rejecting: tuple[Path, str, BrainService]) -> None:
         registry, reference, beto = rejecting
         fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
 

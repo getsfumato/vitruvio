@@ -17,7 +17,8 @@ from typing import Any
 import pytest
 
 from vitruvio.cli.main import main
-from vitruvio.kernel import ExitCode
+from vitruvio.kernel import ExitCode, resolve
+from vitruvio.runtime import BrainService
 
 
 def run(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str, str]:
@@ -33,7 +34,28 @@ def envelope(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[
     return code, json.loads(out)
 
 
-PROJECT = """
+INDICES = "\n".join(
+    f'[[index]]\nmemory_type = "{module}"\nkind = "{kind}"'
+    for module in ("canonical", "semantic", "provenance")
+    for kind in ("hash_map", "btree", "bitmap")
+)
+"""Structural indices only, and no vector index -- declared rather than left to the defaults.
+
+Not an optimisation. A vector index owns a sqlite-backed embedding cache, and `Resolver` holds its service
+inside a Textual widget graph that refers back to the app, so the whole thing is freed by the *cycle* collector
+-- within which a `sqlite3.Connection` can be finalized before whatever would have closed it, emitting
+`ResourceWarning: unclosed database`. Python 3.13 says so where earlier versions did not, and
+`filterwarnings = error` then failed the suite, attributing it to whichever test the collector happened to
+interrupt: it first appeared as a failure in `test_tui`, caused from here.
+
+Closing them at teardown does not work -- by then the services are unreachable, a sweep for live
+`EmbeddingCache` instances finds none, and the connections are held by an `lru_cache` inside `sqlite3` itself.
+So the fix is upstream of the resource: nothing here searches semantically, so nothing here needs the index
+that opens a database.
+"""
+
+PROJECT = (
+    """
 [brain]
 path = "./brain"
 {reconcile}
@@ -44,6 +66,8 @@ id = "shared@example.com"
 [policy]
 profile = "permissive"
 """
+    + INDICES
+)
 
 
 def add_evidence(service: Any, text: str, name: str) -> str:
@@ -94,9 +118,6 @@ def derive(service: Any, source: str, label: str) -> str:
 
 def make(tmp_path: Path, name: str, *, reconcile: str | None = None) -> Path:
     """A brain with its own configuration file, and the config path the CLI should be pointed at."""
-    from vitruvio.kernel import resolve
-    from vitruvio.runtime import BrainService
-
     root = tmp_path / name
     root.mkdir(parents=True, exist_ok=True)
     config_file = root / "vitruvio.toml"
@@ -110,9 +131,6 @@ def make(tmp_path: Path, name: str, *, reconcile: str | None = None) -> Path:
 @pytest.fixture
 def diverged(tmp_path: Path) -> tuple[Path, Path, Path]:
     """Two histories from a common ancestor, the other side's published. Returns registry and both configs."""
-    from vitruvio.kernel import resolve
-    from vitruvio.runtime import BrainService
-
     registry = tmp_path / "registry"
     registry.mkdir()
 
@@ -138,9 +156,6 @@ def diverged(tmp_path: Path) -> tuple[Path, Path, Path]:
 @pytest.fixture
 def halting(tmp_path: Path) -> tuple[Path, Path]:
     """A divergence that cannot settle mechanically. Returns the registry and Beto's config."""
-    from vitruvio.kernel import resolve
-    from vitruvio.runtime import BrainService
-
     registry = tmp_path / "registry"
     registry.mkdir()
 
@@ -170,9 +185,6 @@ def halted(halting: tuple[Path, Path]) -> tuple[Any, Path]:
     cannot be called from inside a running event loop -- so the setup for an async interface test has to happen
     before the loop exists. The resolver itself only calls synchronous operations, which is why it can.
     """
-    from vitruvio.kernel import resolve
-    from vitruvio.runtime import BrainService
-
     registry, beto_config = halting
     beto = BrainService(resolve(brain=registry.parent / "beto" / "brain", config=beto_config))
     fetched = beto.fetch("demo/brain", tag="v2", reconcile=False, local=registry)
@@ -205,9 +217,6 @@ class TestExitCodes:
         never had. Each module's arithmetic is individually correct and the result still strands Beto's block.
         """
         registry, beto_config = halting
-        from vitruvio.kernel import resolve
-        from vitruvio.runtime import BrainService
-
         beto = BrainService(resolve(brain=registry.parent / "beto" / "brain", config=beto_config))
         fetched = beto.fetch("demo/brain", tag="v2", reconcile=False, local=registry)
         halted = beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="incorporate Ana")
@@ -226,9 +235,6 @@ class TestExitCodes:
         self, capsys: pytest.CaptureFixture[str], halting: tuple[Path, Path]
     ) -> None:
         registry, beto_config = halting
-        from vitruvio.kernel import resolve
-        from vitruvio.runtime import BrainService
-
         beto = BrainService(resolve(brain=registry.parent / "beto" / "brain", config=beto_config))
         fetched = beto.fetch("demo/brain", tag="v2", reconcile=False, local=registry)
         beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="x")
@@ -321,9 +327,7 @@ class TestPlanAndTree:
         self, capsys: pytest.CaptureFixture[str], diverged: tuple[Path, Path, Path]
     ) -> None:
         registry, _, beto = diverged
-        envelope(
-            capsys, "--config", str(beto), "dist", "fetch", "demo/brain", "--tag", "v2", "--local", str(registry)
-        )
+        envelope(capsys, "--config", str(beto), "dist", "fetch", "demo/brain", "--tag", "v2", "--local", str(registry))
 
         code, payload = envelope(capsys, "--config", str(beto), "brain", "history", "--graph")
 
@@ -409,9 +413,7 @@ class TestTheResolverInterface:
     hides decisions the protocol forbids -- a claim that is only true if `check_action` really is consulted.
     """
 
-    async def test_it_lists_the_open_questions_and_hides_admit_on_a_rejection(
-        self, halted: tuple[Any, Path]
-    ) -> None:
+    async def test_it_lists_the_open_questions_and_hides_admit_on_a_rejection(self, halted: tuple[Any, Path]) -> None:
         from textual.widgets import DataTable
 
         from vitruvio.cli.tui.reconcile import Resolver
@@ -458,8 +460,6 @@ class TestTheResolverInterface:
     async def test_it_says_so_when_there_is_nothing_open(self, tmp_path: Path) -> None:
         """An empty table would read as "no questions"; the difference matters, so it is stated."""
         from vitruvio.cli.tui.reconcile import Resolver
-        from vitruvio.kernel import resolve
-        from vitruvio.runtime import BrainService
 
         config = make(tmp_path, "solo", reconcile="merge")
         service = BrainService(resolve(brain=tmp_path / "solo" / "brain", config=config))

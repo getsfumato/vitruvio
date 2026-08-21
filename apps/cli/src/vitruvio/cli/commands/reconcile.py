@@ -138,9 +138,7 @@ def plan(theirs: str, *, ancestor: str | None = None) -> ExitCode:
     result = current().service().reconcile_ops.plan(theirs, ancestor=ancestor)
     _warn_withdrawn(result)
     if result["is_noop"]:
-        return console.emit(
-            "reconcile.plan", result, view=render.empty("this brain already contains that history")
-        )
+        return console.emit("reconcile.plan", result, view=render.empty("this brain already contains that history"))
     return console.emit("reconcile.plan", result, view=_plan_view(result))
 
 
@@ -152,14 +150,10 @@ def _run(strategy: str, theirs: str, reason: str, ancestor: str | None) -> ExitC
     pointer, and the caller's next step is to answer -- for which it needs to see what was asked.
     """
     console = current().console
-    result = current().service().reconcile_ops.reconcile(
-        theirs, strategy=strategy, reason=reason, ancestor=ancestor
-    )
+    result = current().service().reconcile_ops.reconcile(theirs, strategy=strategy, reason=reason, ancestor=ancestor)
     if result.get("halted"):
         _warn_withdrawn(result.get("plan") or {})
-        console.warn(
-            f"the {strategy} stopped to ask: {len(result.get('unresolved') or ())} open, nothing was written"
-        )
+        console.warn(f"the {strategy} stopped to ask: {len(result.get('unresolved') or ())} open, nothing was written")
         console.note("`vitruvio reconcile resolve` decides them, `abort` abandons the whole thing")
         return console.emit(f"reconcile.{strategy}", result, view=_status_view(result))
 
@@ -173,9 +167,7 @@ def _run(strategy: str, theirs: str, reason: str, ancestor: str | None) -> ExitC
     if attribution and not attribution.get("their_signatures_survive", True):
         # Stated as a consequence of the choice rather than left to be discovered. The SDK reports it for
         # exactly this reason: it must not present rebased or squashed work as bearing its author's signature.
-        console.note(
-            f"a {strategy} reissues their versions under new identities, so their work is now attributed here"
-        )
+        console.note(f"a {strategy} reissues their versions under new identities, so their work is now attributed here")
     return console.emit(f"reconcile.{strategy}", result, view=render.fields(pairs))
 
 

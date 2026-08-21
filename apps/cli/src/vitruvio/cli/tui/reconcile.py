@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rich.console import RenderableType
+from rich.console import Group, RenderableType
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -184,7 +184,7 @@ class Resolver(App[None]):
             table.add_row(
                 render.digest(entry["block"]),
                 render.kind(entry.get("memory_type")),
-                Text(entry["status"], style="warn" if entry["status"] == "rejected" else None),
+                Text(entry["status"], style="warn" if entry["status"] == "rejected" else ""),
                 Text(made["kind"], style="ok") if made else Text("open", style="warn"),
             )
 
@@ -288,7 +288,9 @@ class Resolver(App[None]):
                 ),
             ]
         body += ["", Text("available here: " + ", ".join(available), style="muted")]
-        pane.update(render.stack(*body))
+        # `render.stack` returns a list, which is what a command body hands to `emit`. A `Static` takes one
+        # renderable, so the list becomes a `Group` -- the same conversion `app.py` does at its own panes.
+        pane.update(Group(*body))
         self.refresh_bindings()
 
     @staticmethod
@@ -408,9 +410,12 @@ class Resolver(App[None]):
         """Recompute the plan and redraw."""
         self.reload()
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         """
         Leave, saying what is being left behind.
+
+        ``async`` because Textual's own ``action_quit`` is, and overriding it with a synchronous method changes
+        the signature the framework calls.
 
         An open reconciliation refuses every ordinary write on this brain, so walking away from one silently
         would strand somebody in a state whose cause is off-screen. Printed rather than a notification, because
