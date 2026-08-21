@@ -336,3 +336,25 @@ class TestHumanRendering:
         code, payload = envelope(capsys, "--brain", str(brain), "brain", "verify")
         assert code == ExitCode.PROTOCOL
         assert payload["ok"] is False
+
+
+class TestRegistryFlagDefaults:
+    """A flag whose default overrides configuration is a flag that makes the configuration dead.
+
+    `RemoteOps._client` treats ``insecure=None`` as "read `[registry].insecure`" and any bool as an override. So
+    a CLI parameter declared ``bool = False`` does not mean "not asked for" -- it means "asked for plain HTTP to
+    be off", and it silently beat a project that had declared it on. Pinned as a signature so the next command
+    to take this flag cannot reintroduce it.
+    """
+
+    def test_every_dist_command_leaves_insecure_unset_by_default(self) -> None:
+        import inspect
+
+        from vitruvio.cli.commands import dist
+
+        checked = 0
+        for name in ("push", "fetch", "plan_pull", "pull", "tags"):
+            parameter = inspect.signature(getattr(dist, name)).parameters["insecure"]
+            assert parameter.default is None, f"dist {name} defaults insecure to {parameter.default!r}"
+            checked += 1
+        assert checked == 5, "a dist command taking --insecure was added without being pinned here"

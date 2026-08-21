@@ -305,7 +305,14 @@ class InstallOps:
                 "theirs": theirs,
                 "plan": plan,
                 "strategy": str(declared),
-                "hint": "`vitruvio reconcile resolve` decides what is open; `vitruvio reconcile tree` shows the split",
+                # Names the command that *starts* one, because this branch deliberately did not. Pointing at
+                # `resolve` would have been pointing at a screen that opens on "nothing in progress": it resolves
+                # a reconciliation, it does not originate one, and it has no way to -- nothing here persists which
+                # history was fetched, so the digest has to be typed once.
+                "hint": (
+                    f"`vitruvio reconcile {declared} {theirs} --reason ...` opens it and reports what is open; "
+                    "then `vitruvio reconcile resolve` decides it. `vitruvio reconcile tree` shows the split"
+                ),
             }
 
         result = ops.reconcile(

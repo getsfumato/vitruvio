@@ -101,11 +101,16 @@ stopped printing and every snapshot looked parentless. `--graph` now marks the f
 merely the first entry: it is the history a reconciliation was performed onto, what every rule meaning "the parent"
 refers to, and the chain an audit follows.
 
-**The interactive resolver owns the whole cycle**, including starting the reconciliation. The halt *is* the state
-that screen exists to show, so the operation producing it belongs to the screen that answers it. It is a Textual
-app under `cli/tui/`, with the lazy import and the TTY and `--json` refusals `browse` already established (ADR-0012),
-and `q` prints what state it is leaving behind — walking away from an open reconciliation is how a brain ends up
-refusing writes for an invisible reason.
+**The interactive resolver resolves; it does not originate.** It records decisions, accepts removals and
+concludes, and it reports "nothing in progress" when nothing is. Originating a reconciliation needs the other
+history's digest, and nothing persists which history was last fetched — so that is typed once, into
+`reconcile merge|rebase|squash`, which is also where the strategy is chosen. Splitting it that way keeps the
+screen to the part that is genuinely a loop, and keeps the one irreversible-feeling choice in something somebody
+typed.
+
+It is a Textual app under `cli/tui/`, with the lazy import and the TTY and `--json` refusals `browse` already
+established (ADR-0012), and `q` prints what state it is leaving behind — walking away from an open reconciliation
+is how a brain ends up refusing writes for an invisible reason.
 
 Decisions the protocol forbids are **absent** from the footer rather than refused on keypress. `admit` on a rejected
 block is the case, and the reason is on screen: nothing downstream would catch the broken invariant, so there is no

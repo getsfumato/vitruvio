@@ -424,6 +424,22 @@ class TestWhenItCannotBeSettledMechanically:
         # The proof: an ordinary write still works.
         add_evidence(beto, "# Nyquist\n\nz\n", "nyquist.md")
 
+    def test_the_hint_names_a_command_that_opens_one(self, dirty: tuple[Path, str, BrainService]) -> None:
+        """Since this branch deliberately opens nothing, the hint must not point at the resolver.
+
+        `reconcile resolve` resolves a reconciliation and cannot originate one -- it has no history to reconcile
+        against, and nothing persists which was fetched. Sending somebody there would land them on "nothing in
+        progress" with no way forward, which is the one thing a hint must not do.
+        """
+        registry, reference, beto = dirty
+
+        outcome = beto.fetch(reference, tag="v2", local=registry)["reconciliation"]
+
+        assert outcome["why"] == "not clean"
+        hint = outcome["hint"]
+        assert "reconcile merge" in hint, "the hint has to name the command that opens one"
+        assert outcome["theirs"] in hint, "and it has to carry the digest, which is not stored anywhere else"
+
     def test_the_plan_names_what_would_leave(self, dirty: tuple[Path, str, BrainService]) -> None:
         registry, reference, beto = dirty
         fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)

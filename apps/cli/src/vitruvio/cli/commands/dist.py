@@ -102,7 +102,7 @@ def push(
     module: Annotated[list[str] | None, Parameter(name=["--module", "-m"], negative=())] = None,
     force: bool = False,
     anonymous: bool = False,
-    insecure: bool = False,
+    insecure: bool | None = None,
     local: Annotated[
         Path | None,
         Parameter(
@@ -133,7 +133,7 @@ def push(
     anonymous
         Push without credentials. Docker Hub will refuse this.
     insecure
-        Allow plain HTTP, for a local registry.
+        Allow plain HTTP, for a local registry. Unset defers to `[registry].insecure`.
     all_
         Publish every brain in the project, each to its own derived repository. Refuses `reference`, which can
         only name one.
@@ -172,7 +172,7 @@ def _push_all(
     modules: list[str] | None,
     force: bool,
     anonymous: bool,
-    insecure: bool,
+    insecure: bool | None,
     local: Path | None,
     reference: str | None,
 ) -> ExitCode:
@@ -301,7 +301,7 @@ def fetch(
     reconcile: bool = True,
     reason: str | None = None,
     anonymous: bool = False,
-    insecure: bool = False,
+    insecure: bool | None = None,
     local: Annotated[
         Path | None,
         Parameter(
@@ -336,7 +336,7 @@ def fetch(
     anonymous
         Fetch without credentials.
     insecure
-        Allow plain HTTP.
+        Allow plain HTTP. Unset defers to `[registry].insecure`.
     """
     console = current().console
     result = (
@@ -394,7 +394,7 @@ def plan_pull(
     module: Annotated[list[str] | None, Parameter(name=["--module", "-m"], negative=())] = None,
     ignore_vector_indices: bool = False,
     anonymous: bool = False,
-    insecure: bool = False,
+    insecure: bool | None = None,
     local: Annotated[
         Path | None,
         Parameter(
@@ -423,7 +423,7 @@ def plan_pull(
     anonymous
         Resolve without credentials, for a public repository.
     insecure
-        Allow plain HTTP.
+        Allow plain HTTP. Unset defers to `[registry].insecure`.
     """
     console = current().console
     result = (
@@ -467,7 +467,7 @@ def pull(
     module: Annotated[list[str] | None, Parameter(name=["--module", "-m"], negative=())] = None,
     ignore_vector_indices: bool = False,
     anonymous: bool = False,
-    insecure: bool = False,
+    insecure: bool | None = None,
     local: Annotated[
         Path | None,
         Parameter(
@@ -495,7 +495,7 @@ def pull(
     anonymous
         Pull without credentials.
     insecure
-        Allow plain HTTP.
+        Allow plain HTTP. Unset defers to `[registry].insecure`.
     """
     console = current().console
     result = (
@@ -541,7 +541,7 @@ def tags(
     reference: str | None = None,
     *,
     anonymous: bool = False,
-    insecure: bool = False,
+    insecure: bool | None = None,
     local: Annotated[
         Path | None,
         Parameter(
@@ -559,7 +559,7 @@ def tags(
     anonymous
         List without credentials.
     insecure
-        Allow plain HTTP.
+        Allow plain HTTP. Unset defers to `[registry].insecure`.
     """
     console = current().console
     result = current().service().tags(reference, anonymous=anonymous, insecure=insecure, local=local)

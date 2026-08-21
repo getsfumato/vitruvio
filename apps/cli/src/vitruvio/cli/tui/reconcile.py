@@ -8,10 +8,15 @@ without leaving the row.
 
 Three decisions about this interface rather than about the command group.
 
-**The screen owns the whole cycle.** It starts the reconciliation if none is open, records decisions, and
-concludes. A reconciliation that is open blocks every ordinary write on the brain, so an interface that could
-open one and not finish it would be an interface that leaves brains bricked; ``q`` therefore says what state it
-is leaving behind rather than just exiting.
+**The screen resolves a reconciliation; it does not originate one.** It records decisions, accepts removals and
+concludes, and it opens on "nothing in progress" when nothing is. Originating one takes a history to reconcile
+against, and nothing persists which history was last fetched -- so that digest is typed once, into
+``reconcile merge|rebase|squash``, which is also where the strategy is chosen. What the screen owns is the part
+that is genuinely a loop.
+
+Leaving one open matters, which is why ``q`` says what state it is leaving behind rather than just exiting: an
+open reconciliation refuses every ordinary write on the brain, and a person who walked away from this screen has
+no reason to connect the two.
 
 **A decision that the protocol forbids is not offered.** ``admit`` is absent on a rejection -- not greyed, not
 refused on press. A derived block whose evidence is not in the composition breaks R1 and nothing downstream
@@ -134,10 +139,11 @@ class Resolver(App[None]):
     @work(thread=True, exclusive=True, group="status")
     def reload(self) -> None:
         """
-        Read where the reconciliation stands, starting one if that is what is needed.
+        Read where the reconciliation stands, and say so plainly when none is open.
 
-        Starting it here rather than in the command body is deliberate: the halt *is* the state this screen
-        exists to show, so the operation that produces it belongs to the screen that answers it.
+        Reporting rather than starting: originating a reconciliation needs the other history's digest, which this
+        screen is never told and nothing persists. So "nothing open" is an answer here, and it names the command
+        that opens one.
         """
         ops = self.service.reconcile_ops
         try:
