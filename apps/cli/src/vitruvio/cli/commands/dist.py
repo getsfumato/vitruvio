@@ -9,8 +9,14 @@ Two guards come from the SDK and are worth knowing rather than discovering:
 * **A push that would narrow the module set is refused.** Publishing fewer modules than the last version would make a
   consumer's selective update silently lose one.
 * **A push that is not a fast-forward is refused**, and the check fails *closed* on any error that is not a 404 -- so a
-  registry refusal that looks like an absence cannot quietly disable it. Exit 8 means the histories diverged: pull,
-  re-commit, and push again. Never ``--force``, which discards someone else's version.
+  registry refusal that looks like an absence cannot quietly disable it. Exit 8 means the histories diverged, and the
+  answer is ``dist fetch``: it brings the other history without adopting it, and reconciles the two.
+
+``fetch`` and ``pull`` are both transport and they do opposite things with the result. A pull *adopts* the published
+composition, so anything committed here since the last one stops being a member of it -- which is why it reports
+``discarded`` and why ``plan-pull`` exists. A fetch adopts nothing: both histories end up held locally, the pointer
+does not move, and what happens next is a reconciliation that keeps both sides' work. Reaching for ``pull`` to escape
+a divergence is how somebody loses a week; that is what it used to say here, and it was wrong.
 """
 
 from __future__ import annotations
@@ -108,8 +114,9 @@ def push(
 ) -> ExitCode:
     """Publish the brain to a registry.
 
-    Exit 8 means the histories diverged: someone else pushed since this brain was pulled. Pull, re-commit, push again --
-    `--force` discards their version, which is almost never what you want.
+    Exit 8 means the histories diverged: someone else pushed since this brain was pulled. `vitruvio dist fetch` brings
+    their history without adopting it and reconciles the two, after which this push is a fast-forward again. Never
+    `--force`, which discards their version, and never `pull` to get out of it, which discards yours.
 
     Parameters
     ----------
@@ -121,7 +128,8 @@ def push(
     module
         Publish only these modules. Repeatable. Narrowing an existing artifact's module set is refused.
     force
-        Publish even when it would not be a fast-forward. Discards the other version.
+        Publish even when it would not be a fast-forward. Discards the other version, and there is now a way to keep
+        both: `dist fetch` then `reconcile`. Reach for this only when the other version is genuinely to be thrown away.
     anonymous
         Push without credentials. Docker Hub will refuse this.
     insecure
@@ -282,6 +290,100 @@ def _local_work_line(result: dict[str, Any]) -> str | None:
     count = "an unknown number of blocks" if blocks is None else f"{blocks} block{'' if blocks == 1 else 's'}"
     where = f" (they are in {short(str(work['snapshot']))})" if work.get("snapshot") else ""
     return f"this pull discards {count} committed here since the last pull{where}"
+
+
+@app.command(name="fetch")
+def fetch(
+    reference: str | None = None,
+    *,
+    tag: str | None = None,
+    module: Annotated[list[str] | None, Parameter(name=["--module", "-m"], negative=())] = None,
+    reconcile: bool = True,
+    reason: str | None = None,
+    anonymous: bool = False,
+    insecure: bool = False,
+    local: Annotated[
+        Path | None,
+        Parameter(
+            name=["--local"],
+            help="Use a filesystem registry of OCI layouts rooted here. No network, no credentials, same contract.",
+        ),
+    ] = None,
+) -> ExitCode:
+    """Bring another history here without adopting it, and reconcile it when that decides nothing for you.
+
+    This is the answer to exit 8. Unlike `pull`, nothing is replaced: both histories end up held locally and the
+    pointer does not move, which is the step at which you can still look before agreeing to anything.
+
+    Whether it then reconciles depends on two things, and neither is a guess. The brain has to *declare* a strategy —
+    `reconcile = "merge" | "rebase" | "squash"` on the brain in `vitruvio.toml` — because the three land the same
+    blocks and differ in whose name stays on the incoming work, so vitruvio will not pick one for you. And the plan
+    has to be clean: every incoming block applied, and nothing of yours leaving. Anything else is reported and left
+    alone, for `vitruvio reconcile resolve` to walk through.
+
+    Parameters
+    ----------
+    reference
+        The repository.
+    tag
+        Which tag.
+    module
+        Retrieve only these modules. Repeatable.
+    reconcile
+        Go on to reconcile. `--no-reconcile` fetches and stops, for a script driving the steps itself.
+    reason
+        Why, recorded by the reconciliation if one happens. Defaults to naming the reference it came from.
+    anonymous
+        Fetch without credentials.
+    insecure
+        Allow plain HTTP.
+    """
+    console = current().console
+    result = (
+        current()
+        .service()
+        .fetch(
+            reference,
+            tag=tag,
+            modules=module,
+            reconcile=reconcile,
+            reason=reason,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+    )
+    _warn(result)
+
+    outcome = result["reconciliation"]
+    pairs: list[tuple[str, Any]] = [
+        ("fetched", f"{result['reference']}:{result['tag']}"),
+        ("their head", render.digest(result["digest"], full=True)),
+        ("new blocks", render.count(result["block_count"])),
+    ]
+
+    if outcome["attempted"]:
+        pairs.append(("reconciled", Text(f"{outcome['strategy']} -- clean", style="ok")))
+        pairs.append(("snapshot", render.digest(outcome.get("snapshot"), full=True)))
+    else:
+        why = outcome["why"]
+        pairs.append(("reconciled", Text(f"no -- {why}", style="muted" if why == "already contained" else "warn")))
+        if why == "no strategy declared":
+            # The one refusal that is about configuration rather than about the histories. Said as a note, since
+            # nothing is wrong: nobody has stated the thing, and stating it is theirs to do.
+            console.note(str(outcome["hint"]))
+        elif why == "not clean":
+            plan = outcome["plan"]
+            open_count = len([v for v in plan["incoming"]["verdicts"] if v["status"] != "validated"])
+            leaving = sum(len(blocks) for blocks in (plan["withdrawn"] or {}).values())
+            detail = f"{open_count} block{'' if open_count == 1 else 's'} did not apply"
+            if leaving:
+                detail += f", and {leaving} of yours would leave"
+            console.warn(f"{detail}; nothing was written and no reconciliation was opened")
+            console.note(str(outcome["hint"]))
+            pairs.append(("open questions", render.count(open_count)))
+
+    return console.emit("dist.fetch", result, view=render.fields(pairs))
 
 
 @app.command(name="plan-pull")

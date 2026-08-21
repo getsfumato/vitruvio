@@ -140,8 +140,20 @@ class LifecycleOps:
         brain = self.session.brain(Capability.INSPECT)
         with translated():
             snapshots = brain.history()
+            # The two answer different questions and a reader needs both to make sense of the list. `ancestry` is
+            # the first-parent chain -- what the protocol reads as *what this brain is*, and what an audit walks.
+            # `reachable` is containment across every parent, which is what a fast-forward check asks: a merged-in
+            # history is genuinely in here without appearing on the chain. Reported rather than derived, because
+            # being *a* parent of something retained does not put a snapshot on either.
+            chain = [str(digest) for digest in brain.ancestry()]
+            reachable = sorted(str(digest) for digest in brain.reachable_history())
         chosen = snapshots[:limit] if limit else snapshots
-        return {"snapshots": [wire.snapshot(item) for item in chosen], "retained": len(snapshots)}
+        return {
+            "snapshots": [wire.snapshot(item) for item in chosen],
+            "retained": len(snapshots),
+            "ancestry": chain,
+            "reachable": reachable,
+        }
 
     def info(self) -> dict[str, Any]:
         """

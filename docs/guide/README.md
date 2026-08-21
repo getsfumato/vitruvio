@@ -17,5 +17,6 @@ In order. Each page assumes the ones before it.
 13. [Projects](13-projects.md) — one project, many brains, and publishing each to its own repository.
 14. [Sources](14-sources.md) — declaring where material comes from, and why a pull cannot resurrect redacted bytes.
 15. [Browsing](15-browsing.md) — reading and querying in the terminal interface, and what its views can show.
+16. [Reconciling](16-reconciling.md) — joining a history somebody else advanced: why the three strategies land the same blocks, and what each one costs in attribution.
 
 For the reasoning behind the design, read the [ADRs](../adr/README.md).

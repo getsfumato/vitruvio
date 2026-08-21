@@ -21,6 +21,7 @@ Six skills ship, and they are layered rather than exhaustive:
 | `vitruvio-ingest` | the propose → validate → commit loop. The highest-value one |
 | `vitruvio-retention` | the five removal mechanisms and the discipline each needs |
 | `vitruvio-dist` | publishing and installing |
+| `vitruvio-reconcile` | joining two histories: merge, rebase or squash, and the attribution each costs |
 
 The entry skill carries four references: `json-envelope.md`, `exit-codes.md`, `evidence-bundle.md`, and
 `cli-reference.md`.
