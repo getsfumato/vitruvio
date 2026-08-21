@@ -61,6 +61,30 @@ class ReconcileOps:
         """
         return self.config.reconcile_strategy
 
+    def contains(self, theirs: str) -> bool:
+        """
+        Whether this brain's history already contains another snapshot.
+
+        Asked over ``reachable_history`` and not over the plan. ``ReconcilePlan.is_noop`` looks like the same
+        question and is not: it reports that the arithmetic against the ancestor *the search found* changes
+        nothing, and after a merge that search does not settle on the other side's head -- so a plan computed
+        against an already-merged history still shows their blocks as additions and reads as not a no-op.
+
+        Believing the plan on this cost a repeated ``dist fetch`` a fresh snapshot every time: each one a
+        reconciliation of a history already held, moving the head and adding a version to ``brain history`` for
+        nothing. Reachability is the question actually being asked -- the same one a fast-forward check asks --
+        and it is a local walk over documents already here.
+
+        Args:
+            theirs (str): The other history's head.
+
+        Returns:
+            bool: Whether it is already in this brain's history, through any parent.
+        """
+        brain = self.session.brain(Capability.INSPECT)
+        with translated():
+            return snapshot_digest(theirs) in brain.reachable_history()
+
     def plan(self, theirs: str, *, ancestor: str | None = None) -> dict[str, Any]:
         """
         What joining another history would produce, without writing anything.

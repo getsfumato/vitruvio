@@ -48,6 +48,10 @@ vitruvio reconcile status --json            # 4. if it stopped to ask
 vitruvio brain verify --json                # 5. after every reconciliation
 ```
 
+The structural indices track the reconciled composition by themselves. The **vector** index does not — it is
+stale after any write, reconciliation included — so if the user relies on semantic search, run
+`vitruvio index build` afterwards. This is the same advice as after an ingest, not a reconciliation quirk.
+
 `dist fetch` does steps 1–3 by itself **when it is safe to**: the brain has to declare a strategy, and the plan
 has to be clean. Read `data.reconciliation.why` — `no strategy declared`, `already contained`, `not clean`, or
 `attempted: true`. See the `vitruvio-dist` skill for that table.

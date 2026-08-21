@@ -287,6 +287,12 @@ class InstallOps:
                 ),
             }
 
+        # Asked before planning, and asked of reachability rather than of the plan. A plan against a history this
+        # brain already merged still reports their blocks as additions, so trusting `is_noop` here made every
+        # repeated fetch mint another snapshot of nothing. See `ReconcileOps.contains`.
+        if ops.contains(theirs):
+            return {"attempted": False, "why": "already contained", "theirs": theirs}
+
         plan = ops.plan(theirs)
         if plan["is_noop"]:
             return {"attempted": False, "why": "already contained", "theirs": theirs, "plan": plan}
