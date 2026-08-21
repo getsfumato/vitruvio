@@ -23,11 +23,15 @@ from boltzmann.exceptions import (
     BoltzmannError,
     CommitError,
     DistributionError,
+    DivergenceError,
     InclusionProofError,
     MembershipError,
     MemoryTypeError,
+    NoCommonAncestorError,
     ProtocolError,
     QueryError,
+    ReconciliationBlockedError,
+    ReconciliationHaltedError,
     ReferenceNotFoundError,
     RetentionPolicyError,
     SnapshotError,
@@ -130,6 +134,23 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
         ),
     ),
     (
+        # Before `DistributionError`, which it subclasses -- and the reason it needs its own row at all. Falling
+        # through to the base reported a diverged push as `REGISTRY_FAILED`, exit 9, *retryable*: an agent told to
+        # retry a transport hiccup, against a refusal that will be identical every time. It is the one distribution
+        # failure with a defined remedy, and exit 8 exists to say so.
+        DivergenceError,
+        Report(
+            "DIVERGED",
+            ExitCode.DIVERGED,
+            409,
+            retryable=False,
+            hint=(
+                "someone published since this brain last pulled; `vitruvio dist fetch` brings their history "
+                "and reconciles it. Never --force, which discards their version"
+            ),
+        ),
+    ),
+    (
         DistributionError,
         Report(
             "REGISTRY_FAILED",
@@ -140,6 +161,53 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
         ),
     ),
     (QueryError, Report("QUERY_FAILED", ExitCode.USAGE, 400, retryable=False)),
+    (
+        # The three reconciliation rows precede `ProtocolError`, which they subclass.
+        #
+        # Halted is not a failure: it is the operation asking a question, and it arrives from two directions --
+        # a reconciliation that just stopped on something that did not apply, and any ordinary write refused
+        # because one is still open. One code covers both because the answer to both is the same command.
+        #
+        # The hint is rewritten rather than passed through. The SDK's message ends in `reconcile_abort()`, which is
+        # a Python method on a class the user never sees; a person reading it has been handed the wrong vocabulary.
+        ReconciliationHaltedError,
+        Report(
+            "RECONCILE_OPEN",
+            ExitCode.RECONCILE,
+            409,
+            retryable=False,
+            hint=(
+                "`vitruvio reconcile status` lists what is open, `vitruvio reconcile resolve` decides it, "
+                "and `vitruvio reconcile abort` abandons it -- nothing was written either way"
+            ),
+        ),
+    ),
+    (
+        ReconciliationBlockedError,
+        Report(
+            "RECONCILE_BLOCKED",
+            ExitCode.RECONCILE,
+            409,
+            retryable=False,
+            hint=(
+                "a candidate is still undecided, and committing would decide it on your behalf; "
+                "`vitruvio reconcile status` names which"
+            ),
+        ),
+    ),
+    (
+        NoCommonAncestorError,
+        Report(
+            "NO_COMMON_ANCESTOR",
+            ExitCode.PROTOCOL,
+            422,
+            retryable=False,
+            hint=(
+                "the two histories share no ancestor, so a block missing from one side is ambiguous between "
+                "'they added it' and 'I dropped it' -- reconciling on a guess is refused rather than attempted"
+            ),
+        ),
+    ),
     (ProtocolError, Report("PROTOCOL_ERROR", ExitCode.PROTOCOL, 500, retryable=False)),
     (BoltzmannError, Report("PROTOCOL_ERROR", ExitCode.PROTOCOL, 500, retryable=False)),
 )
@@ -182,6 +250,7 @@ def _http_for(exit_code: ExitCode) -> int:
         ExitCode.SOURCE: 502,
         # A source is upstream of vitruvio exactly as a registry is, so its unreachability is a bad gateway and
         # not the 500 the .get() fallback would report. An HTTP client retries a 502 and pages a human for a 500.
+        ExitCode.RECONCILE: 409,
     }.get(exit_code, 500)
 
 

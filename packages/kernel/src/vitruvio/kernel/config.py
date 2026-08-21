@@ -59,6 +59,31 @@ class Origin(StrEnum):
     FLAG = "flag"
 
 
+class ReconcileStrategy(StrEnum):
+    """How this brain records a history it joined.
+
+    Declared per brain rather than passed per command, because it is the same answer every time for a given
+    brain and nobody wants to retype it -- but it is deliberately **not defaulted**. The three strategies land
+    the same blocks and differ only in the lineage recorded, and therefore in who stays on record as the author
+    of the incoming work. A default would be vitruvio deciding that on the operator's behalf, which is exactly
+    what the SDK refuses to do by making the field required. A key in a file someone wrote is that person
+    stating it; an absent key is nobody having stated it, and it means a fetch reconciles nothing.
+
+    Mirrors ``boltzmann.reconcile.ReconcileStrategy`` rather than importing it: the kernel stays importable
+    without the SDK, which is the seam this package exists to hold. :mod:`vitruvio.runtime.coerce` converts.
+    """
+
+    MERGE = "merge"
+    """Name both histories as parents. The only one under which their snapshots -- and, once signing lands,
+    their signatures -- still cover something."""
+    REBASE = "rebase"
+    """Replay their history onto this one. Mints new snapshot identities, so it is legitimate only before
+    publication, the same rule as any lineage rewrite."""
+    SQUASH = "squash"
+    """Collapse their snapshots into one. Useful because an ingestion session mints many intermediate versions
+    nobody cares about individually; every provenance record they produced is still kept."""
+
+
 class PolicyProfile(StrEnum):
     """Named retention postures, so a brain does not have to spell out six fields to get a sane one."""
 
@@ -431,6 +456,8 @@ class BrainSpec(BaseModel):
             the working directory. A project config that means something different depending on which
             subdirectory you ran the command from would not be a reproducibility artifact.
         publish (bool): Whether this brain may be published at all. See :attr:`NamedBrainSpec.publish`.
+        reconcile (ReconcileStrategy | None): How to record a joined history. See
+            :attr:`NamedBrainSpec.reconcile`.
         sources (dict[str, SourceSpec]): Where this brain acquires canonical evidence from.
     """
 
@@ -438,6 +465,7 @@ class BrainSpec(BaseModel):
 
     path: str | None = None
     publish: bool = True
+    reconcile: ReconcileStrategy | None = None
     sources: dict[str, SourceSpec] = Field(default_factory=dict)
 
     _source_names = field_validator("sources")(_validate_source_names)
@@ -471,6 +499,13 @@ class NamedBrainSpec(BaseModel):
             Not a permission and not a security boundary. It stops an accident, not an intent: anyone who edits
             this file can flip it, which is the correct amount of friction for a declaration whose purpose is to
             make a deliberate act look deliberate.
+        reconcile (ReconcileStrategy | None): How this brain records a history it joined, which is what lets
+            ``dist fetch`` finish the job rather than stopping to ask. Absent by default, and absent means a
+            fetch brings the history and reconciles nothing -- see :class:`ReconcileStrategy` for why this is
+            the one setting vitruvio will not choose for you.
+
+            Declaring it is not a licence to reconcile anything: a fetch commits only when the plan is clean,
+            so this decides *how* a reconciliation is recorded, never *whether* work of yours may leave.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -479,6 +514,7 @@ class NamedBrainSpec(BaseModel):
     reference: str | None = None
     description: str | None = None
     publish: bool = True
+    reconcile: ReconcileStrategy | None = None
     sources: dict[str, SourceSpec] = Field(default_factory=dict)
 
     _source_names = field_validator("sources")(_validate_source_names)
@@ -742,6 +778,22 @@ class ResolvedConfig(BaseModel):
         if self.brain_name is not None and self.brain_name in self.project.brains:
             return self.project.brains[self.brain_name].publish
         return self.project.brain.publish
+
+    @property
+    def reconcile_strategy(self) -> ReconcileStrategy | None:
+        """
+        How the selected brain records a history it joined, if it says.
+
+        Read the same way :attr:`publish_allowed` is, and for the same reason: a single-brain project must be
+        able to declare it under ``[brain]``, or the answer would depend on whether the project happens to have
+        a second brain.
+
+        ``None`` is a real answer and the default one. It means nobody has chosen, and choosing is not
+        vitruvio's to do -- so a caller holding ``None`` reports that and stops rather than picking.
+        """
+        if self.brain_name is not None and self.brain_name in self.project.brains:
+            return self.project.brains[self.brain_name].reconcile
+        return self.project.brain.reconcile
 
     @property
     def derived(self) -> Path:

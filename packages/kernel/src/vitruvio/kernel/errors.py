@@ -58,6 +58,14 @@ class ExitCode(IntEnum):
     Its own code rather than ``REGISTRY``, whose docstring scopes it to publishing, and rather than ``CONFIG``,
     which means the declaration itself is wrong. What a caller does about the three differs: wait and retry, fix
     a credential, edit a file. Collapsing them would make an agent guess."""
+    RECONCILE = 12
+    """A reconciliation is waiting on a decision, or one is open and blocking ordinary writes.
+
+    Not an error, the way ``REVIEW`` is not: the operation is asking a question, and a caller that reads this as a
+    failure has nowhere to put the answer. Kept apart from ``REVIEW`` because the two lead to different commands --
+    a 10 means a cascade exceeded the policy's threshold and someone must approve *that*, a 12 means there are
+    verdicts to decide and `vitruvio reconcile status` lists them. An agent that could not tell them apart would
+    reach for the wrong one half the time."""
 
 
 class VitruvioError(Exception):
