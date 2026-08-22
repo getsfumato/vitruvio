@@ -13,10 +13,11 @@ differently — which is the only question an automated caller actually has.
 | 5 | PROTOCOL | verification, membership or integrity failure | **no** |
 | 6 | POLICY | refused by a policy the brain declares: retention, or `publish = false` | **no** |
 | 7 | VALIDATION | candidates rejected | repair and retry |
-| 8 | NOT_FAST_FORWARD | the histories diverged | pull, re-commit, push |
+| 8 | DIVERGED | the histories diverged | `dist fetch`, reconcile, push |
 | 9 | REGISTRY | registry unreachable or refused | yes |
 | 10 | REVIEW | the cascade needs human review | ask a person |
 | 11 | SOURCE | a declared source was unreachable or refused | yes |
+| 12 | RECONCILE | a reconciliation is waiting on a decision, or one is open | answer it |
 
 ## The distinctions that matter
 
@@ -33,8 +34,15 @@ memory is append-only, canonical drops need permission, a brain marked `publish 
 brain *goes*; 11 is a source, which is where material *comes from*. Neither is 3: a source whose tool is missing or
 whose host is down will work later, and a source whose declaration is wrong will not work until a file is edited.
 
-**10 is not an error.** It is the protocol asking for a human, because the cascade exceeded the policy's review
-threshold. Answering on the human's behalf defeats the mechanism that produced the exit code.
+**8 vs 12.** Both are about a history that is not a straight line. 8 comes from a *push*: the remote moved and
+publishing would drop what somebody else did. 12 comes from a *reconciliation*: it is already under way and is
+asking which blocks enter. 8 says start the process, 12 says finish it.
+
+**10 and 12 are not errors.** Both are the protocol asking for a human, and they ask different questions. 10 means
+a cascade exceeded the policy's review threshold and someone must approve that removal. 12 means verdicts are
+waiting to be decided — `reconcile status` lists them — or that a reconciliation is open and blocking ordinary
+writes, which `reconcile continue` or `reconcile abort` clears. Answering either on the human's behalf defeats the
+mechanism that produced the code.
 
 **1 should never happen.** If you see it, the failure was not anticipated, and that is worth reporting rather than
 working around. Note that cyclopts exits 1 on a usage error by default; vitruvio remaps that to 2 precisely so that

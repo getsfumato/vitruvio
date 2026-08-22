@@ -22,3 +22,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0011](0011-declarative-sources-and-plugins.md) | Declarative sources, plugins, and dedup without a cursor |
 | [0012](0012-the-terminal-interface.md) | The terminal interface, and one renderer for both of them |
 | [0013](0013-decomposing-the-service-layer.md) | Decomposing the service layer, and what stayed on the facade |
+| [0014](0014-reconciliation.md) | Reconciliation, and the four choices vitruvio had to make itself |

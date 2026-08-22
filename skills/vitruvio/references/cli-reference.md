@@ -62,7 +62,7 @@ Print what is installed, at which version, and where it came from.
 
 Recompute every module's Merkle root from its blocks and compare.
 
-### `vitruvio brain history` `--limit`
+### `vitruvio brain history` `--limit` `--graph`
 
 List the retained snapshots, most recent first.
 
@@ -242,6 +242,10 @@ Build the OCI artifact locally, without pushing.
 
 Publish the brain to a registry.
 
+### `vitruvio dist fetch` `[reference]` `--tag` `--module` `--reconcile` `--reason` `--anonymous` `--insecure` `--local`
+
+Bring another history here without adopting it, and reconcile it when that decides nothing for you.
+
 ### `vitruvio dist plan-pull` `[reference]` `--tag` `--module` `--ignore-vector-indices` `--anonymous` `--insecure` `--local`
 
 Report what a pull would transfer, before transferring it.
@@ -253,6 +257,50 @@ Install a published brain.
 ### `vitruvio dist tags` `[reference]` `--anonymous` `--insecure` `--local`
 
 List the tags a repository holds.
+
+## `vitruvio reconcile`
+
+Join another history into this one: merge, rebase or squash, and decide what did not apply.
+
+### `vitruvio reconcile plan` `theirs` `--ancestor`
+
+Report what joining another history would produce, and what each strategy would cost.
+
+### `vitruvio reconcile merge` `theirs` `--reason` *(required)* `--ancestor`
+
+Join both histories, naming both as parents.
+
+### `vitruvio reconcile rebase` `theirs` `--reason` *(required)* `--ancestor`
+
+Replay their history onto this one, minting new snapshot identities.
+
+### `vitruvio reconcile squash` `theirs` `--reason` *(required)* `--ancestor`
+
+Collapse their snapshots into one.
+
+### `vitruvio reconcile status`
+
+Report the reconciliation being resolved, if there is one.
+
+### `vitruvio reconcile resolve` `[block]` `--admit` `--reject` `--prefer`
+
+Decide what did not apply — one block at a time, or all of them in an interactive workspace.
+
+### `vitruvio reconcile accept-removals`
+
+State that the work this reconciliation removes may go.
+
+### `vitruvio reconcile continue`
+
+Conclude the reconciliation now that its questions are answered.
+
+### `vitruvio reconcile abort`
+
+Abandon the reconciliation being resolved.
+
+### `vitruvio reconcile tree` `[theirs]` `--ancestor`
+
+Show where two histories parted, and what each has added since.
 
 ## `vitruvio registry`
 

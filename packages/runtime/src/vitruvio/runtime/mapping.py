@@ -23,11 +23,15 @@ from boltzmann.exceptions import (
     BoltzmannError,
     CommitError,
     DistributionError,
+    DivergenceError,
     InclusionProofError,
     MembershipError,
     MemoryTypeError,
+    NoCommonAncestorError,
     ProtocolError,
     QueryError,
+    ReconciliationBlockedError,
+    ReconciliationHaltedError,
     ReferenceNotFoundError,
     RetentionPolicyError,
     SnapshotError,
@@ -130,6 +134,23 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
         ),
     ),
     (
+        # Before `DistributionError`, which it subclasses -- and the reason it needs its own row at all. Falling
+        # through to the base reported a diverged push as `REGISTRY_FAILED`, exit 9, *retryable*: an agent told to
+        # retry a transport hiccup, against a refusal that will be identical every time. It is the one distribution
+        # failure with a defined remedy, and exit 8 exists to say so.
+        DivergenceError,
+        Report(
+            "DIVERGED",
+            ExitCode.DIVERGED,
+            409,
+            retryable=False,
+            hint=(
+                "someone published since this brain last pulled; `vitruvio dist fetch` brings their history "
+                "and reconciles it. Never --force, which discards their version"
+            ),
+        ),
+    ),
+    (
         DistributionError,
         Report(
             "REGISTRY_FAILED",
@@ -140,12 +161,99 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
         ),
     ),
     (QueryError, Report("QUERY_FAILED", ExitCode.USAGE, 400, retryable=False)),
+    (
+        # The three reconciliation rows precede `ProtocolError`, which they subclass.
+        #
+        # Halted is not a failure: it is the operation asking a question, and it arrives from two directions --
+        # a reconciliation that just stopped on something that did not apply, and any ordinary write refused
+        # because one is still open. One code covers both because the answer to both is the same command.
+        #
+        # The hint is rewritten rather than passed through. The SDK's message ends in `reconcile_abort()`, which is
+        # a Python method on a class the user never sees; a person reading it has been handed the wrong vocabulary.
+        ReconciliationHaltedError,
+        Report(
+            "RECONCILE_OPEN",
+            ExitCode.RECONCILE,
+            409,
+            retryable=False,
+            hint=(
+                "`vitruvio reconcile status` lists what is open, `vitruvio reconcile resolve` decides it, "
+                "and `vitruvio reconcile abort` abandons it -- nothing was written either way"
+            ),
+        ),
+    ),
+    (
+        ReconciliationBlockedError,
+        Report(
+            "RECONCILE_BLOCKED",
+            ExitCode.RECONCILE,
+            409,
+            retryable=False,
+            hint=(
+                "a candidate is still undecided, and committing would decide it on your behalf; "
+                "`vitruvio reconcile status` names which"
+            ),
+        ),
+    ),
+    (
+        NoCommonAncestorError,
+        Report(
+            "NO_COMMON_ANCESTOR",
+            ExitCode.PROTOCOL,
+            422,
+            retryable=False,
+            hint=(
+                "the two histories share no ancestor, so a block missing from one side is ambiguous between "
+                "'they added it' and 'I dropped it' -- reconciling on a guess is refused rather than attempted"
+            ),
+        ),
+    ),
     (ProtocolError, Report("PROTOCOL_ERROR", ExitCode.PROTOCOL, 500, retryable=False)),
     (BoltzmannError, Report("PROTOCOL_ERROR", ExitCode.PROTOCOL, 500, retryable=False)),
 )
 
 FALLBACK = Report("INTERNAL", ExitCode.INTERNAL, 500, retryable=False)
 """For anything not in the table. Reaching this means a bug in vitruvio, and it says so."""
+
+
+_VOCABULARY = (
+    ("reconcile_status()", "`vitruvio reconcile status`"),
+    ("reconcile_resolve()", "`vitruvio reconcile resolve`"),
+    ("reconcile_accept_removals()", "`vitruvio reconcile accept-removals`"),
+    ("reconcile_continue()", "`vitruvio reconcile continue`"),
+    ("reconcile_abort()", "`vitruvio reconcile abort`"),
+    ("force=True", "--force"),
+)
+"""SDK API names that appear inside messages, and what they are called here.
+
+:func:`translate` preserves the SDK's messages deliberately, and this is the one narrow exception. These
+messages do not merely *mention* an API -- they end in an instruction built from it ("abandon it with
+``reconcile_abort()``", "or pass ``force=True``"), which is sound advice written in a vocabulary the reader
+does not have. Somebody driving the CLI has no `Brain` object to call a method on, and an agent will try.
+
+A substitution rather than a rewritten message, because the rest of those sentences is the specific part: they
+name the history being reconciled and what is unresolved about it, which is exactly what preserving the SDK's
+wording is for. Only the noun for "how you do that" is wrong.
+
+Found by reading the SDK's `raise` sites rather than by guessing: seven API tokens appear inside error
+messages, and these are the ones a caller can actually reach. `rebuildable=False` is a field on a model nobody
+here constructs by hand, so it would only ever be read by somebody looking at the SDK anyway.
+"""
+
+
+def _in_our_words(message: str) -> str:
+    """
+    Replace any SDK API name in a message with the command that does the same thing.
+
+    Args:
+        message (str): The SDK's message.
+
+    Returns:
+        str: The same message, in vocabulary the reader can act on.
+    """
+    for api, command in _VOCABULARY:
+        message = message.replace(api, command)
+    return message
 
 
 def report_for(error: BaseException) -> Report:
@@ -182,6 +290,7 @@ def _http_for(exit_code: ExitCode) -> int:
         ExitCode.SOURCE: 502,
         # A source is upstream of vitruvio exactly as a registry is, so its unreachability is a bad gateway and
         # not the 500 the .get() fallback would report. An HTTP client retries a 502 and pages a human for a 500.
+        ExitCode.RECONCILE: 409,
     }.get(exit_code, 500)
 
 
@@ -193,6 +302,9 @@ def translate(error: BaseException) -> VitruvioError:
     identities involved, and a wrapper that says "protocol error" instead would be throwing away the only part
     a user can act on.
 
+    The one thing it does change is vocabulary. A message that tells the reader to call a Python method is
+    telling them to do something they cannot do from here -- see :data:`_VOCABULARY`.
+
     Args:
         error (BaseException): What was raised.
 
@@ -203,7 +315,7 @@ def translate(error: BaseException) -> VitruvioError:
         return error
 
     report = report_for(error)
-    wrapped = VitruvioError(str(error) or type(error).__name__, hint=report.hint)
+    wrapped = VitruvioError(_in_our_words(str(error)) or type(error).__name__, hint=report.hint)
     # Set on the instance rather than by subclassing: the table is the single declaration of these values, and
     # a parallel hierarchy of thirteen exception classes mirroring it would be a second place to keep in sync.
     wrapped.code = report.code

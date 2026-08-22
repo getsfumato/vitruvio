@@ -1,0 +1,195 @@
+# 16. Reconciling
+
+```bash
+vitruvio dist fetch <REF> --tag v1           # their history, without adopting it
+vitruvio reconcile plan <THEIRS>             # what would happen, and what each strategy costs
+vitruvio reconcile merge <THEIRS> --reason "incorporate Ana's ingest"
+vitruvio reconcile status                    # if it stopped to ask
+vitruvio reconcile resolve                   # decide it, interactively
+vitruvio brain history --graph               # the lineage that produced
+```
+
+Two people wrote into the same brain from a shared version. Until now this chapter did not exist, and the only
+thing vitruvio could do about it was refuse the second push and point at `pull` — which resolves the divergence by
+throwing one side away. Both sets of work are real. This is the mechanism that keeps both.
+
+## The three strategies land the same blocks
+
+This is the part that surprises everyone, and everything else follows from it.
+
+In git the three differ in how the result is *computed*. A rebase replays patches one at a time and can land on a
+tree that a merge would never have produced, which is why choosing between them is partly a question about the
+outcome. Here a snapshot is a complete statement of composition rather than a patch. There is nothing to replay
+sequentially, and the composition is set arithmetic over immutable blocks: everything either side added is kept,
+everything either side removed stays removed. Run it three times under three strategies and you get the same
+blocks, byte for byte.
+
+What differs is the lineage recorded — and therefore who stays on record as the author of the incoming work.
+
+| strategy | parents | their snapshots | their signatures |
+|---|---|---|---|
+| `merge` | two or more | kept | survive |
+| `rebase` | one — yours | reissued under new identities | lost |
+| `squash` | one — yours | collapsed into one | lost |
+
+So the choice is about attribution and never about tidiness. `reconcile plan` prints all three rows before you
+pick, because that table *is* the difference between them and it is only useful beforehand.
+
+Prefer `merge` for somebody else's contribution: it is the only strategy under which their snapshots, and anything
+they signed once signing lands, still cover something. `rebase` mints new identities, which invalidates any root
+already published — legitimate only before publication, the same rule as any lineage rewrite. `squash` earns its
+place here more than in version control, because an ingestion session mints many intermediate versions nobody
+cares about individually; every provenance record those versions produced is still kept, since provenance is a
+module and collapsing snapshots cannot drop one.
+
+## There is nothing to hand-edit
+
+A block is immutable and content-addressed. Two people editing the same block is not a state this protocol can
+represent — change the content and you have a different block, under a different identity, and the store will not
+file bytes under a foreign one. So the textual conflict you are braced for cannot arise.
+
+What people do instead is supersede a block, contradict it, or drop it. Each is a case reconciliation handles, and
+the ones that need a person are **validation** failures rather than differencing failures. The structural half is
+automatic; its result then goes through the same ingestion gate a commit goes through, and what did not apply
+comes back as verdicts on individual blocks. The questions are only ever "does this block enter" and, where two
+histories replaced the same block with different successors, "which one wins".
+
+## Fetch, and what it will do by itself
+
+`fetch` is the step at which nothing has changed yet. The blocks and their snapshot document land in the store, so
+both histories are readable locally, while the head — and the published brain — stay exactly as they were. That is
+what makes it the right answer to a diverged push, and why it is separate from `pull`: judging an incoming history
+should not require adopting it first.
+
+Then it will go on and finish the job, but only when doing so decides nothing on your behalf. Two conditions:
+
+**The brain has to declare a strategy.**
+
+```toml
+[brains.algebra]
+path = "./brains/algebra"
+reconcile = "merge"        # merge | rebase | squash
+```
+
+There is no default, and that is deliberate rather than an omission. Choosing decides whose name comes off the
+work, so vitruvio will not choose for you; a key in this file is you having stated it once, which is a different
+thing from a tool assuming. Without it, `fetch` reports the plan and tells you how to choose.
+
+**The plan has to be clean** — every incoming block applied, and nothing of yours leaving.
+
+Anything else is reported and left alone. In particular a fetch **never opens a reconciliation**: an open one
+refuses every ordinary write on the brain until it is resolved, which is far too much to do to somebody from a
+command they ran to look. Nothing is lost by waiting, because the plan is recomputed rather than stored.
+
+```console
+$ vitruvio dist fetch demo/algebra --tag v1
+fetched      demo/algebra:v1
+their head   sha256:9f2c1ade4b…
+new blocks   40
+reconciled   merge -- clean
+snapshot     sha256:71bd0c8f22…
+
+$ vitruvio dist fetch demo/algebra --tag v2
+warning: 3 blocks did not apply, and 1 of yours would leave; nothing was written and no
+         reconciliation was opened
+fetched      demo/algebra:v2
+new blocks   12
+reconciled   no -- not clean
+open questions  3
+```
+
+## Deciding what did not apply
+
+`vitruvio reconcile resolve` with no arguments opens a workspace: the open questions on the left, and beside the
+selected one what the gate found about it. It starts the reconciliation if none is open, records each decision,
+and concludes. `a`, `r` and `p` decide; `k` accepts removals; `c` concludes; `x` abandons.
+
+The footer changes per row, because which decisions are available depends on the verdict. That is not cosmetic:
+
+- **reject** is always available. Declining a contribution needs no justification the protocol can check, and the
+  block is not destroyed — it stays in the store and in the history it came from, and the new root simply does not
+  name it.
+- **admit** is available for a contradiction, which the protocol treats as information rather than a defect:
+  holding two claims that disagree is a legitimate state, and which one is right is not a question it answers.
+- **prefer** settles precedence between two competing successors. Both edges stay recorded; this adds one more
+  supersession edge, from the winner over the loser, because that is the only way this architecture can express
+  precedence.
+- **admit is refused for a rejection**, and it is the one place this departs from version control on purpose. A
+  derived block whose evidence is absent from the composition breaks the invariant that derived blocks cite
+  evidence the composition holds, and nothing downstream would catch it: `brain verify` recomputes hashes and
+  compositions, not citations across modules. The fix is to supply the evidence in an ordinary commit.
+
+Every decision is also available one at a time, which is what a script or an agent uses:
+
+```bash
+vitruvio reconcile resolve <BLOCK> --reject
+vitruvio reconcile resolve <BLOCK> --prefer <WINNER>
+vitruvio reconcile continue
+```
+
+### Same verdict, opposite advice
+
+When a rejection is about missing evidence, read `missing_evidence` rather than stopping at the verdict:
+
+- `dropped_deliberately` — a removal record exists. This brain judged that evidence wrong and excluded it, so the
+  contribution rests on something deliberately removed. Tell the contributor **not** to resend.
+- `never_held` — no record, and the identity is unknown here. They shipped a derived block without its canonical
+  source. The work may be perfectly good and the transfer was incomplete: tell them to resend it **whole**.
+
+Collapsing those two either discards legitimate work over a packaging mistake or re-imports exactly what somebody
+removed on purpose. It is the reason the diagnosis is reported separately from the verdict.
+
+## When work of yours leaves
+
+Exclusion has precedence in the arithmetic: a block the other history dropped leaves your composition even though
+you still hold it. That is the rule, and it is why a drop *travels*. But applying it is a decision about work that
+is already here, so a reconciliation that removes anything stops until somebody says so:
+
+```bash
+vitruvio reconcile accept-removals
+```
+
+One answer rather than one per block, because there is no per-block choice to offer when exclusion wins by
+construction — you cannot keep a dropped block by choosing to keep it. Deliberately re-admitting one afterwards is
+an ordinary commit, which is where a decision of that kind belongs.
+
+The removal stays auditable without a new record: the history that dropped the block wrote a removal record, that
+record is a provenance block, and the arithmetic folds it in like any other. Blocks that leave because the
+evidence they cited left get a removal record of their own, attributed to whoever accepted the removals — an
+unexplained removal is the one thing an auditable history cannot contain.
+
+## History is a graph now
+
+```console
+$ vitruvio brain history --graph
+  M  sha256:71bd0c8f22  2026-08-21T14:02:11Z   412   9f2c1ade4b
+  *  sha256:3ba21fde53  2026-08-21T11:47:02Z   372
+  o  sha256:9f2c1ade4b  2026-08-20T09:12:44Z   118
+
+*  first-parent chain   o  merged in   M  a reconciliation
+```
+
+The **first parent** is not merely first. It is the history the reconciliation was performed onto, it is what every
+rule that speaks of "the parent" means, and it is the chain an audit follows to see how this brain got here. A
+merged-in history is genuinely contained in the brain without appearing on that chain — which is why containment
+("does this brain already have that snapshot?") is a reachability question over the whole graph, and why a push
+that would have been reported as diverged before a merge is a fast-forward after one.
+
+`vitruvio reconcile tree` answers the other question: not what this brain is, but where the two histories parted
+and what each has added since, per module.
+
+## Two things that cannot be reconciled
+
+**No common ancestor** — exit 5, `NO_COMMON_ANCESTOR`. Without a shared ancestor, a block present on one side and
+absent from the other is ambiguous between "they added it" and "I dropped it", and those demand opposite outcomes.
+Refused rather than computed on a guess. In practice it means the two brains are unrelated.
+
+**An open reconciliation blocks writes** — exit 12, `RECONCILE_OPEN`. The recorded decisions were taken against a
+particular head, so a commit underneath them would leave those decisions describing a reconciliation that no
+longer exists. `reconcile status` shows what is open; `continue` concludes it and `abort` abandons it, and neither
+undoes anything, because a halted reconciliation never wrote a composition or moved the pointer.
+
+---
+
+Next: [Sources](14-sources.md) and [Projects](13-projects.md) if you have not read them. Reconciliation is what
+makes a project of brains several people write into workable, and a partial install publishable back.

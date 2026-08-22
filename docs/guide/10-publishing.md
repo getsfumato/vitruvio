@@ -44,9 +44,10 @@ vectors at all.
 
 ## Two refusals from the protocol
 
-- **Exit 8, not a fast-forward.** Someone pushed since this brain was pulled. Pull, re-commit, push again. Never
-  `--force`: it discards their version and there is no undo. The check fails *closed* on any error that is not a 404,
-  so a registry refusal that looks like an absence cannot quietly disable it.
+- **Exit 8, not a fast-forward.** Someone pushed since this brain was pulled. Reconcile: `dist fetch` brings their
+  history without adopting it, and keeps both sides' work — see [Reconciling](16-reconciling.md). Never `--force`,
+  which discards their version, and not `pull`, which discards yours. The check fails *closed* on any error that is
+  not a 404, so a registry refusal that looks like an absence cannot quietly disable it.
 - **Narrowing refused.** Publishing fewer modules than the last version would make a consumer's selective update
   silently lose one.
 
@@ -129,8 +130,12 @@ discarded   5 blocks committed here, now outside the composition
 
 Nothing is destroyed. The blobs stay on disk and the previous snapshot stays in `brain history` — the retention
 policy keeps ten of them — so the state is recoverable. But **no command restores it**: going back today means
-editing `boltzmann/head.json` by hand. If you are working on a brain somebody else publishes, read `discards` in
-`plan-pull` before pulling, and push your own work somewhere first if you want to keep it.
+editing `boltzmann/head.json` by hand.
+
+Which is why a pull is the wrong tool for a divergence, and this used to be the only advice we had. If you have
+committed into a brain somebody else publishes, `dist fetch` is the operation you want: it holds both histories
+locally and joins them, keeping what each side did. Reach for `pull` to *install* a brain, not to catch up with
+one. See [Reconciling](16-reconciling.md).
 
 `plan-pull` estimates the count from two snapshot documents, which is why it needs no download. `pull` counts it
 exactly, because it is the one moment both compositions are known.

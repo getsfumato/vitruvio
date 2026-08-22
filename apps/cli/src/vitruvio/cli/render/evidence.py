@@ -187,8 +187,16 @@ def snapshot(data: Mapping[str, Any]) -> list[RenderableType]:
         ("snapshot", theme.digest(data.get("digest"), full=True)),
         ("created", data.get("created_at", "-")),
     ]
-    if parent := data.get("parent"):
-        head.append(("parent", theme.digest(parent)))
+    # `parents`, plural, and not `parent`. A reconciliation names more than one, so history is a DAG; the
+    # singular field this read until the protocol grew reconciliation no longer exists, and asking for it
+    # printed nothing rather than failing -- every snapshot looked parentless.
+    #
+    # The first parent is labelled, because it is not merely first: it is the history a reconciliation was
+    # performed *onto*, it is what every rule meaning "the parent" means, and it is the chain an audit walks.
+    parents = data.get("parents") or []
+    for position, parent in enumerate(parents):
+        label = "parent" if len(parents) == 1 else ("first parent" if position == 0 else "merged parent")
+        head.append((label, theme.digest(parent)))
 
     modules_held: Mapping[str, Mapping[str, Any]] = data.get("modules", {})
     if not modules_held:
@@ -342,3 +350,96 @@ def records(result: Mapping[str, Any]) -> list[RenderableType]:
             Text(", ".join(short(name) for name in names) or "-", style="digest"),
         )
     return theme.stack(head, "", table)
+
+
+def graph(snapshots: Sequence[Mapping[str, Any]], *, ancestry: Sequence[str] = ()) -> list[RenderableType]:
+    """
+    Render a snapshot history as the DAG it is.
+
+    A flat list was the honest rendering while a snapshot had one parent. Reconciliation made history a graph,
+    and a list of digests ordered by time cannot show the one thing a reader is now looking for: where two
+    lines of work parted and where they came back together.
+
+    The glyphs carry the whole reading. ``*`` is on the first-parent chain -- the line the protocol reads as
+    *what this brain is*, and the one an audit follows. ``o`` is reachable but off it: real history, arrived by
+    being merged. ``M`` is where a reconciliation joined, and the extra digests on that row are the parents it
+    joined besides the first.
+
+    Args:
+        snapshots (Sequence[Mapping[str, Any]]): What ``wire.snapshot`` produced, newest first.
+        ancestry (Sequence[str]): The first-parent chain, which the glyph depends on and cannot be derived
+            from the snapshots alone -- being *a* parent of something does not put a snapshot on it.
+
+    Returns:
+        list[RenderableType]: What to print.
+    """
+    if not snapshots:
+        return [theme.empty("No snapshots yet. A brain with no canonical evidence has no version to retain.")]
+
+    trunk = set(ancestry)
+    rows = theme.table("", "snapshot", "created", ("blocks", "right"), "joined")
+    for item in snapshots:
+        digest_value = str(item.get("digest", ""))
+        parents = item.get("parents") or []
+        merged = len(parents) > 1
+        if merged:
+            glyph = Text("M", style="ok")
+        elif digest_value in trunk:
+            glyph = Text("*", style="count")
+        else:
+            # Reachable, off the first-parent chain. Someone else's version, kept because a merge named it.
+            glyph = Text("o", style="muted")
+        rows.add_row(
+            glyph,
+            theme.digest(digest_value),
+            str(item.get("created_at", "-")),
+            str(item.get("block_count", 0)),
+            Text(", ".join(theme.short(parent) for parent in parents[1:]) or "", style="muted"),
+        )
+    legend = Text.assemble(
+        ("*", "count"),
+        (" first-parent chain   ", "muted"),
+        ("o", "muted"),
+        (" merged in   ", "muted"),
+        ("M", "ok"),
+        (" a reconciliation", "muted"),
+    )
+    return theme.stack(rows, "", legend)
+
+
+def divergence(data: Mapping[str, Any]) -> list[RenderableType]:
+    """
+    Render where two histories parted, and what each has added since.
+
+    Deliberately not a graph. The other side's snapshots are held locally after a fetch but their *shape* is
+    not what the question is about -- what a person deciding a reconciliation needs is the fork point and the
+    per-module arithmetic, which is what Equation 1 will act on.
+
+    Args:
+        data (Mapping[str, Any]): What ``ReconcileOps.tree`` produced.
+
+    Returns:
+        list[RenderableType]: What to print.
+    """
+    head: list[tuple[str, Any]] = [
+        ("ours", theme.digest(data.get("ours"), full=True)),
+        ("theirs", theme.digest(data.get("theirs"), full=True)),
+        ("parted at", theme.digest(data.get("ancestor"), full=True)),
+        ("their versions since", theme.count(data.get("collapsed", 0))),
+    ]
+    if data.get("reconciling"):
+        head.append(("state", Text("a reconciliation is open", style="warn")))
+
+    if data.get("is_noop"):
+        return theme.stack(theme.fields(head), "", theme.empty("this brain already contains that history"))
+
+    rows = theme.table("module", ("ours", "right"), ("theirs", "right"), ("leaving", "right"), ("result", "right"))
+    for name, module in sorted((data.get("modules") or {}).items()):
+        rows.add_row(
+            theme.kind(name),
+            str(len(module.get("added_by_us") or ())),
+            str(len(module.get("added_by_them") or ())),
+            Text(str(len(module.get("removed") or ())), style="warn" if module.get("removed") else ""),
+            str(len(module.get("block_ids") or ())),
+        )
+    return theme.stack(theme.fields(head), "", rows)

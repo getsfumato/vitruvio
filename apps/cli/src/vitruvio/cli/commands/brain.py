@@ -302,20 +302,27 @@ def verify() -> ExitCode:
 
 
 @app.command(name="history")
-def history(*, limit: int | None = None) -> ExitCode:
+def history(*, limit: int | None = None, graph: bool = False) -> ExitCode:
     """List the retained snapshots, most recent first.
 
     Parameters
     ----------
     limit
         How many to show.
+    graph
+        Draw the lineage instead of a flat list. A reconciliation names more than one parent, so history is a DAG
+        rather than a chain, and `*` marks the first-parent line — the one the protocol reads as what this brain is,
+        and the one an audit follows — while `o` is history that arrived by being merged and `M` is where that
+        happened.
     """
     console = current().console
     result = current().service().history(limit=limit)
-    if not result["snapshots"]:
-        view: RenderableType = render.empty(
-            "No snapshots yet. A brain with no canonical evidence has no version to retain."
+    if graph:
+        view: RenderableType | list[RenderableType] = render.graph(
+            result["snapshots"], ancestry=result.get("ancestry") or ()
         )
+    elif not result["snapshots"]:
+        view = render.empty("No snapshots yet. A brain with no canonical evidence has no version to retain.")
     else:
         table = render.table("snapshot", "created", ("blocks", "right"))
         for item in result["snapshots"]:

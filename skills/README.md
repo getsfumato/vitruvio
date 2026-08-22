@@ -17,6 +17,7 @@ vitruvio skills install --into DIR --skill vitruvio-cli --force
 | `vitruvio-ingest` | the propose → validate → commit loop, and pulling from declared sources |
 | `vitruvio-retention` | the five removal mechanisms, and which one you actually want |
 | `vitruvio-dist` | publishing and installing |
+| `vitruvio-reconcile` | joining a history somebody else advanced, and deciding what did not apply |
 
 `vitruvio` carries four references: `json-envelope.md`, `exit-codes.md`, `evidence-bundle.md`, and
 `cli-reference.md`.

@@ -21,6 +21,7 @@ from vitruvio.cli.commands import (
     inspect,
     project,
     query,
+    reconcile,
     registry,
     retain,
     skills,
@@ -39,6 +40,7 @@ GROUPS = (
     browse,
     retain,
     dist,
+    reconcile,
     registry,
     inspect,
     config,
@@ -50,6 +52,9 @@ GROUPS = (
 
 Ordered by the order a user meets them: create a brain, put evidence in it, interpret that evidence, ask it
 something, read it, publish it, look at how it is put together, and configure the whole thing.
+
+``reconcile`` follows ``dist`` because that is the order somebody meets it: you publish, the push is refused
+because somebody else published first, and reconciling is what you do about it.
 
 ``browse`` sits beside ``query`` rather than under ``inspect``, where its data comes from, because the order
 here is editorial: it is what somebody reaches for right after their first search, and a reader looking for

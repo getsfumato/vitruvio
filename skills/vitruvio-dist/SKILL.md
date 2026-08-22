@@ -67,6 +67,8 @@ brain declaring `publish = false`**, which is how a project marks somebody else'
 
 ### A pull replaces local work, and says so
 
+Use it to *install* someone's brain, not to escape a divergence — `dist fetch` is for that.
+
 `dist pull` adopts the published composition with no fast-forward check, so blocks committed locally since the last
 pull leave the composition. Both commands report it:
 
@@ -98,10 +100,48 @@ one index a consumer cannot rebuild. The usual cause is a stale index — `vitru
 
 Two refusals come from the protocol and both are correct:
 
-- **Exit 8 — not a fast-forward.** Someone pushed since this brain was pulled, and the histories diverged. Pull,
-  re-commit, push again. **Never `--force`**: it discards their version, and there is no undo.
+- **Exit 8 — not a fast-forward.** Someone pushed since this brain was pulled, and the histories diverged. The
+  answer is `dist fetch`, not `pull` — see below. **Never `--force`**: it discards their version, and there is
+  no undo.
 - **Narrowing refused.** Publishing fewer modules than the last version would make a consumer's selective update
   silently lose one.
+
+### Exit 8 is reconcilable, and `pull` is the wrong reflex
+
+`pull` *adopts* the published composition, so it resolves the divergence by discarding whatever was committed
+here. `fetch` adopts nothing: it brings their history alongside yours, the pointer does not move, and both sides'
+work survives.
+
+```bash
+vitruvio dist fetch <REF> --tag v1 --json
+```
+
+Read `data.reconciliation`. Three outcomes, and each has one next step:
+
+| `why` | what happened | next |
+|---|---|---|
+| — (`attempted: true`) | the plan was clean, so it committed | `brain verify` |
+| `already contained` | their history is in here already | nothing |
+| `no strategy declared` | nobody stated how to record it | see below — **ask the user** |
+| `not clean` | blocks did not apply, or work of yours would leave. **Nothing was written and no reconciliation was opened** | `vitruvio reconcile resolve` |
+
+**`no strategy declared` is not a malfunction to work around.** The three strategies land the same blocks and
+differ only in whose name stays on the incoming work, so vitruvio refuses to choose. Do not edit `vitruvio.toml`
+to unblock yourself and do not pick the one that looks tidiest — run `vitruvio reconcile plan <THEIRS> --json`,
+show the `attribution` table, and let the user decide. `merge` is the only strategy under which the contributor's
+snapshots, and anything they signed, still cover something.
+
+When it is `not clean`, the verdicts are the report to act on. `missing_evidence` carries the one distinction an
+agent must relay correctly: `dropped_deliberately` means tell the contributor **not** to resend, because this
+brain excluded that evidence on purpose; `never_held` means tell them to resend the contribution **whole**,
+because its source never arrived. Same verdict, opposite advice.
+
+Never `resolve --admit` a `rejected` block, and do not report the refusal as a bug: a derived block whose
+evidence is not in the composition cannot be audited against its source, and `brain verify` would not catch it —
+verification recomputes hashes and compositions, not citations across modules.
+
+An open reconciliation **refuses every ordinary write** on that brain. If a commit or an ingest comes back with
+exit 12, that is why; `reconcile status` shows what is open and `reconcile abort` abandons it, writing nothing.
 
 ## Credentials
 

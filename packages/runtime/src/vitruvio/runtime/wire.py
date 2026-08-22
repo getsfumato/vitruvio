@@ -27,7 +27,7 @@ from typing import Any
 from boltzmann.blocks.base import Block
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.distribution.manifest import BrainManifest
-from boltzmann.distribution.registry import InstallPlan
+from boltzmann.distribution.registry import FetchResult, InstallPlan
 from boltzmann.identity.digest import MerkleRoot
 from boltzmann.ingest.commit import CommitResult
 from boltzmann.ingest.register import RegistrationResult
@@ -37,6 +37,7 @@ from boltzmann.merkle.proof import InclusionProof
 from boltzmann.module.module import Module
 from boltzmann.module.snapshot import Snapshot
 from boltzmann.query.evidence import EvidenceBundle
+from boltzmann.reconcile import ReconcilePlan, ReconcileResult, ReconcileStatus
 from boltzmann.retention.requests import (
     CascadePlan,
     DropResult,
@@ -359,3 +360,84 @@ def install_plan(value: InstallPlan, source: BrainManifest | None = None) -> dic
         vectors = [source.vector_index_for(kind) for kind in value.fetch_vector_indices]
         payload["fetch_bytes"] = sum(layer.size for layer in (*layers, *vectors) if layer is not None)
     return payload
+
+
+def fetch_result(value: FetchResult) -> dict[str, Any]:
+    """
+    A remote history retrieved without moving the local pointer.
+
+    Args:
+        value (FetchResult): What arrived.
+
+    Returns:
+        dict[str, Any]: The result, plus ``block_count`` -- how many blocks this history holds that the
+        installed one does not. Because everything is content-addressed, that is the whole transfer: a
+        contribution of forty blocks is forty blocks and not a brain.
+    """
+    return {**value.model_dump(mode="json"), "block_count": value.block_count}
+
+
+def reconcile_plan(plan: ReconcilePlan) -> dict[str, Any]:
+    """
+    What joining another history would produce, and what each strategy would cost.
+
+    The four computed properties are the ones a caller branches on, and each answers a different question.
+    ``is_noop``: is their history already in here. ``is_clean``: can this happen without anybody deciding
+    anything -- every incoming block applied and nothing of ours leaves. ``is_blocked``: is a candidate still
+    undecided, which forbids committing. ``excluded``: what leaves, per module.
+
+    ``attribution`` is deliberately reported for all three strategies rather than for one. The composition is
+    identical under all of them, so this table *is* the difference between them, and it is what makes the
+    choice informed rather than discovered afterwards.
+
+    Args:
+        plan (ReconcilePlan): The plan.
+
+    Returns:
+        dict[str, Any]: The plan, plus the four derived answers.
+    """
+    return {
+        **plan.model_dump(mode="json"),
+        "is_noop": plan.is_noop,
+        "is_clean": plan.is_clean,
+        "is_blocked": plan.is_blocked,
+        "excluded": {kind.value: [str(block) for block in blocks] for kind, blocks in plan.excluded.items()},
+    }
+
+
+def reconcile_result(result: ReconcileResult) -> dict[str, Any]:
+    """
+    What a reconciliation committed.
+
+    The snapshot is reduced to the digest that names it, the way every other write's result is: the whole
+    document repeats the module list inside a payload whose point is which version this produced. ``brain
+    state`` is one command away.
+
+    The plan is kept in full rather than dropped, because it carries every verdict -- the record of what was
+    judged and how is the audit trail for a reconciliation, and no provenance block holds it.
+
+    Args:
+        result (ReconcileResult): What was committed.
+
+    Returns:
+        dict[str, Any]: The result, with ``snapshot`` as a digest string.
+    """
+    return _versioned(result, result.snapshot)
+
+
+def reconcile_status(status: ReconcileStatus) -> dict[str, Any]:
+    """
+    Where a reconciliation in progress stands.
+
+    Args:
+        status (ReconcileStatus): The status, whose plan was recomputed rather than remembered.
+
+    Returns:
+        dict[str, Any]: The status, plus ``is_resolved`` -- whether every open question has an answer and the
+        reconciliation can be concluded.
+    """
+    return {
+        **status.model_dump(mode="json"),
+        "plan": reconcile_plan(status.plan),
+        "is_resolved": status.is_resolved,
+    }

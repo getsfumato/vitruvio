@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Fourteen groups, seventy-nine commands. This skill is the map: which group owns a task, which command inside it, and
+Fifteen groups, ninety commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -151,7 +151,27 @@ better than passing flags every time.
 | `dist push [REF]` | publish. `--tag`, `--all`, `--module`, `--local`, never `--force` |
 | `dist plan-pull [REF]` | what a pull would transfer **and what it would discard**; `--ignore-vector-indices` plans without derived vector layers |
 | `dist pull [REF]` | install. Adopts the published composition; read `discarded`; `--ignore-vector-indices` keeps modules and omits vector layers |
+| `dist fetch [REF]` | bring another history **without adopting it**, and reconcile it when the plan is clean. The answer to exit 8 |
 | `dist tags [REF]` | what is published |
+
+### `reconcile` — join a history somebody else advanced
+| command | for |
+|---|---|
+| `reconcile plan THEIRS` | what joining would produce, every incoming block already judged, and what each strategy costs |
+| `reconcile merge THEIRS --reason R` | both histories as parents. The only one their snapshots survive |
+| `reconcile rebase THEIRS --reason R` | replay theirs onto yours. New identities, so **before publication only** |
+| `reconcile squash THEIRS --reason R` | collapse their versions into one. Provenance is still kept |
+| `reconcile status` | what is open, what has been decided |
+| `reconcile resolve [BLOCK]` | `--admit`, `--reject`, `--prefer ID`. No block opens an interactive workspace |
+| `reconcile accept-removals` | agree that work of yours may leave. One answer, not one per block |
+| `reconcile continue` | conclude it |
+| `reconcile abort` | abandon it. Nothing was written |
+| `reconcile tree [THEIRS]` | where the two parted, and what each added |
+
+**The three strategies land the same blocks.** A snapshot states a whole composition rather than a patch, so there
+is nothing to replay sequentially. What differs is the lineage recorded, and therefore who stays on record as the
+author of the incoming work — a merge keeps their snapshots, a rebase and a squash do not. So **never pick one for
+the user.** Report what `plan` says each would cost and let them choose, or use what the brain declares.
 
 ### `registry` — credentials
 | command | for |
@@ -240,8 +260,9 @@ Do not offer these; they are not implemented, and a plausible-looking command th
 
 - **No `calibrate`.** `query explain --analyze` reports actuals beside estimates and persists nothing. Correcting
   the cost model means editing `[planner]` in `vitruvio.toml` by hand.
-- **No merge, and no rollback.** `dist pull` adopts the remote composition; the snapshot it replaced stays in
-  `brain history` but nothing restores it.
+- **No rollback.** `dist pull` adopts the remote composition; the snapshot it replaced stays in `brain history`
+  but nothing restores it. There *is* a merge now — `dist fetch` plus `reconcile` — and it is what to reach for
+  instead of a pull whenever the point is to keep both sides' work.
 - **No `answer` field**, on any command. The brain returns evidence and the prose is yours.
 
 ## Every command and every flag

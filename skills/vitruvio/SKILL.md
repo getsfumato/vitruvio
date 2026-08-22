@@ -117,6 +117,7 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 - `vitruvio-ingest` — the loop where you propose knowledge and the protocol validates it, plus pulling from declared sources. The highest-value one.
 - `vitruvio-retention` — removing things, and why there are five different ways.
 - `vitruvio-dist` — publishing a brain and installing one.
+- `vitruvio-reconcile` — joining a history somebody else advanced, when a push comes back diverged.
 
 ## References
 

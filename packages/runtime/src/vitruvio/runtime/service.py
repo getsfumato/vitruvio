@@ -38,6 +38,7 @@ from vitruvio.runtime.ops.install import InstallOps
 from vitruvio.runtime.ops.lifecycle import LifecycleOps
 from vitruvio.runtime.ops.projects import ProjectOps
 from vitruvio.runtime.ops.publish import PublishOps
+from vitruvio.runtime.ops.reconcile import ReconcileOps
 from vitruvio.runtime.ops.registration import RegistrationOps
 from vitruvio.runtime.ops.remote import RemoteOps
 from vitruvio.runtime.ops.retention import RetentionOps
@@ -730,6 +731,53 @@ class BrainService:
             insecure=insecure,
             local=local,
         )
+
+    def fetch(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        reconcile: bool = True,
+        reason: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve a remote history without moving the pointer, and reconcile it when that is safe.
+
+        See :meth:`vitruvio.runtime.ops.install.InstallOps.fetch`."""
+        return self.install_ops.fetch(
+            reference,
+            tag=tag,
+            modules=modules,
+            reconcile=reconcile,
+            reason=reason,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    # --- Reconciliation -------------------------------------------------------
+
+    @cached_property
+    def reconcile_ops(self) -> ReconcileOps:
+        """The reconciliation operations.
+
+        Reached as a property rather than forwarded method by method, which is the one place this facade
+        departs from "one method per protocol operation" -- and it departs because the ratchet asked it to.
+        `PLR0904` exists so that a domain's worth of logic landing back here trips a lint instead of being
+        noticed at 3000 lines, and eight more delegations tripped it. Raising the threshold would have spent
+        the mechanism to avoid the refactor it was installed to force.
+
+        It costs little, because reconciliation is the one domain whose operations are never called alone:
+        plan, start, decide, conclude is a loop, and every caller of it -- the command group and the
+        interactive resolver alike -- holds one object for the whole walk rather than reaching for eight."""
+        return ReconcileOps(self.session)
 
     # --- Retrieval ------------------------------------------------------------
 

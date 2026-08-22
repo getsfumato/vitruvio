@@ -27,6 +27,7 @@ EXPECTED = {
     "vitruvio-ingest",
     "vitruvio-retention",
     "vitruvio-dist",
+    "vitruvio-reconcile",
 }
 
 

@@ -181,6 +181,147 @@ class InstallOps:
             "warnings": warnings,
         }
 
+    def fetch(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        reconcile: bool = True,
+        reason: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """
+        Retrieve a remote history without moving the local pointer, and reconcile it when that is safe.
+
+        Lives beside ``pull`` because it is the same transport with the same client, the same credential
+        resolution and the same module coercion -- and differs in the one respect that makes it worth having:
+        ``pull`` adopts the other side's composition, this holds both histories and adopts nothing yet.
+
+        Then, when the brain declares a strategy, it goes on to reconcile. Three outcomes, and the boundary
+        between them is the whole design:
+
+        * **No declaration.** Nothing is reconciled. Choosing a strategy decides who stays on record as the
+          author of the incoming work, so vitruvio reports the plan and says how to choose.
+        * **A clean plan.** Every incoming block applied and nothing here leaves, so there is nothing for a
+          person to decide and it commits.
+        * **Anything else.** The plan is reported and *the reconciliation is not opened*. Opening one sets the
+          ``reconcile`` pointer, and the SDK then refuses every ordinary write until it is resolved -- far too
+          much to do to a brain from a command someone ran to look. Nothing is lost by waiting: the plan is
+          recomputed rather than stored, so the resolver recomputes it when somebody is ready to answer.
+
+        Args:
+            reference (str | None): The repository.
+            tag (str | None): Which tag.
+            modules (Iterable[str] | None): Which modules to retrieve.
+            reconcile (bool): Whether to go on to reconcile. False fetches and stops, which is what a script
+                driving the steps itself wants.
+            reason (str | None): Why, recorded by the reconciliation if one happens.
+            username (str | None): Registry username.
+            token (str | None): Registry token.
+            anonymous (bool): Resolve without credentials.
+            insecure (bool | None): Allow plain HTTP.
+            local (Path | None): Use a filesystem registry rooted here.
+
+        Returns:
+            dict[str, Any]: What arrived, and under ``reconciliation`` what was done about it -- or why nothing
+            was.
+        """
+        import asyncio
+
+        from vitruvio.runtime.ops.reconcile import ReconcileOps
+
+        target = self.remote.reference_for(reference)
+        chosen = [coerce_memory_type(item) for item in modules] if modules else None
+        client, effective, warnings = self.remote._client(
+            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        )
+        wanted_tag = tag or self.config.project.registry.tag
+
+        # WRITE rather than INSPECT: a fetch puts blocks in the store. It moves no pointer, which is the
+        # property that makes it safe, but it is not a read.
+        brain = self.session.brain(Capability.WRITE)
+        with translated():
+            fetched = asyncio.run(brain.fetch(client, effective, wanted_tag, modules=chosen))
+
+        payload = {
+            "reference": target,
+            "tag": wanted_tag,
+            **wire.fetch_result(fetched),
+            "warnings": warnings,
+        }
+        if not reconcile:
+            return {**payload, "reconciliation": {"attempted": False, "why": "not requested"}}
+        return {**payload, "reconciliation": self._auto_reconcile(ReconcileOps(self.session), fetched, reason)}
+
+    def _auto_reconcile(self, ops: Any, fetched: Any, reason: str | None) -> dict[str, Any]:
+        """
+        Reconcile what a fetch brought, when doing so decides nothing on the operator's behalf.
+
+        Separated from :meth:`fetch` because the transport and the judgment are different concerns and the
+        judgment is the part with rules in it.
+
+        Args:
+            ops (Any): The reconciliation operations.
+            fetched (Any): What the fetch retrieved.
+            reason (str | None): Why, for the record.
+
+        Returns:
+            dict[str, Any]: ``attempted``, and either what happened or why it did not.
+        """
+        theirs = str(fetched.digest)
+        declared = ops.declared_strategy()
+        if declared is None:
+            return {
+                "attempted": False,
+                "why": "no strategy declared",
+                "theirs": theirs,
+                "hint": (
+                    "the three strategies land the same blocks and differ in whose name stays on the incoming "
+                    "work, so this one is yours to state: set `reconcile` on the brain in vitruvio.toml, or run "
+                    "`vitruvio reconcile merge|rebase|squash`"
+                ),
+            }
+
+        # Asked before planning, and asked of reachability rather than of the plan. A plan against a history this
+        # brain already merged still reports their blocks as additions, so trusting `is_noop` here made every
+        # repeated fetch mint another snapshot of nothing. See `ReconcileOps.contains`.
+        if ops.contains(theirs):
+            return {"attempted": False, "why": "already contained", "theirs": theirs}
+
+        plan = ops.plan(theirs)
+        if plan["is_noop"]:
+            return {"attempted": False, "why": "already contained", "theirs": theirs, "plan": plan}
+        if not plan["is_clean"]:
+            # Reported, not started. See `fetch`: opening the reconciliation would block every write until
+            # somebody resolved it, and the plan costs nothing to recompute when they do.
+            return {
+                "attempted": False,
+                "why": "not clean",
+                "theirs": theirs,
+                "plan": plan,
+                "strategy": str(declared),
+                # Names the command that *starts* one, because this branch deliberately did not. Pointing at
+                # `resolve` would have been pointing at a screen that opens on "nothing in progress": it resolves
+                # a reconciliation, it does not originate one, and it has no way to -- nothing here persists which
+                # history was fetched, so the digest has to be typed once.
+                "hint": (
+                    f"`vitruvio reconcile {declared} {theirs} --reason ...` opens it and reports what is open; "
+                    "then `vitruvio reconcile resolve` decides it. `vitruvio reconcile tree` shows the split"
+                ),
+            }
+
+        result = ops.reconcile(
+            theirs,
+            strategy=declared,
+            reason=reason or f"fetched from {fetched.reference}:{fetched.tag}",
+        )
+        return {"attempted": True, "why": "clean", "theirs": theirs, "strategy": str(declared), **result}
+
     def _local_work(self, brain: Brain) -> dict[str, Any]:
         """
         What is installed here that no pull put here.
