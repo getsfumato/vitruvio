@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from boltzmann.exceptions import ReconciliationError
 from boltzmann.reconcile import ReconcileRequest, ResolutionKind
 
 from vitruvio.kernel import ReconcileStrategy, ResolvedConfig, UsageError, VitruvioError
@@ -133,6 +134,7 @@ class ReconcileOps:
         """
         chosen = coerce_strategy(strategy)
         brain = self.session.brain(Capability.WRITE)
+        self._require_none_open(brain, theirs)
         request = ReconcileRequest(
             theirs=snapshot_digest(theirs),
             strategy=chosen,
@@ -147,6 +149,11 @@ class ReconcileOps:
             # A halt wrote nothing and moved no pointer, but it did record the state, so the reconciliation is
             # now open and there is somewhere to put an answer. Reported as data rather than re-raised: the
             # caller's next step is to read the questions, and a raise would make it go looking for them.
+            #
+            # Only reachable as a halt because `_require_none_open` ran first. `Brain.reconcile` refuses a
+            # second reconciliation by raising the *same* class, so this code alone cannot tell "the history
+            # you asked for stopped to ask" from "a different one is already open" -- and reporting the second
+            # as the first labelled somebody else's open merge with the strategy and history just requested.
             if error.code != "RECONCILE_OPEN":
                 raise
             return {"halted": True, "strategy": str(chosen), **self._status_payload(brain)}
@@ -252,19 +259,37 @@ class ReconcileOps:
             dict[str, Any]: What was abandoned, so the report can name it rather than say "done".
         """
         brain = self.session.brain(Capability.WRITE)
+        try:
+            status = brain.reconcile_status()
+        except ReconciliationError:
+            # The one state abandoning exists for, and the one this used to be unable to abandon.
+            #
+            # `reconcile_status` recomputes the plan, and before it does it refuses when the head no longer
+            # matches the one the reconciliation was started against -- a layout changed from outside. Its own
+            # message says to abandon it. Reading the status first therefore made `abort` raise in exactly the
+            # situation it is the remedy for, and `status` raises for the same reason, so both commands the hint
+            # names were dead and the brain stayed locked against every ordinary write with no way out.
+            #
+            # The raise is itself proof that one is open: the SDK checks that the state exists before it checks
+            # the head. So abandon it, and report the little that can still be said honestly -- what failed is
+            # reading the detail, not the abandoning.
+            with translated():
+                brain.reconcile_abort()
+            return {"aborted": True, "theirs": None, "strategy": None, "decisions": None, "stale": True}
+
+        if status is None:
+            raise UsageError(
+                "no reconciliation is in progress, so there is nothing to abandon",
+                hint="`vitruvio reconcile status` reports whether one is open",
+            )
         with translated():
-            state = brain.reconcile_status()
-            if state is None:
-                raise UsageError(
-                    "no reconciliation is in progress, so there is nothing to abandon",
-                    hint="`vitruvio reconcile status` reports whether one is open",
-                )
             brain.reconcile_abort()
         return {
             "aborted": True,
-            "theirs": str(state.state.theirs),
-            "strategy": str(state.state.strategy),
-            "decisions": len(state.state.resolutions),
+            "theirs": str(status.state.theirs),
+            "strategy": str(status.state.strategy),
+            "decisions": len(status.state.resolutions),
+            "stale": False,
         }
 
     def tree(self, theirs: str | None = None, *, ancestor: str | None = None) -> dict[str, Any]:
@@ -310,6 +335,43 @@ class ReconcileOps:
             "is_noop": plan["is_noop"],
             "is_clean": plan["is_clean"],
         }
+
+    @staticmethod
+    def _require_none_open(brain: Any, theirs: str) -> None:
+        """
+        Refuse to start a reconciliation while another is unresolved, before the SDK has to.
+
+        `Brain.reconcile` already refuses, but it refuses by raising the class a *halt* raises, so the caller
+        cannot tell the two apart afterwards -- and the difference is total: one means the history you named is
+        waiting on your decisions, the other means somebody else's is, and yours never started.
+
+        Asked here, where the answer is unambiguous. A stale state -- one whose head moved underneath it --
+        counts as open too, and is named as such, because the way out of it is `abort` rather than a retry.
+
+        Args:
+            brain (Any): The opened brain.
+            theirs (str): The history the caller asked to reconcile, for the message.
+
+        Raises:
+            VitruvioError: If a reconciliation is already open.
+        """
+        try:
+            status = brain.reconcile_status()
+        except ReconciliationError as error:
+            raise UsageError(
+                f"cannot reconcile {theirs}: a reconciliation is already open, and its recorded state no "
+                "longer matches this brain",
+                hint="`vitruvio reconcile abort` abandons it; nothing it recorded was ever written",
+            ) from error
+        if status is None:
+            return
+        raise UsageError(
+            f"cannot reconcile {theirs}: the reconciliation of {status.state.theirs} is still unresolved",
+            hint=(
+                "`vitruvio reconcile status` lists what is open, `continue` concludes it, and `abort` "
+                "abandons it -- one reconciliation at a time"
+            ),
+        )
 
     def _status_payload(self, brain: Any) -> dict[str, Any]:
         """

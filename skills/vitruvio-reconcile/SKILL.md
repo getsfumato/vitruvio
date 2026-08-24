@@ -124,6 +124,11 @@ Re-admitting a removed block afterwards is an ordinary commit.
 Before accepting, **say how much is leaving and from which modules** (`withdrawn` in the status payload). Do not
 describe a reconciliation that removes the user's blocks as clean.
 
+`abort` always works, including when `status` refuses. If the layout was changed outside vitruvio while a
+reconciliation was open, the recorded state describes a head the brain has moved off — `status` reports that as
+a refusal, and `abort` is the remedy. The payload then carries `stale: true` and no detail, because reading the
+detail is what failed, not the abandoning.
+
 ## An open reconciliation blocks writes
 
 While one is open the SDK refuses every ordinary write — commit, ingest, register, drop. A commit coming back
