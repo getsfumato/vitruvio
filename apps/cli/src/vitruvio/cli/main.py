@@ -117,6 +117,46 @@ def _console(tokens: list[str]) -> Console:
     return Console(json_mode="--json" in tokens)
 
 
+def _notify_of_update(tokens: list[str]) -> None:
+    """
+    Say once a day that a newer vitruvio exists, on stderr, after the command has already done its work.
+
+    Told rather than done: it prints a line naming `vitruvio update` and never installs anything and never
+    asks anything. A prompt here would appear after an unrelated command, and would hang whatever was driving
+    the CLI the first time it ran unattended.
+
+    Silent in every case where a line would be wrong rather than merely unwanted:
+
+    * ``--json`` -- a caller is parsing one envelope, and prose on stderr beside it is at best noise;
+    * ``--quiet`` -- that is what it asks for;
+    * no terminal on stderr -- a log file or a pipe is nobody reading;
+    * the ``update`` command itself, which reports this better and was asked to;
+    * ``VITRUVIO_NO_UPDATE_CHECK``, honoured inside :mod:`vitruvio.kernel.updates`.
+
+    The request is made at most once per TTL and never more than :data:`~vitruvio.kernel.updates.TIMEOUT`
+    seconds, and every failure resolves to "nothing known". Wrapped in a bare ``except`` besides: this runs
+    after a command has *succeeded*, and there is no failure here worth converting that into a non-zero exit.
+
+    Args:
+        tokens (list[str]): The command line, to tell which command ran.
+    """
+    try:
+        from vitruvio.cli.context import current
+        from vitruvio.kernel import updates
+
+        if any(token == "update" for token in tokens):
+            return
+        console = current().console
+        if console.json_mode or console.quiet or not sys.stderr.isatty():
+            return
+
+        found = updates.check() if updates.is_due() else updates.cached_update()
+        if found.available:
+            console.note(f"vitruvio {found.latest} is available (you have {found.current}) -- run `vitruvio update`")
+    except Exception:
+        return
+
+
 def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     """
     Run the CLI and return a process exit status.
@@ -138,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     tokens = sys.argv[1:] if argv is None else argv
     try:
         result = app.meta(tokens)
+        _notify_of_update(tokens)
     except VitruvioError as error:
         from vitruvio.cli.context import current
 

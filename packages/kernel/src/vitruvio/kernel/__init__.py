@@ -11,6 +11,7 @@ Every other vitruvio package imports this one; this one imports no other vitruvi
 
 from __future__ import annotations
 
+from vitruvio.kernel import updates
 from vitruvio.kernel.config import (
     DEFAULT_TEXT_EMBEDDER,
     ActorSpec,
@@ -138,6 +139,7 @@ __all__ = [
     "UsageError",
     "VitruvioError",
     "__version__",
+    "updates",
     "cache_home",
     "config_home",
     "credentials_file",

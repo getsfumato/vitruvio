@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Fifteen groups, ninety commands. This skill is the map: which group owns a task, which command inside it, and
+Fifteen groups, ninety-one commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -172,6 +172,20 @@ better than passing flags every time.
 is nothing to replay sequentially. What differs is the lineage recorded, and therefore who stays on record as the
 author of the incoming work — a merge keeps their snapshots, a rebase and a squash do not. So **never pick one for
 the user.** Report what `plan` says each would cost and let them choose, or use what the brain declares.
+
+### `update` — the tool itself
+| command | for |
+|---|---|
+| `vitruvio update --check` | is there a newer release. Read `available`; exits 0 either way |
+| `vitruvio update` | install it. Re-runs the official installer, pinned to the version reported |
+
+**Never run a bare `vitruvio update` on the user's behalf.** It replaces the installed vitruvio, so it asks
+first, and `--yes` exists for a script whose operator already decided — not for an agent deciding for them.
+`--check` is the one to reach for, and it is safe: it installs nothing.
+
+vitruvio also prints a one-line notice on stderr after an ordinary command when a newer release exists. It is
+suppressed under `--json`, under `--quiet`, and when stderr is not a terminal, so it can never appear in output
+you are parsing. `VITRUVIO_NO_UPDATE_CHECK=1` turns it off entirely.
 
 ### `registry` — credentials
 | command | for |
