@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-ingest"
-version = "0.5.0"
+version = "0.5.1"
 description = "Normalization pipelines and candidate proposers: where an external model touches a brain"
 readme = "README.md"
 license = {text = "MIT"}
