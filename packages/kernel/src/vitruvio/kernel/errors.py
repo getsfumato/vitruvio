@@ -196,3 +196,22 @@ class CredentialError(VitruvioError):
 
     code = "CREDENTIAL_MISSING"
     exit_code = ExitCode.REGISTRY
+
+
+class ReconciliationOpenError(VitruvioError):
+    """A reconciliation stopped to ask, and is now waiting on decisions.
+
+    Its own type, and exit 12, for the reason :class:`CandidatesRejectedError` has one: what it tells an
+    automated caller is specific. Nothing was committed, the request was fine, and the *protocol* declined to
+    decide something on the operator's behalf -- so the response is neither "retry" nor "give up" but "answer
+    the questions", which no other code says.
+
+    Carries the same ``code`` the SDK's halt is mapped to, because a caller cannot see which side raised it and
+    should not have to: the state it describes and the commands that clear it are identical either way.
+
+    The questions themselves travel as the failure's ``data``, so a caller reads them from the same envelope
+    rather than from a success envelope printed before a non-zero exit.
+    """
+
+    code = "RECONCILE_OPEN"
+    exit_code = ExitCode.RECONCILE

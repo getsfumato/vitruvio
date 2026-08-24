@@ -21,6 +21,7 @@ import pytest
 from vitruvio.kernel import ExitCode, UsageError, VitruvioError, resolve
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.assembly import Capability
+from vitruvio.runtime.coerce import snapshot_digest
 
 PROJECT = """
 [brain]
@@ -369,6 +370,52 @@ class TestTheMessagesUseOurVocabulary:
         assert "vitruvio reconcile" in text
 
 
+class TestEveryRefusalIsMapped:
+    """A reconciliation refusal must not report as an integrity failure."""
+
+    def test_the_reconciliation_errors_all_carry_exit_12(self) -> None:
+        """`ResolutionRefusedError` and the `ReconciliationError` base were absent from the table, so they fell
+        through to `PROTOCOL_ERROR`, exit 5, HTTP 500 -- which the exit-code reference documents as a Merkle
+        root that did not match. A caller reading that goes looking for corruption."""
+        from boltzmann.exceptions import (
+            ReconciliationBlockedError,
+            ReconciliationError,
+            ReconciliationHaltedError,
+            ResolutionRefusedError,
+        )
+
+        from vitruvio.runtime.mapping import report_for
+
+        for kind in (
+            ResolutionRefusedError,
+            ReconciliationError,
+            ReconciliationHaltedError,
+            ReconciliationBlockedError,
+        ):
+            report = report_for(kind("x"))
+            assert report.exit_code == ExitCode.RECONCILE, f"{kind.__name__} reports exit {report.exit_code}"
+            assert report.http_status == 409
+            assert report.code != "PROTOCOL_ERROR", f"{kind.__name__} reads as an integrity failure"
+            assert report.hint, f"{kind.__name__} carries no next action"
+
+    def test_admitting_a_rejection_is_a_reconciliation_refusal_not_a_protocol_error(
+        self, rejecting: tuple[Path, str, BrainService]
+    ) -> None:
+        """The single most-documented refusal in this feature, and it reported as exit 5 / HTTP 500."""
+        registry, reference, beto = rejecting
+        fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
+        halted = beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="x")
+        rejected = [e["block"] for e in halted["plan"]["incoming"]["verdicts"] if e["status"] == "rejected"]
+        assert rejected
+
+        with pytest.raises(VitruvioError) as caught:
+            beto.reconcile_ops.resolve(rejected[0], kind="admit")
+
+        assert caught.value.exit_code == ExitCode.RECONCILE
+        assert caught.value.code != "PROTOCOL_ERROR"
+        assert caught.value.hint, "the skill says not to report this as a bug, so it has to say what to do"
+
+
 class TestTheEnumsAgree:
     def test_the_kernel_enum_matches_the_sdk(self) -> None:
         """The kernel declares its own so it stays importable without the SDK. Two declarations can drift, and
@@ -518,6 +565,84 @@ class TestWhenItCannotBeSettledMechanically:
         assert beto.state()["snapshot"]["digest"] == before
         assert beto.reconcile_ops.status()["open"] is False
         add_evidence(beto, "# Nyquist\n\nz\n", "nyquist.md")  # writable again
+
+    def test_abort_works_when_the_head_moved_underneath_it(self, dirty: tuple[Path, str, BrainService]) -> None:
+        """The one state abandoning exists for, and the one it could not abandon.
+
+        `reconcile_status` refuses when the head no longer matches the one the reconciliation was started
+        against, and its own message says to abandon it. Reading the status first therefore made `abort` raise
+        in exactly the situation it is the remedy for -- and `status` raises for the same reason, so both
+        commands the hint names were dead and the brain stayed locked against every ordinary write.
+        """
+        from boltzmann.exceptions import ReconciliationError
+
+        registry, reference, beto = dirty
+        fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
+        beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="x")
+
+        # Move the head underneath the open reconciliation, which is what a restored layout looks like.
+        brain = beto.brain(Capability.WRITE)
+        state = brain._reconcile_state()
+        assert state is not None
+        brain._put_reconcile_state(state.model_copy(update={"head": snapshot_digest(fetched["digest"])}))
+
+        with pytest.raises(ReconciliationError):
+            brain.reconcile_status()  # the SDK refuses, which is the precondition this test is about
+
+        abandoned = beto.reconcile_ops.abort()
+
+        assert abandoned["aborted"] is True
+        assert abandoned["stale"] is True, "the detail could not be read, and the report says so"
+        assert beto.reconcile_ops.status()["open"] is False
+        add_evidence(beto, "# Nyquist\n\nz\n", "nyquist.md")  # writable again, which is the whole point
+
+    def test_a_second_reconciliation_is_refused_as_itself(self, dirty: tuple[Path, str, BrainService]) -> None:
+        """`Brain.reconcile` refuses a second one by raising the class a *halt* raises.
+
+        Reported as a halt, that labelled somebody else's open merge with the strategy and history just
+        requested -- `strategy: rebase` over `state.strategy: merge`, and the operator believing B was being
+        reconciled when A still is.
+        """
+        registry, reference, beto = dirty
+        fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
+        first = beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="first")
+        assert first["halted"] is True
+
+        with pytest.raises(UsageError) as caught:
+            beto.reconcile_ops.reconcile(fetched["digest"], strategy="rebase", reason="second")
+
+        assert "already unresolved" in caught.value.message or "still unresolved" in caught.value.message
+        assert "abort" in (caught.value.hint or "")
+        assert beto.reconcile_ops.status()["state"]["strategy"] == "merge", "the open one is untouched"
+
+    def test_a_store_failure_during_abort_is_mapped_not_reported_as_our_bug(
+        self, dirty: tuple[Path, str, BrainService], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`reconcile_status` reads blocks, so what it can raise is not only `ReconciliationError`.
+
+        The special case for the head-mismatch has to stay narrow: anything else escaping the `translated()`
+        boundary reaches the CLI's last-resort handler, which reports an unmapped exception as "internal error
+        -- this is a bug in vitruvio". A corrupt store would have been denounced as our defect instead of
+        `INTEGRITY_FAILED`.
+        """
+        from boltzmann.exceptions import BlockIntegrityError
+
+        registry, reference, beto = dirty
+        fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
+        beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="x")
+
+        brain = beto.brain(Capability.WRITE)
+        monkeypatch.setattr(
+            type(brain),
+            "reconcile_status",
+            lambda self, *args, **kwargs: (_ for _ in ()).throw(BlockIntegrityError("bytes do not hash")),
+        )
+
+        with pytest.raises(VitruvioError) as caught:
+            beto.reconcile_ops.abort()
+
+        assert caught.value.code == "INTEGRITY_FAILED", "a corrupt store is not a bug in vitruvio"
+        assert caught.value.exit_code == ExitCode.PROTOCOL
 
     def test_aborting_nothing_is_a_usage_error(self, tmp_path: Path) -> None:
         beto = make(tmp_path, "beto")

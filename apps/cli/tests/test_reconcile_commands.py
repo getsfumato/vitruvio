@@ -231,6 +231,48 @@ class TestExitCodes:
         assert "reconcile_abort()" not in json.dumps(payload), "the SDK's API must not reach the user"
         assert "vitruvio reconcile" in json.dumps(payload), "the hint must name a command someone can run"
 
+    def test_a_halted_strategy_exits_12_and_still_carries_the_questions(
+        self, capsys: pytest.CaptureFixture[str], halting: tuple[Path, Path]
+    ) -> None:
+        """`Console.emit` always returns 0, so a halted merge exited 0 -- against three documents promising 12.
+
+        An agent branching on the status read "merged" for a reconciliation that committed nothing and left the
+        brain refusing every write. The questions still have to travel, so this goes through `fail`, which puts
+        them in the same envelope rather than printing a success object before a non-zero exit.
+        """
+        registry, beto_config = halting
+        beto = BrainService(resolve(brain=registry.parent / "beto" / "brain", config=beto_config))
+        fetched = beto.fetch("demo/brain", tag="v2", reconcile=False, local=registry)
+
+        code, payload = envelope(
+            capsys, "--config", str(beto_config), "reconcile", "merge", fetched["digest"], "--reason", "x"
+        )
+
+        assert code == ExitCode.RECONCILE, "a halt is exit 12, which is what the docs promise"
+        assert payload["error"]["code"] == "RECONCILE_OPEN"
+        assert payload["data"]["halted"] is True, "and the skill also promises `halted: true` in the payload"
+        # What is open, not specifically which verdicts: this divergence halts on work of Beto's that would
+        # leave rather than on a candidate nobody could decide, and both are the operation asking.
+        assert payload["data"]["is_resolved"] is False, "the open state must survive the failure envelope"
+        assert payload["data"]["withdrawn"], "and here it is the removals that are unanswered"
+        assert payload["data"]["removals_accepted"] is False
+
+    def test_a_clean_strategy_still_exits_0(
+        self, capsys: pytest.CaptureFixture[str], diverged: tuple[Path, Path, Path]
+    ) -> None:
+        """The other half of the contract: nothing to decide, so nothing to report."""
+        registry, _, beto_config = diverged
+        beto = BrainService(resolve(brain=registry.parent / "beto" / "brain", config=beto_config))
+        fetched = beto.fetch("demo/brain", tag="v2", reconcile=False, local=registry)
+
+        code, payload = envelope(
+            capsys, "--config", str(beto_config), "reconcile", "merge", fetched["digest"], "--reason", "x"
+        )
+
+        assert code == ExitCode.OK
+        assert payload["ok"] is True
+        assert payload["data"]["halted"] is False
+
     def test_status_lists_what_is_open_and_abort_clears_it(
         self, capsys: pytest.CaptureFixture[str], halting: tuple[Path, Path]
     ) -> None:

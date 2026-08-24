@@ -31,8 +31,10 @@ from boltzmann.exceptions import (
     ProtocolError,
     QueryError,
     ReconciliationBlockedError,
+    ReconciliationError,
     ReconciliationHaltedError,
     ReferenceNotFoundError,
+    ResolutionRefusedError,
     RetentionPolicyError,
     SnapshotError,
     ValidationError,
@@ -206,6 +208,34 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
                 "the two histories share no ancestor, so a block missing from one side is ambiguous between "
                 "'they added it' and 'I dropped it' -- reconciling on a guess is refused rather than attempted"
             ),
+        ),
+    ),
+    (
+        ResolutionRefusedError,
+        Report(
+            "RESOLUTION_REFUSED",
+            ExitCode.RECONCILE,
+            409,
+            retryable=False,
+            hint=(
+                "that decision is not available for this verdict: `admit` is offered for a contradiction and "
+                "never for a rejection, and `prefer` only where two histories replaced the same block. "
+                "`vitruvio reconcile status` reports the verdict"
+            ),
+        ),
+    ),
+    (
+        # The base, last of the reconciliation rows and still above `ProtocolError`. Without it every refusal
+        # the SDK adds -- and the head-mismatch it already raises -- reported as `PROTOCOL_ERROR`, exit 5, HTTP
+        # 500, which the exit-code reference documents as an integrity failure. A caller reading that goes
+        # looking for corruption; the actual answer is usually `abort`.
+        ReconciliationError,
+        Report(
+            "RECONCILE_FAILED",
+            ExitCode.RECONCILE,
+            409,
+            retryable=False,
+            hint="`vitruvio reconcile status` reports where it stands, and `abort` abandons it without writing",
         ),
     ),
     (ProtocolError, Report("PROTOCOL_ERROR", ExitCode.PROTOCOL, 500, retryable=False)),

@@ -28,7 +28,7 @@ from rich.text import Text
 from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
-from vitruvio.kernel import ExitCode, UsageError
+from vitruvio.kernel import ExitCode, ReconciliationOpenError, UsageError
 
 app = App(
     name="reconcile",
@@ -146,16 +146,31 @@ def _run(strategy: str, theirs: str, reason: str, ancestor: str | None) -> ExitC
     """
     One strategy, carried out. The three commands differ in one argument, so they share everything else.
 
-    A halt is reported as the questions it raised rather than as a failure: it wrote nothing, it moved no
-    pointer, and the caller's next step is to answer -- for which it needs to see what was asked.
+    A halt exits 12 and carries the questions in the same envelope. Both halves matter and this had only the
+    second: reporting through ``emit`` returned 0, so a reconciliation that committed nothing and left the brain
+    refusing writes came back indistinguishable from one that merged. It is still not a *failure* in the sense
+    the word usually carries -- nothing broke, and nothing was written -- but "the operation is asking" is a
+    status a caller has to be able to read, and the exit code is where it reads it.
     """
     console = current().console
     result = current().service().reconcile_ops.reconcile(theirs, strategy=strategy, reason=reason, ancestor=ancestor)
     if result.get("halted"):
         _warn_withdrawn(result.get("plan") or {})
-        console.warn(f"the {strategy} stopped to ask: {len(result.get('unresolved') or ())} open, nothing was written")
-        console.note("`vitruvio reconcile resolve` decides them, `abort` abandons the whole thing")
-        return console.emit(f"reconcile.{strategy}", result, view=_status_view(result))
+        open_count = len(result.get("unresolved") or ())
+        # Reported through `fail` rather than `emit`, and the difference is the exit code. `emit` always returns
+        # 0, so a halted merge exited 0 while this module's docstring, the skill and exit-codes.md all promised
+        # 12 -- an agent branching on the status read "merged" for a reconciliation that committed nothing and
+        # left the brain refusing writes. `fail` carries the questions as `data` in the same envelope, so
+        # nothing is lost by saying so.
+        return console.fail(
+            f"reconcile.{strategy}",
+            ReconciliationOpenError(
+                f"the {strategy} stopped to ask: {open_count} open, and nothing was written",
+                hint="`vitruvio reconcile resolve` decides them, `continue` concludes it, `abort` abandons it",
+            ),
+            data=result,
+            view=_status_view(result),
+        )
 
     attribution = result.get("attribution") or {}
     pairs: list[tuple[str, Any]] = [
@@ -360,6 +375,16 @@ def _workspace() -> ExitCode:
     service = context.service()
     strategy = service.reconcile_ops.declared_strategy()
     Resolver(service, strategy=str(strategy) if strategy else None).run()
+
+    # The status after the screen closed, not before it opened. Quitting with questions still open leaves the
+    # brain refusing every ordinary write, and returning 0 for that told a caller the opposite of what happened
+    # -- the same defect the halted `merge` had. Concluding or abandoning inside the screen both clear it, and
+    # both then exit 0 here.
+    if service.reconcile_ops.status()["open"]:
+        raise ReconciliationOpenError(
+            "the reconciliation is still open, so this brain refuses ordinary writes",
+            hint="`vitruvio reconcile status` lists what is open, `continue` concludes it, `abort` abandons it",
+        )
     return ExitCode.OK
 
 
@@ -404,6 +429,14 @@ def abort() -> ExitCode:
     """
     console = current().console
     result = current().service().reconcile_ops.abort()
+    if result["stale"]:
+        # The detail could not be read -- the recorded state describes a head this brain has moved off, which is
+        # the condition that made abandoning necessary in the first place. Said rather than rendered as blanks.
+        console.warn(
+            "the recorded state named a snapshot this brain is no longer at, so what it covered could not be "
+            "read; it was abandoned regardless, which is the remedy for exactly that"
+        )
+        return console.emit("reconcile.abort", result, view=render.fields([("abandoned", "yes -- details unreadable")]))
     view = render.fields(
         [
             ("abandoned", render.digest(result["theirs"], full=True)),
