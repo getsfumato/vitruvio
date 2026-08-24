@@ -1,9 +1,15 @@
 # 2. Install, and a first brain
 
 ```bash
-uv tool install vitruvio                 # or: pipx install vitruvio
+curl -fsSL https://vitruvio.sfumato.sh/install.sh | sh
 vitruvio --version
 ```
+
+The installer downloads a release's wheel bundle and hands it to `uv tool install`, bootstrapping `uv` and a
+Python if the host has neither. vitruvio is nine pure-Python distributions rather than one binary, and they are
+published as release assets rather than to PyPI — so `uv tool install vitruvio` and `pipx install vitruvio` do
+not resolve, and the installer is the supported path. `VITRUVIO_VERSION` pins a version, `VITRUVIO_EXTRAS`
+selects extras, and `VITRUVIO_BIN_DIR` chooses where the command lands.
 
 The base install carries no model. That is intentional: the default text embedder is `hashing:bow`, which needs
 nothing, and the extras are opt-in.
@@ -78,3 +84,28 @@ Reads never need one: inspecting someone else's brain is legitimate and attribut
 ## Next
 
 [3. Registering evidence](03-registering-evidence.md)
+
+## Staying current
+
+```bash
+vitruvio update --check                  # is there a newer release
+vitruvio update                          # install it
+```
+
+After an ordinary command, vitruvio prints one line on stderr when a newer release exists. It asks GitHub at
+most once a day, caches the answer — including a failed lookup, so being offline costs one timeout rather than
+one per command — and gives up after two seconds. It is suppressed under `--json`, under `--quiet`, and when
+stderr is not a terminal, so it can never land in output something else is parsing. `VITRUVIO_NO_UPDATE_CHECK=1`
+turns it off for good.
+
+The notice never installs anything and never asks a question: a prompt after an unrelated command would hang
+the first script that ran unattended. `vitruvio update` is where the decision lives, and it confirms before
+replacing anything unless you pass `--yes`.
+
+Updating re-runs the same installer, pinned to the version you were shown, rather than reimplementing it. The
+`--reinstall` inside it is why: only `vitruvio` is pinned, so an upgrade that did not force it would find the
+eight sibling libraries already satisfied and leave a new CLI on old packages — which then reports the old
+version, because `--version` reads the kernel's.
+
+A source checkout is refused, since the installer would replace the environment the command is served from.
+Use git there.

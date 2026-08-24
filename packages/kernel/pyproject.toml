@@ -27,6 +27,12 @@ dependencies = [
     # Reading TOML is stdlib (tomllib); writing it is not, and `config set`, `brain use` and the
     # model-tag write-back all need to write. Pure Python, no transitive dependencies.
     "tomli-w>=1.0.0",
+    # Ordering two version strings, for the update check. Declared rather than leaned on: `packaging` is
+    # present in a development environment by accident of the toolchain and nothing in this graph requires
+    # it, so an installed vitruvio could be without it. The alternative was a hand-rolled comparator, and
+    # the one written here read `0.6.0b1` as `0.6.0` -- offering a prerelease as an upgrade over its own
+    # release. Reimplementing PEP 440 to save a pure-Python dependency is not a trade worth making.
+    "packaging>=23.0",
 ]
 
 [tool.hatch.build.targets.wheel]

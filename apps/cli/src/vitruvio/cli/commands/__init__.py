@@ -27,6 +27,7 @@ from vitruvio.cli.commands import (
     skills,
     source,
     task,
+    update,
 )
 
 GROUPS = (
@@ -47,11 +48,15 @@ GROUPS = (
     skills,
     completion,
     bench,
+    update,
 )
 """Every command-group module, in the order they are shown.
 
 Ordered by the order a user meets them: create a brain, put evidence in it, interpret that evidence, ask it
 something, read it, publish it, look at how it is put together, and configure the whole thing.
+
+``update`` comes last because it is about the tool rather than about a brain -- the only group here that
+never opens one.
 
 ``reconcile`` follows ``dist`` because that is the order somebody meets it: you publish, the push is refused
 because somebody else published first, and reconciling is what you do about it.

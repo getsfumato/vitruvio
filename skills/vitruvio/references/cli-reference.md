@@ -426,6 +426,10 @@ Measure recall and latency against a corpus with known answers.
 
 Write a generated corpus to disk and keep it.
 
+## `vitruvio update` `--check` `--yes` `--version`
+
+Check for a newer vitruvio, and install it.
+
 ## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
