@@ -259,30 +259,35 @@ class ReconcileOps:
             dict[str, Any]: What was abandoned, so the report can name it rather than say "done".
         """
         brain = self.session.brain(Capability.WRITE)
-        try:
-            status = brain.reconcile_status()
-        except ReconciliationError:
-            # The one state abandoning exists for, and the one this used to be unable to abandon.
-            #
-            # `reconcile_status` recomputes the plan, and before it does it refuses when the head no longer
-            # matches the one the reconciliation was started against -- a layout changed from outside. Its own
-            # message says to abandon it. Reading the status first therefore made `abort` raise in exactly the
-            # situation it is the remedy for, and `status` raises for the same reason, so both commands the hint
-            # names were dead and the brain stayed locked against every ordinary write with no way out.
-            #
-            # The raise is itself proof that one is open: the SDK checks that the state exists before it checks
-            # the head. So abandon it, and report the little that can still be said honestly -- what failed is
-            # reading the detail, not the abandoning.
-            with translated():
-                brain.reconcile_abort()
-            return {"aborted": True, "theirs": None, "strategy": None, "decisions": None, "stale": True}
-
-        if status is None:
-            raise UsageError(
-                "no reconciliation is in progress, so there is nothing to abandon",
-                hint="`vitruvio reconcile status` reports whether one is open",
-            )
+        # The `try` sits *inside* `translated()`, which is not cosmetic. `reconcile_status` recomputes the plan
+        # and therefore reads blocks, so `BlockNotFoundError` and `BlockIntegrityError` are reachable here and
+        # neither is a `ReconciliationError`. Outside the boundary they escaped unmapped, and the CLI's
+        # last-resort handler reports an unmapped exception as "internal error -- this is a bug in vitruvio":
+        # a corrupt store denounced as our defect instead of `INTEGRITY_FAILED`. The special case below stays;
+        # everything else goes through the one table.
         with translated():
+            try:
+                status = brain.reconcile_status()
+            except ReconciliationError:
+                # The one state abandoning exists for, and the one this used to be unable to abandon.
+                #
+                # `reconcile_status` refuses, before recomputing anything, when the head no longer matches the
+                # one the reconciliation was started against -- a layout changed from outside. Its own message
+                # says to abandon it. Reading the status first therefore made `abort` raise in exactly the
+                # situation it is the remedy for, and `status` raises for the same reason, so both commands the
+                # hint names were dead and the brain stayed locked against every ordinary write.
+                #
+                # The raise is itself proof that one is open: the SDK checks the state exists before it checks
+                # the head. So abandon it, and report the little that can still be said honestly -- what failed
+                # is reading the detail, not the abandoning.
+                brain.reconcile_abort()
+                return {"aborted": True, "theirs": None, "strategy": None, "decisions": None, "stale": True}
+
+            if status is None:
+                raise UsageError(
+                    "no reconciliation is in progress, so there is nothing to abandon",
+                    hint="`vitruvio reconcile status` reports whether one is open",
+                )
             brain.reconcile_abort()
         return {
             "aborted": True,
@@ -355,14 +360,17 @@ class ReconcileOps:
         Raises:
             VitruvioError: If a reconciliation is already open.
         """
-        try:
-            status = brain.reconcile_status()
-        except ReconciliationError as error:
-            raise UsageError(
-                f"cannot reconcile {theirs}: a reconciliation is already open, and its recorded state no "
-                "longer matches this brain",
-                hint="`vitruvio reconcile abort` abandons it; nothing it recorded was ever written",
-            ) from error
+        # Inside `translated()` for the reason `abort` documents: everything `reconcile_status` can raise that
+        # is not a `ReconciliationError` -- it reads blocks -- would otherwise escape the mapping table.
+        with translated():
+            try:
+                status = brain.reconcile_status()
+            except ReconciliationError as error:
+                raise UsageError(
+                    f"cannot reconcile {theirs}: a reconciliation is already open, and its recorded state no "
+                    "longer matches this brain",
+                    hint="`vitruvio reconcile abort` abandons it; nothing it recorded was ever written",
+                ) from error
         if status is None:
             return
         raise UsageError(

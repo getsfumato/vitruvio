@@ -615,6 +615,35 @@ class TestWhenItCannotBeSettledMechanically:
         assert "abort" in (caught.value.hint or "")
         assert beto.reconcile_ops.status()["state"]["strategy"] == "merge", "the open one is untouched"
 
+    def test_a_store_failure_during_abort_is_mapped_not_reported_as_our_bug(
+        self, dirty: tuple[Path, str, BrainService], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`reconcile_status` reads blocks, so what it can raise is not only `ReconciliationError`.
+
+        The special case for the head-mismatch has to stay narrow: anything else escaping the `translated()`
+        boundary reaches the CLI's last-resort handler, which reports an unmapped exception as "internal error
+        -- this is a bug in vitruvio". A corrupt store would have been denounced as our defect instead of
+        `INTEGRITY_FAILED`.
+        """
+        from boltzmann.exceptions import BlockIntegrityError
+
+        registry, reference, beto = dirty
+        fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
+        beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="x")
+
+        brain = beto.brain(Capability.WRITE)
+        monkeypatch.setattr(
+            type(brain),
+            "reconcile_status",
+            lambda self, *args, **kwargs: (_ for _ in ()).throw(BlockIntegrityError("bytes do not hash")),
+        )
+
+        with pytest.raises(VitruvioError) as caught:
+            beto.reconcile_ops.abort()
+
+        assert caught.value.code == "INTEGRITY_FAILED", "a corrupt store is not a bug in vitruvio"
+        assert caught.value.exit_code == ExitCode.PROTOCOL
+
     def test_aborting_nothing_is_a_usage_error(self, tmp_path: Path) -> None:
         beto = make(tmp_path, "beto")
         with pytest.raises(UsageError, match="no reconciliation"):
