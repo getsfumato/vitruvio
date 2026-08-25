@@ -6,7 +6,10 @@ a directory collide, and deriving a repository that two projects would share.
 
 from __future__ import annotations
 
+import multiprocessing
+import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -41,6 +44,20 @@ def make_brain(directory: Path, name: str) -> Path:
     (path / "oci-layout").write_text('{"imageLayoutVersion": "1.0.0"}', encoding="utf-8")
     (path / "index.json").write_text('{"schemaVersion": 2, "manifests": []}', encoding="utf-8")
     return path
+
+
+def _register_project_worker(state_home: str, name: str, config: str, barrier: Any) -> None:
+    """Register from a fresh process after every competing writer is ready."""
+    os.environ["XDG_STATE_HOME"] = state_home
+    barrier.wait()
+    register_project(name, Path(config))
+
+
+def _remember_brain_worker(state_home: str, project: str, brain: str, barrier: Any) -> None:
+    """Remember a distinct project selection from a fresh process."""
+    os.environ["XDG_STATE_HOME"] = state_home
+    barrier.wait()
+    remember_brain(Path(brain), project=project, name="brain")
 
 
 PROJECT = """
@@ -293,6 +310,31 @@ class TestTheProjectRegistry:
         assert known_projects() == {}
         assert config.is_file(), "forgetting a project must not touch a single file it describes"
 
+    def test_concurrent_project_registrations_preserve_every_entry(self, tmp_path: Path) -> None:
+        count = 8
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(count)
+        state_home = os.environ["XDG_STATE_HOME"]
+        processes = []
+        for position in range(count):
+            directory = tmp_path / f"project-{position}"
+            directory.mkdir()
+            config = write(directory, f'[project]\nname = "project-{position}"\n')
+            processes.append(
+                context.Process(
+                    target=_register_project_worker,
+                    args=(state_home, f"project-{position}", str(config), barrier),
+                )
+            )
+
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=15)
+
+        assert [process.exitcode for process in processes] == [0] * count
+        assert set(known_projects()) == {f"project-{position}" for position in range(count)}
+
 
 class TestTheSavedSelectionIsPerProject:
     """``brain use`` is scoped to a project, and a project with brains never resolves from the global pointer.
@@ -365,6 +407,31 @@ class TestTheSavedSelectionIsPerProject:
         config = write(tmp_path, PROJECT)
         remember_brain(tmp_path / "brains" / "fisica", project="facultad", name="fisica")
         assert selected_brain(load_project(config)) is None
+
+    def test_concurrent_brain_selections_preserve_every_project(self, tmp_path: Path) -> None:
+        from vitruvio.kernel import read_state
+
+        count = 8
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(count)
+        state_home = os.environ["XDG_STATE_HOME"]
+        processes = [
+            context.Process(
+                target=_remember_brain_worker,
+                args=(state_home, f"project-{position}", str(tmp_path / f"brain-{position}"), barrier),
+            )
+            for position in range(count)
+        ]
+
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=15)
+
+        assert [process.exitcode for process in processes] == [0] * count
+        state = read_state()
+        assert set(state["selected"]) == {f"project-{position}" for position in range(count)}
+        assert set(state["known"]) == {str((tmp_path / f"brain-{position}").resolve()) for position in range(count)}
 
 
 class TestResolvedRepository:
