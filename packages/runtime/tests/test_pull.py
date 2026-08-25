@@ -159,9 +159,7 @@ class TestPull:
         assert "max_bytes" in row["reason"]
         assert source.fetches == 0
 
-    def test_a_plugin_cannot_bypass_the_limit_with_missing_or_inaccurate_metadata(
-        self, project: BrainService
-    ) -> None:
+    def test_a_plugin_cannot_bypass_the_limit_with_missing_or_inaccurate_metadata(self, project: BrainService) -> None:
         class PluginSource:
             fetches = 0
 
