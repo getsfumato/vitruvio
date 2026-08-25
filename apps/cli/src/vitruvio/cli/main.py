@@ -46,6 +46,11 @@ app = App(
 
 commands.register(app)
 
+# The meta app only owns global context options. Let the command app decide whether ``--version`` means the
+# program version or a command-local option: otherwise Cyclopts eagerly consumes ``update --version 1.2.3``
+# before the launcher can dispatch it. Plain ``vitruvio --version`` still reaches the root app below.
+app.meta.version_flags = []
+
 
 @app.meta.default
 def launcher(

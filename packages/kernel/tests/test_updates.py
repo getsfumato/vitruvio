@@ -53,6 +53,13 @@ class TestOrdering:
     def test_it_orders_releases_and_prereleases(self, candidate: str, than: str, expected: bool) -> None:
         assert updates.is_newer(candidate, than) is expected
 
+    @pytest.mark.parametrize(
+        ("candidate", "normalized"),
+        [("v1.2.3", "1.2.3"), ("1.2.3-rc.1", "1.2.3rc1"), ("not a version; echo no", None)],
+    )
+    def test_it_normalizes_only_real_versions(self, candidate: str, normalized: str | None) -> None:
+        assert updates.normalize_version(candidate) == normalized
+
 
 class TestTheCheck:
     def test_a_newer_release_is_available(self, monkeypatch: pytest.MonkeyPatch) -> None:

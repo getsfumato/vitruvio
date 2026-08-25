@@ -36,15 +36,15 @@ app = App(
     help="Check for a newer vitruvio, and install it.",
     result_action="return_value",
     exit_on_error=False,
+    # The root app owns `vitruvio --version`; inside this command the same spelling names the release to install.
+    # Without clearing the inherited eager flag, Cyclopts prints the running version and never dispatches here.
+    version_flags=[],
 )
 
 
-def _installer_command(version: str) -> list[str]:
+def _installer_command() -> list[str]:
     """
     The shell command that installs one version, as the website documents it.
-
-    Args:
-        version (str): The version to pin.
 
     Returns:
         list[str]: The argv to run.
@@ -61,9 +61,7 @@ def _installer_command(version: str) -> list[str]:
             "neither curl nor wget is available, so the installer cannot be fetched",
             hint=f"install one, or run it yourself: {updates.INSTALLER_URL}",
         )
-    # `VITRUVIO_VERSION` pins what was reported and agreed to. Without it the installer would resolve the
-    # latest itself, which is normally the same answer and is not the one the user was shown.
-    return ["sh", "-c", f"{fetch} | VITRUVIO_VERSION={version} sh"]
+    return ["sh", "-c", f"{fetch} | sh"]
 
 
 def _report(update: updates.Update, *, extra: list[tuple[str, Any]] | None = None) -> Any:
@@ -121,7 +119,15 @@ def update(
             view=_report(found),
         )
 
-    target = version or found.latest
+    if version is not None:
+        target = updates.normalize_version(version)
+        if target is None:
+            raise UsageError(
+                f"{version!r} is not a valid version",
+                hint="pass a PEP 440 version such as 1.2.3, 1.2.3rc1 or v1.2.3",
+            )
+    else:
+        target = found.latest
     assert target is not None
 
     if check:
@@ -140,8 +146,8 @@ def update(
             hint="the installer would replace the environment this is served from; use git in the checkout instead",
         )
 
-    argv = _installer_command(target)
-    console.note(f"installing {target} with: {argv[-1]}")
+    argv = _installer_command()
+    console.note(f"installing {target} with the official installer")
     if not yes:
         if not sys.stdin.isatty():
             raise UsageError(
@@ -159,7 +165,9 @@ def update(
     # Inherited streams, not captured: the installer reports its own progress on stderr, and swallowing it
     # would turn a multi-second download into a silent pause. `check=False` because its exit code is the
     # answer rather than an exception -- a failed install has a message worth reporting as itself.
-    completed = subprocess.run(argv, env={**os.environ}, check=False)
+    # The version is data, never shell source. Keeping it in the environment prevents an explicit `--version`
+    # from turning shell metacharacters into a second command while still pinning exactly what the user approved.
+    completed = subprocess.run(argv, env={**os.environ, "VITRUVIO_VERSION": target}, check=False)
     if completed.returncode != 0:
         raise VitruvioError(
             f"the installer exited {completed.returncode}; vitruvio was not updated",

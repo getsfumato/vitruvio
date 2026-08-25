@@ -117,18 +117,47 @@ class TestInstalling:
         assert payload["data"]["installed"] is False
         assert payload["data"]["reason"] == "already current"
 
-    def test_it_pins_the_version_it_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The installer resolves the latest itself when unpinned, which is normally the same answer and is
-        not the one the user agreed to."""
+    def test_the_installer_command_contains_no_version_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from vitruvio.cli.commands.update import _installer_command
 
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
 
-        argv = _installer_command("1.2.3")
+        argv = _installer_command()
 
         assert argv[0] == "sh"
-        assert "VITRUVIO_VERSION=1.2.3" in argv[-1]
         assert updates.INSTALLER_URL in argv[-1]
+        assert "VITRUVIO_VERSION" not in argv[-1]
+
+    def test_it_pins_a_normalized_version_through_the_environment(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, newer: str
+    ) -> None:
+        import subprocess
+
+        captured: dict[str, Any] = {}
+
+        def installed(argv: list[str], **kwargs: Any) -> Any:
+            captured["argv"] = argv
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(argv, 0)
+
+        monkeypatch.setattr(updates, "installed_from_source", lambda: False)
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/curl" if name == "curl" else None)
+        monkeypatch.setattr("subprocess.run", installed)
+
+        code, payload = envelope(capsys, "update", "--version", "v1.2.3", "--yes")
+
+        assert code == ExitCode.OK
+        assert payload["data"]["target"] == "1.2.3"
+        assert captured["env"]["VITRUVIO_VERSION"] == "1.2.3"
+        assert "1.2.3" not in " ".join(captured["argv"])
+
+    def test_shell_metacharacters_are_rejected_as_a_version(
+        self, capsys: pytest.CaptureFixture[str], newer: str
+    ) -> None:
+        code, payload = envelope(capsys, "update", "--version", "0.6.0; printf INJECTED", "--yes")
+
+        assert code == ExitCode.USAGE
+        assert "not a valid version" in payload["error"]["message"]
 
     def test_it_says_so_when_nothing_can_fetch_the_installer(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from vitruvio.cli.commands.update import _installer_command
@@ -137,7 +166,7 @@ class TestInstalling:
         monkeypatch.setattr("shutil.which", lambda name: None)
 
         with pytest.raises(VitruvioError, match="curl nor wget"):
-            _installer_command("1.2.3")
+            _installer_command()
 
 
 class TestTheNotice:
