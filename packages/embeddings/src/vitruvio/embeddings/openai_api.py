@@ -23,6 +23,7 @@ this vendor's failures. Nothing else.
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Sequence
 from typing import Any, ClassVar
@@ -150,7 +151,6 @@ class OpenAICompatibleEmbedder:
         self.timeout = timeout
         self.base_url = (spec.base_url or self.DEFAULT_BASE_URL).rstrip("/")
         self.batch = spec.batch or DEFAULT_BATCH
-        self._checked_width = False
 
         width = spec.dims or known_dimensions(spec.model)
         if width is None:
@@ -320,6 +320,8 @@ class OpenAICompatibleEmbedder:
         payload = self.request_body(texts)
         body = self._post(payload)
 
+        if not isinstance(body, dict):
+            raise RemoteEmbedderError(f"{self.PROVIDER} returned a JSON response that is not an object")
         items = body.get("data")
         if not isinstance(items, list) or len(items) != len(texts):
             raise RemoteEmbedderError(
@@ -331,9 +333,18 @@ class OpenAICompatibleEmbedder:
         # pairing text with the wrong vector produces an index that is wrong without ever looking broken.
         ordered: list[Vector | None] = [None] * len(texts)
         for item in items:
+            if not isinstance(item, dict):
+                raise RemoteEmbedderError(
+                    f"{self.PROVIDER} returned an embedding item that is not an object: {item!r}"
+                )
             position = item.get("index")
             raw = item.get("embedding")
-            if not isinstance(position, int) or not 0 <= position < len(texts) or not isinstance(raw, list):
+            if (
+                not isinstance(position, int)
+                or isinstance(position, bool)
+                or not 0 <= position < len(texts)
+                or not isinstance(raw, list)
+            ):
                 raise RemoteEmbedderError(f"{self.PROVIDER} returned an embedding vitruvio cannot place: {item!r}")
             ordered[position] = self._check(raw)
 
@@ -361,10 +372,7 @@ class OpenAICompatibleEmbedder:
 
     def _check(self, raw: list[Any]) -> Vector:
         """
-        Verify a vector's width against the tag, then normalize it.
-
-        The width is checked once per process rather than per vector: a provider that changed width mid-batch would
-        be a stranger failure than any this guards against, and checking every vector costs a comparison per block.
+        Verify a vector's width and values against the tag, then normalize it.
 
         Args:
             raw (list[Any]): The numbers the provider returned.
@@ -373,19 +381,36 @@ class OpenAICompatibleEmbedder:
             Vector: A unit vector.
 
         Raises:
-            RemoteEmbedderError: If the width is not the one the tag claims.
+            RemoteEmbedderError: If the vector is not finite, non-zero numeric data of the claimed width.
         """
-        if not self._checked_width:
-            if len(raw) != self._dimensions:
-                raise RemoteEmbedderError(
-                    f"{self.PROVIDER} returned {len(raw)}-wide vectors for {self.model!r} and the model tag says "
-                    f"{self._dimensions}. An index whose tag misstates its width is exactly what the tag exists to "
-                    f"prevent, so nothing was indexed. Set dims = {len(raw)} in [embedding.text]"
-                )
-            self._checked_width = True
-        return _normalize([float(value) for value in raw])
+        if len(raw) != self._dimensions:
+            raise RemoteEmbedderError(
+                f"{self.PROVIDER} returned {len(raw)}-wide vectors for {self.model!r} and the model tag says "
+                f"{self._dimensions}. An index whose tag misstates its width is exactly what the tag exists to "
+                f"prevent, so nothing was indexed. Set dims = {len(raw)} in [embedding.text]"
+            )
 
-    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if any(not isinstance(value, (int, float)) or isinstance(value, bool) for value in raw):
+            raise RemoteEmbedderError(
+                f"{self.PROVIDER} returned a vector for {self.model!r} containing a non-numeric component"
+            )
+        try:
+            values = [float(value) for value in raw]
+        except (OverflowError, ValueError) as error:
+            raise RemoteEmbedderError(
+                f"{self.PROVIDER} returned a vector for {self.model!r} that cannot be represented as floats"
+            ) from error
+        if any(not math.isfinite(value) for value in values):
+            raise RemoteEmbedderError(
+                f"{self.PROVIDER} returned a vector for {self.model!r} containing a non-finite component"
+            )
+        if not any(value != 0.0 for value in values):
+            raise RemoteEmbedderError(
+                f"{self.PROVIDER} returned an all-zero vector for {self.model!r}, which cannot be L2-normalized"
+            )
+        return _normalize(values)
+
+    def _post(self, payload: dict[str, Any]) -> Any:
         """
         Send one request, retrying what is worth retrying.
 
@@ -393,7 +418,7 @@ class OpenAICompatibleEmbedder:
             payload (dict[str, Any]): The request body.
 
         Returns:
-            dict[str, Any]: The parsed response.
+            Any: The parsed JSON response, whose shape is validated by :meth:`_embed_batch`.
 
         Raises:
             RemoteEmbedderError: If every attempt failed.
@@ -417,7 +442,7 @@ class OpenAICompatibleEmbedder:
 
             if response.status_code == 200:
                 try:
-                    parsed: dict[str, Any] = response.json()
+                    parsed: Any = response.json()
                 except ValueError as error:
                     raise RemoteEmbedderError(
                         f"{self.PROVIDER} answered 200 with something that is not JSON; is {self.base_url} the "
