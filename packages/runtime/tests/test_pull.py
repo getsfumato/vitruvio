@@ -139,6 +139,68 @@ class TestPull:
         assert by_title["vanishes.md"] == "failed"
         assert by_title["fourier.md"] == "registered"
 
+    def test_a_plugin_listing_over_the_limit_is_rejected_before_fetch(self, project: BrainService) -> None:
+        class PluginSource:
+            fetches = 0
+
+            def fetch(self, item: Item) -> bytes:
+                self.fetches += 1
+                return b"oversized"
+
+        source = PluginSource()
+        spec = SourceSpec(kind="plugin-test", max_bytes=4)
+        item = Item(id="large", origin="plugin://large", title="large", size=5)
+
+        row = project.source_ops.fetch._pull_one(
+            project.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False
+        )
+
+        assert row["outcome"] == "failed"
+        assert "max_bytes" in row["reason"]
+        assert source.fetches == 0
+
+    def test_a_plugin_cannot_bypass_the_limit_with_missing_or_inaccurate_metadata(
+        self, project: BrainService
+    ) -> None:
+        class PluginSource:
+            fetches = 0
+
+            def fetch(self, item: Item) -> bytes:
+                self.fetches += 1
+                return b"five!"
+
+        source = PluginSource()
+        spec = SourceSpec(kind="plugin-test", max_bytes=4)
+        before = project.state()["block_count"]
+
+        for item in (
+            Item(id="unknown", origin="plugin://unknown", title="unknown"),
+            Item(id="wrong", origin="plugin://wrong", title="wrong", size=1),
+        ):
+            row = project.source_ops.fetch._pull_one(
+                project.brain(Capability.WRITE), source, spec, item, dry_run=False, refetch=False
+            )
+            assert row["outcome"] == "failed"
+            assert "fetch returned 5 bytes" in row["reason"]
+
+        assert source.fetches == 2
+        assert project.state()["block_count"] == before
+
+    def test_a_plugin_item_exactly_at_the_limit_is_registered(self, project: BrainService) -> None:
+        class PluginSource:
+            def fetch(self, item: Item) -> bytes:
+                return b"four"
+
+        spec = SourceSpec(kind="plugin-test", max_bytes=4)
+        item = Item(id="exact", origin="plugin://exact", title="exact", size=4)
+
+        row = project.source_ops.fetch._pull_one(
+            project.brain(Capability.WRITE), PluginSource(), spec, item, dry_run=False, refetch=False
+        )
+
+        assert row["outcome"] == "registered"
+        assert row["size"] == 4
+
     def test_changing_the_media_type_reregisters_rather_than_skipping(
         self, project: BrainService, tmp_path: Path
     ) -> None:
