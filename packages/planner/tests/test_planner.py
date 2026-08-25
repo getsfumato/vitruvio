@@ -279,7 +279,7 @@ class TestExecutorMasks:
             intent=classify("fourier"),
             capabilities=Capabilities(available={}, usable={}),
         )
-        executor._index = lambda _module, kind: index if kind is IndexKind.VECTOR else None  # type: ignore[method-assign]
+        executor._index = lambda _module, kind: index if kind is IndexKind.VECTOR else None  # type: ignore[assignment,method-assign]
         monkeypatch.setattr(executor, "_mask", lambda _module: (identities[2],))
         node = SimpleNamespace(op=Op.VECTOR_SEARCH, parameters={})
 

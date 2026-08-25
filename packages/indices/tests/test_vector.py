@@ -324,12 +324,8 @@ class TestVectorIndex:
         index = an_index()
         identities = [f"sha256:{position:064x}" for position in range(5)]
         scores = [1.0, 0.9, 0.8, 0.7, 0.6]
-        index._rows = {
-            key: (identity, "text", 0, None, b"") for key, identity in enumerate(identities)
-        }
-        index._vectors = {
-            key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)
-        }
+        index._rows = {key: (identity, "text", 0, None, b"") for key, identity in enumerate(identities)}
+        index._vectors = {key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)}
         index._table = type(index._table)(identities)
         allow = index.ordinals_for([identities[-1]])
 
@@ -342,12 +338,8 @@ class TestVectorIndex:
         identities = [f"sha256:{position:064x}" for position in range(3)]
         owners = [identities[0]] * 8 + identities[1:]
         scores = [1.0 - position * 0.04 for position in range(len(owners))]
-        index._rows = {
-            key: (identity, "text", key, None, b"") for key, identity in enumerate(owners)
-        }
-        index._vectors = {
-            key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)
-        }
+        index._rows = {key: (identity, "text", key, None, b"") for key, identity in enumerate(owners)}
+        index._vectors = {key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)}
         index._table = type(index._table)(identities)
 
         found = index.lookup(VectorQuery(vector=(1.0, 0.0), exact=True), limit=3)
@@ -369,12 +361,8 @@ class TestVectorIndex:
         identities = [f"sha256:{position:064x}" for position in range(3)]
         owners = [identities[0]] * 8 + identities[1:]
         scores = [1.0 - position * 0.04 for position in range(len(owners))]
-        index._rows = {
-            key: (identity, "text", key, None, b"") for key, identity in enumerate(owners)
-        }
-        index._vectors = {
-            key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)
-        }
+        index._rows = {key: (identity, "text", key, None, b"") for key, identity in enumerate(owners)}
+        index._vectors = {key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)}
         index._table = type(index._table)(identities)
         probes: list[int] = []
 
