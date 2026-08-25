@@ -238,7 +238,7 @@ class BrowsingOps:
         with translated():
             return brain.store.get_bytes(OciDigest.parse(digest))
 
-    def export_content(self, digest: str, destination: Path) -> dict[str, Any]:
+    def export_content(self, digest: str, destination: Path, *, overwrite: bool = True) -> dict[str, Any]:
         """
         Write the bytes a block names to a file.
 
@@ -249,6 +249,8 @@ class BrowsingOps:
         Args:
             digest (str): The content address.
             destination (Path): Where to write. A directory is written into, under the digest's hex.
+            overwrite (bool): Whether an existing target may be replaced. Defaults to ``True`` for explicit
+                command-line exports; callers that derive a destination should disable it.
 
         Returns:
             dict[str, Any]: The digest, the path written, and how many bytes it holds.
@@ -258,7 +260,8 @@ class BrowsingOps:
         if destination.is_dir():
             target = destination / digest.replace(":", "-")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        with target.open("wb" if overwrite else "xb") as exported:
+            exported.write(data)
         return {"digest": digest, "path": str(target), "size": len(data)}
 
     def related(self, block_id: str, *, limit: int = 50) -> dict[str, Any]:

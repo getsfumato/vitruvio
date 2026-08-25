@@ -841,7 +841,15 @@ class BrainBrowser(App[None]):
 
         target = Path.cwd() / desktop.filename(name, blob, media_type)
         try:
-            result = self.opened.export_content(blob, target)
+            result = self.opened.export_content(blob, target, overwrite=False)
+        except FileExistsError:
+            self.call_from_thread(
+                self.notify,
+                f"not exported: {target} already exists",
+                severity="warning",
+                timeout=10,
+            )
+            return
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
