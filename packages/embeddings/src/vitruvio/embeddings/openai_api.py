@@ -334,9 +334,7 @@ class OpenAICompatibleEmbedder:
         ordered: list[Vector | None] = [None] * len(texts)
         for item in items:
             if not isinstance(item, dict):
-                raise RemoteEmbedderError(
-                    f"{self.PROVIDER} returned an embedding item that is not an object: {item!r}"
-                )
+                raise RemoteEmbedderError(f"{self.PROVIDER} returned an embedding item that is not an object: {item!r}")
             position = item.get("index")
             raw = item.get("embedding")
             if (
