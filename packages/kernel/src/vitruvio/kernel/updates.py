@@ -119,6 +119,16 @@ def is_newer(candidate: str, than: str) -> bool:
         return False
 
 
+def normalize_version(candidate: str) -> str | None:
+    """Return a canonical PEP 440 version, or ``None`` when the input is not a version."""
+    from packaging.version import InvalidVersion, Version
+
+    try:
+        return str(Version(candidate))
+    except InvalidVersion:
+        return None
+
+
 def _resolved(latest: object, *, checked: bool = False) -> Update:
     """
     An :class:`Update` from whatever a cache or a response yielded.
