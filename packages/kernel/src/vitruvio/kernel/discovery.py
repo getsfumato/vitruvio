@@ -128,6 +128,7 @@ def forget_project(name: str) -> bool:
     Returns:
         bool: Whether there was such an entry.
     """
+
     def forget(state: dict[str, Any]) -> tuple[bool, bool]:
         table = state.get(PROJECTS_KEY)
         projects = dict(table) if isinstance(table, dict) else {}
