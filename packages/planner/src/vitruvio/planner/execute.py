@@ -333,12 +333,18 @@ class Executor:
 
         from vitruvio.indices import VectorQuery
 
+        mask = self._mask(module)
+        # Each index owns its ordinal numbering. Keep the mask as identities until this boundary, preserving the
+        # distinction between no usable pre-filter (``None``) and a filter that admits nothing (an empty set).
+        allow = index.ordinals_for(mask) if mask is not None else None
+
         try:
             results = index.search(
                 VectorQuery(
                     text=self.query.text,
                     exact=node.op is Op.BRUTE_VECTOR,
                     effort=int(node.parameters.get("effort", 64)),
+                    allow=allow,
                 ),
                 limit=limit,
             )

@@ -320,6 +320,77 @@ class TestVectorIndex:
         masked = index.lookup(VectorQuery(text="fourier", allow=frozenset({0})), limit=10)
         assert len(masked) < len(everything)
 
+    def test_exact_search_ranks_the_allowed_domain_before_truncating(self) -> None:
+        index = an_index()
+        identities = [f"sha256:{position:064x}" for position in range(5)]
+        scores = [1.0, 0.9, 0.8, 0.7, 0.6]
+        index._rows = {
+            key: (identity, "text", 0, None, b"") for key, identity in enumerate(identities)
+        }
+        index._vectors = {
+            key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)
+        }
+        index._table = type(index._table)(identities)
+        allow = index.ordinals_for([identities[-1]])
+
+        found = index.lookup(VectorQuery(vector=(1.0, 0.0), exact=True, allow=allow), limit=1)
+
+        assert [identity for identity, *_ in found] == [identities[-1]]
+
+    def test_exact_search_groups_chunks_before_block_top_k(self) -> None:
+        index = an_index()
+        identities = [f"sha256:{position:064x}" for position in range(3)]
+        owners = [identities[0]] * 8 + identities[1:]
+        scores = [1.0 - position * 0.04 for position in range(len(owners))]
+        index._rows = {
+            key: (identity, "text", key, None, b"") for key, identity in enumerate(owners)
+        }
+        index._vectors = {
+            key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)
+        }
+        index._table = type(index._table)(identities)
+
+        found = index.lookup(VectorQuery(vector=(1.0, 0.0), exact=True), limit=3)
+
+        assert [identity for identity, *_ in found] == identities
+
+    def test_an_empty_mask_returns_before_embedding(self) -> None:
+        class Exploding(FakeEmbedder):
+            def embed_text(self, texts, *, role=None):
+                raise AssertionError("an empty domain needs no probe")
+
+        index = VectorIndex(MemoryType.SEMANTIC, embedder=Exploding(dimensions=2))
+        assert index.lookup(VectorQuery(text="fourier", allow=frozenset()), limit=10) == []
+
+    def test_approximate_search_expands_until_distinct_allowed_blocks_survive(self) -> None:
+        from types import SimpleNamespace
+
+        index = an_index()
+        identities = [f"sha256:{position:064x}" for position in range(3)]
+        owners = [identities[0]] * 8 + identities[1:]
+        scores = [1.0 - position * 0.04 for position in range(len(owners))]
+        index._rows = {
+            key: (identity, "text", key, None, b"") for key, identity in enumerate(owners)
+        }
+        index._vectors = {
+            key: (score, (1.0 - score * score) ** 0.5) for key, score in enumerate(scores)
+        }
+        index._table = type(index._table)(identities)
+        probes: list[int] = []
+
+        class Engine:
+            def search(self, _probe: Any, limit: int) -> Any:
+                probes.append(limit)
+                return SimpleNamespace(keys=list(range(min(limit, len(owners)))))
+
+        index._engines = {"text": Engine()}
+        allow = index.ordinals_for(identities[1:])
+
+        found = index.lookup(VectorQuery(vector=(1.0, 0.0), allow=allow), limit=2)
+
+        assert [identity for identity, *_ in found] == identities[1:]
+        assert probes == [8, 10]
+
     def test_exact_and_approximate_agree_on_a_small_space(
         self, semantic_blocks: list[SemanticBlock], content: MemoryContent
     ) -> None:

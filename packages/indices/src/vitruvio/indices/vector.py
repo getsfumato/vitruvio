@@ -545,6 +545,9 @@ class VectorIndex(VitruvioIndex):
         Raises:
             EmbedderUnavailableError: If a probe vector is needed and cannot be made.
         """
+        if limit <= 0 or query.allow == frozenset():
+            return []
+
         probe: Vector
         if query.vector is not None:
             probe = query.vector
@@ -553,27 +556,46 @@ class VectorIndex(VitruvioIndex):
         else:
             return []
 
-        pool = max(limit * OVERSAMPLE, limit)
-        keys = (
-            self._exact_search(query.space, probe, pool)
-            if query.exact or not self._engines.get(query.space)
-            else self._approximate_search(query.space, probe, pool, query.effort)
-        )
-
         allowed = set(query.allow) if query.allow is not None else None
         best: dict[str, tuple[float, int, tuple[int, int] | None]] = {}
-        for key in keys:
-            row = self._rows.get(key)
-            if row is None:
-                continue
-            block_id, _, position, span, _ = row
-            if allowed is not None and (self._table.ordinal(block_id) not in allowed):
-                continue
-            vector = self._vectors[key]
-            score = max(0.0, sum(a * b for a, b in zip(probe, vector, strict=False)))
-            held = best.get(block_id)
-            if held is None or score > held[0]:
-                best[block_id] = (score, position, span)
+
+        def collect(keys: Sequence[int]) -> None:
+            """Fold candidate chunks into their owning block, after applying the block mask."""
+            for key in keys:
+                row = self._rows.get(key)
+                if row is None:
+                    continue
+                block_id, _, position, span, _ = row
+                if allowed is not None and (self._table.ordinal(block_id) not in allowed):
+                    continue
+                vector = self._vectors[key]
+                score = max(0.0, sum(a * b for a, b in zip(probe, vector, strict=True)))
+                held = best.get(block_id)
+                if held is None or score > held[0]:
+                    best[block_id] = (score, position, span)
+
+        engine = self._engines.get(query.space)
+        if query.exact or engine is None:
+            # Exact means exact over the *allowed block domain*. Truncating chunks first loses masked blocks and lets
+            # many passages from one document consume slots that belong to distinct results.
+            collect([key for key, row in self._rows.items() if row[1] == query.space])
+        elif self._rows:
+            # An HNSW mask is not available through usearch's public search surface, so grow the candidate pool until
+            # enough distinct allowed blocks survive or the whole vector space has been considered. This keeps the
+            # common probe small while making selective masks and multi-chunk documents complete up to ``limit``.
+            # The total row count is a cheap upper bound when more than one space exists. The engine returning fewer
+            # keys than requested is the exact exhaustion signal, so no O(n) pass is added to the approximate path.
+            ceiling = len(self._rows)
+            pool = min(ceiling, max(limit * OVERSAMPLE, limit))
+            seen: set[int] = set()
+            while True:
+                keys = self._approximate_search(query.space, probe, pool, query.effort)
+                fresh = [key for key in keys if key not in seen]
+                seen.update(fresh)
+                collect(fresh)
+                if len(best) >= limit or pool >= ceiling or len(keys) < pool:
+                    break
+                pool = min(ceiling, pool * 2)
 
         ordered = sorted(best.items(), key=lambda item: (-item[1][0], item[0]))
         return [(block_id, score, position, span) for block_id, (score, position, span) in ordered[:limit]]
