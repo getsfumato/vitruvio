@@ -179,11 +179,7 @@ class TestApiProposers:
 
         response = httpx.Response(
             200,
-            json={
-                "choices": [
-                    {"finish_reason": "stop", "message": {"refusal": "I cannot extract this document."}}
-                ]
-            },
+            json={"choices": [{"finish_reason": "stop", "message": {"refusal": "I cannot extract this document."}}]},
             request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
         )
         monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: response)
@@ -192,9 +188,7 @@ class TestApiProposers:
             OpenAIProposer(api_key="test")(a_task(), DOCUMENT)
         assert "revise the source" in (caught.value.hint or "")
 
-    def test_an_invalid_openai_candidate_is_translated_to_vitruvio_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_an_invalid_openai_candidate_is_translated_to_vitruvio_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
         invalid = {
@@ -210,11 +204,7 @@ class TestApiProposers:
         }
         response = httpx.Response(
             200,
-            json={
-                "choices": [
-                    {"finish_reason": "stop", "message": {"content": json.dumps(invalid), "refusal": None}}
-                ]
-            },
+            json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(invalid), "refusal": None}}]},
             request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
         )
         monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: response)
