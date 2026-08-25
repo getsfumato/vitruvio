@@ -99,6 +99,20 @@ class TestWidth:
         with pytest.raises(RemoteEmbedderError, match="dims = 1024"):
             embedder.embed_text(["hola"])
 
+    def test_every_vector_in_a_batch_is_checked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        embedder = ollama(dims=2)
+        monkeypatch.setattr(httpx, "post", Recorder(reply([[1.0, 0.0], [1.0, 0.0, 0.0]])))
+
+        with pytest.raises(RemoteEmbedderError, match="3-wide"):
+            embedder.embed_text(["bien", "mal"])
+
+    def test_every_later_batch_is_checked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        embedder = ollama(dims=2, batch=1)
+        monkeypatch.setattr(httpx, "post", Recorder(reply([[1.0, 0.0]]), reply([[1.0]])))
+
+        with pytest.raises(RemoteEmbedderError, match="1-wide"):
+            embedder.embed_text(["primero", "despues"])
+
 
 class TestOrdering:
     def test_vectors_are_placed_by_index_not_zipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -167,6 +181,38 @@ class TestVectors:
         monkeypatch.setattr(httpx, "post", Recorder(reply([[3.0, 4.0]])))
         (vector,) = embedder.embed_text(["hola"])
         assert sum(value * value for value in vector) == pytest.approx(1.0)
+
+    @pytest.mark.parametrize(
+        ("vector", "message"),
+        [
+            ([1.0, None], "non-numeric"),
+            ([1.0, "2"], "non-numeric"),
+            ([1.0, True], "non-numeric"),
+            ([1.0, float("nan")], "non-finite"),
+            ([1.0, float("inf")], "non-finite"),
+            ([0.0, 0.0], "all-zero"),
+        ],
+    )
+    def test_unusable_components_are_refused(
+        self, monkeypatch: pytest.MonkeyPatch, vector: list[Any], message: str
+    ) -> None:
+        embedder = ollama(dims=2)
+        monkeypatch.setattr(embedder, "_post", lambda _payload: {"data": [{"index": 0, "embedding": vector}]})
+
+        with pytest.raises(RemoteEmbedderError, match=message):
+            embedder.embed_text(["hola"])
+
+    def test_a_non_object_item_is_reported_as_a_remote_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        embedder = ollama(dims=2)
+        broken = httpx.Response(
+            200,
+            json={"data": [None]},
+            request=httpx.Request("POST", "http://test"),
+        )
+        monkeypatch.setattr(httpx, "post", Recorder(broken))
+
+        with pytest.raises(RemoteEmbedderError, match="not an object"):
+            embedder.embed_text(["hola"])
 
     def test_an_image_is_refused_rather_than_hashed_into_something_rankable(self) -> None:
         from vitruvio.embeddings import ImageInput
