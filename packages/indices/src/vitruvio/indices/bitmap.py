@@ -56,7 +56,7 @@ class BitmapIndex(VitruvioIndex):
 
     KIND: ClassVar[IndexKind] = IndexKind.BITMAP
     REBUILDABLE: ClassVar[bool] = True
-    BODY_VERSION: ClassVar[int] = 1
+    BODY_VERSION: ClassVar[int] = 2
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Build the index, choosing an engine once."""
@@ -73,6 +73,8 @@ class BitmapIndex(VitruvioIndex):
         self._facets: dict[str, dict[str, set[int]]] = {}
         self._unindexed: set[str] = set()
         self._null_counts: dict[str, int] = {}
+        self._populated_counts: dict[str, int] = {}
+        self._total_values: dict[str, int] = {}
 
     def _apply(self, projection: Projection) -> None:
         """Record this block's facet values."""
@@ -88,6 +90,8 @@ class BitmapIndex(VitruvioIndex):
                 # selectivity estimate correct rather than optimistic.
                 self._null_counts[facet.value] = self._null_counts.get(facet.value, 0) + 1
                 continue
+            self._populated_counts[facet.value] = self._populated_counts.get(facet.value, 0) + 1
+            self._total_values[facet.value] = self._total_values.get(facet.value, 0) + len(values)
             for value in values:
                 key = fold(value)
                 if key not in table and len(table) >= MAX_DISTINCT_PER_FACET:
@@ -119,7 +123,8 @@ class BitmapIndex(VitruvioIndex):
             columns[name] = ColumnStats(
                 distinct=len(table),
                 null_count=self._null_counts.get(name, 0),
-                total_values=sum(count for _, count in counted),
+                populated_count=self._populated_counts.get(name, 0),
+                total_values=self._total_values.get(name, 0),
                 top=tuple(counted[:TOP_VALUES]),
                 truncated=len(table) > TOP_VALUES or name in self._unindexed,
             )
@@ -147,6 +152,8 @@ class BitmapIndex(VitruvioIndex):
             },
             "unindexed": sorted(self._unindexed),
             "null_counts": dict(sorted(self._null_counts.items())),
+            "populated_counts": dict(sorted(self._populated_counts.items())),
+            "total_values": dict(sorted(self._total_values.items())),
         }
 
     def _load_body(self, body: dict[str, Any]) -> None:
@@ -156,6 +163,8 @@ class BitmapIndex(VitruvioIndex):
             self._facets[name] = {value: set(ordinals) for value, ordinals in table.items()}
         self._unindexed = set(body.get("unindexed", []))
         self._null_counts = dict(body.get("null_counts", {}))
+        self._populated_counts = dict(body.get("populated_counts", {}))
+        self._total_values = dict(body.get("total_values", {}))
 
     # --- Query ----------------------------------------------------------------
 

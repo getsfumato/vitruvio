@@ -30,7 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CATALOG_SCHEMA = 1
+CATALOG_SCHEMA = 2
 """Bumped when a statistic's meaning changes. A fragment from an older schema is stale, not wrong."""
 
 HISTOGRAM_BUCKETS = 32
@@ -159,6 +159,7 @@ class ColumnStats(BaseModel):
     Attributes:
         distinct (int): Distinct values seen.
         null_count (int): Blocks where the field is absent or empty.
+        populated_count (int): Blocks where the field has at least one value.
         total_values (int): Sum of list lengths, for multi-valued fields like tags.
         top (tuple[tuple[str, int], ...]): The most frequent values and their counts.
         truncated (bool): Whether ``distinct`` exceeded the cap, so ``top`` covers less of the domain.
@@ -168,15 +169,17 @@ class ColumnStats(BaseModel):
 
     distinct: int = 0
     null_count: int = 0
+    populated_count: int = 0
     total_values: int = 0
     top: tuple[tuple[str, int], ...] = ()
     truncated: bool = False
 
     @property
     def average_values(self) -> float:
-        """Mean values per block that has any. One for a scalar field, more for tags."""
-        populated = max(1, self.total_values and self.distinct and (self.total_values // max(1, self.distinct)))
-        return self.total_values / max(1, populated)
+        """Mean values per populated block, excluding blocks where the field is absent or empty."""
+        if self.populated_count == 0:
+            return 0.0
+        return self.total_values / self.populated_count
 
     def selectivity(self, value: str, cardinality: int) -> Estimate:
         """

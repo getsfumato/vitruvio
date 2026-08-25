@@ -325,12 +325,32 @@ class TestBitmapIndex:
         assert index.filter(query) is None
         assert index.estimate(query).exact is False
         assert "subject" not in index.capability().facets
+        stats = index.fragment().columns["subject"]
+        assert stats.populated_count == len(blocks)
+        assert stats.total_values == len(blocks)
+        assert stats.average_values == 1.0
 
     def test_a_value_that_does_not_occur_is_exactly_zero(self, index: BitmapIndex) -> None:
         """And knowing that lets the planner prune a whole subplan before running a generator."""
         stats = index.fragment().columns["subject"]
         assert stats.selectivity("optica", 4).rows == 0
         assert stats.selectivity("optica", 4).exact is True
+
+    def test_a_scalar_facet_averages_one_value_per_populated_block(self, index: BitmapIndex) -> None:
+        stats = index.fragment().columns["subject"]
+        assert stats.distinct == 2
+        assert stats.populated_count == 4
+        assert stats.average_values == 1.0
+
+    def test_a_multi_valued_facet_averages_over_populated_blocks(
+        self, episodic_blocks: list[EpisodicBlock], content: MemoryContent
+    ) -> None:
+        index = BitmapIndex(MemoryType.EPISODIC)
+        index.build(episodic_blocks, content)
+        stats = index.fragment().columns["tag"]
+        assert stats.populated_count == 3
+        assert stats.total_values == 6
+        assert stats.average_values == 2.0
 
     def test_facet_counts_are_reported_for_every_value(self, index: BitmapIndex) -> None:
         assert index.values(Facet.SUBJECT) == {"control": 1, "senales": 3}
@@ -483,6 +503,19 @@ class TestPersistence:
         assert second.bound_root == first.bound_root
         query = FacetQuery(clauses=(FacetClause(Facet.SUBJECT, ("senales",)),))
         assert second.filter(query) == first.filter(query)
+        assert second.fragment().columns["subject"] == first.fragment().columns["subject"]
+
+    def test_a_bitmap_body_without_the_new_counters_is_left_for_rebuild(
+        self, tmp_path: Path, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        old = BitmapIndex(MemoryType.SEMANTIC)
+        old.build(semantic_blocks, content)
+        header = old.header().model_copy(update={"body_version": BitmapIndex.BODY_VERSION - 1})
+        (tmp_path / "semantic.bitmap.vidx").write_bytes(envelope.encode(header, old._dump_body()))
+
+        loaded = BitmapIndex(MemoryType.SEMANTIC, tmp_path)
+        assert loaded.population == 0
+        assert loaded.capability().state == "empty"
 
     def test_the_bytes_depend_only_on_the_block_set(
         self, tmp_path: Path, semantic_blocks: list[SemanticBlock], content: MemoryContent
