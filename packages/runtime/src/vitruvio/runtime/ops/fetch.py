@@ -98,8 +98,10 @@ class FetchOps:
                         "block": held["block"],
                     }
 
-        if dry_run:
-            return {**row, "outcome": "would-fetch"}
+        cap = spec.max_bytes
+        preflight = self._preflight(row, item.size, cap, dry_run=dry_run)
+        if preflight is not None:
+            return preflight
 
         try:
             fetched = source.fetch(item)
@@ -119,15 +121,34 @@ class FetchOps:
         else:
             data = fetched
 
-        guarded = self._tombstoned(brain, data)
-        if guarded is not None:
-            return {**row, "outcome": "skipped", "reason": guarded}
+        refused = self._content_refusal(brain, data, cap)
+        if refused is not None:
+            outcome, reason = refused
+            return {**row, "outcome": outcome, "reason": reason}
 
         try:
             result = self._register_bytes(brain, data, media_type=media_type, origin=item.origin, spec=spec)
         except VitruvioError as error:
             return {**row, "outcome": "failed", "reason": str(error)}
         return {**row, **result}
+
+    @staticmethod
+    def _preflight(row: dict[str, Any], size: int | None, cap: int | None, *, dry_run: bool) -> dict[str, Any] | None:
+        """Refuse a declared oversize before acquisition, or report a safe dry run."""
+        if cap is not None and size is not None and size > cap:
+            return {
+                **row,
+                "outcome": "failed",
+                "reason": f"listing declares {size} bytes, over the source max_bytes ({cap})",
+            }
+        return {**row, "outcome": "would-fetch"} if dry_run else None
+
+    def _content_refusal(self, brain: Brain, data: bytes, cap: int | None) -> tuple[str, str] | None:
+        """The two fetched byte sequences that must not reach registration."""
+        if cap is not None and len(data) > cap:
+            return "failed", f"fetch returned {len(data)} bytes, over the source max_bytes ({cap})"
+        guarded = self._tombstoned(brain, data)
+        return ("skipped", guarded) if guarded is not None else None
 
     def _register_bytes(
         self,
