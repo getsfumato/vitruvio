@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-indices"
-version = "0.6.3"
+version = "0.6.4"
 description = "Index engines for the Boltzmann protocol: six kinds behind one Index seam"
 readme = "README.md"
 license = {text = "MIT"}
