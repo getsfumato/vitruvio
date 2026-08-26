@@ -255,6 +255,38 @@ class TestExecutorMasks:
         monkeypatch.setattr(executor, "_mask", mask)
         assert executor._filter_federated_hits([(episodic_id, 0.8)], {}) == [(episodic_id, 0.8)]
 
+    def test_semantic_search_translates_and_passes_the_active_mask(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from boltzmann.indices.base import IndexKind
+
+        from vitruvio.embeddings import FakeEmbedder
+        from vitruvio.indices import VectorIndex
+
+        identities = tuple(f"sha256:{position:064x}" for position in range(3))
+        index = VectorIndex(MemoryType.SEMANTIC, embedder=FakeEmbedder(dimensions=2))
+        index._table = type(index._table)(identities)
+        received: list[Any] = []
+
+        def search(query: Any, limit: int) -> list[Any]:
+            received.append(query)
+            return []
+
+        monkeypatch.setattr(index, "search", search)
+        module = cast(Any, SimpleNamespace(memory_type=MemoryType.SEMANTIC))
+        executor = Executor(
+            planner=CostBasedPlanner(PlannerConfig()),
+            modules={MemoryType.SEMANTIC: module},
+            query=a_query(),
+            intent=classify("fourier"),
+            capabilities=Capabilities(available={}, usable={}),
+        )
+        executor._index = lambda _module, kind: index if kind is IndexKind.VECTOR else None  # type: ignore[assignment,method-assign]
+        monkeypatch.setattr(executor, "_mask", lambda _module: (identities[2],))
+        node = SimpleNamespace(op=Op.VECTOR_SEARCH, parameters={})
+
+        executor._semantic(module, node, 10)
+
+        assert received[0].allow == index.ordinals_for([identities[2]])
+
 
 class TestGraphExpansionTruncation:
     """`truncated` is the only flag that says "there may be more", and a graph expansion has two ways to hide some."""
