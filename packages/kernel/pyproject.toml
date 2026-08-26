@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-kernel"
-version = "0.6.4"
+version = "0.6.5"
 description = "Configuration, brain discovery, identity and errors for the vitruvio runtime"
 readme = "README.md"
 license = {text = "MIT"}
