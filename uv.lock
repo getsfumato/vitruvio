@@ -3644,6 +3644,7 @@ name = "vitruvio-kernel"
 version = "0.6.3"
 source = { editable = "packages/kernel" }
 dependencies = [
+    { name = "filelock" },
     { name = "packaging" },
     { name = "pyboltzmann" },
     { name = "pydantic" },
@@ -3652,6 +3653,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "filelock", specifier = ">=3.13.0" },
     { name = "packaging", specifier = ">=23.0" },
     { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },

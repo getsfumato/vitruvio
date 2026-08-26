@@ -45,9 +45,11 @@ of an actor that was configured all along. The working directory still wins when
 from __future__ import annotations
 
 import os
+import tempfile
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import tomli_w
 from boltzmann.blocks.provenance import ActorKind
@@ -73,6 +75,8 @@ machine-local convenience from becoming a second, unversioned place a project ca
 
 SELECTED_KEY = "selected"
 """The state-file table mapping a project to the brain ``brain use`` last chose *within it*."""
+
+T = TypeVar("T")
 
 
 def known_projects() -> dict[str, Path]:
@@ -101,12 +105,17 @@ def register_project(name: str, config_file: Path) -> Path:
     Returns:
         Path: The state file that was written.
     """
-    state = read_state()
-    table = state.get(PROJECTS_KEY)
-    projects = dict(table) if isinstance(table, dict) else {}
-    projects[name] = str(config_file.expanduser().resolve())
-    state[PROJECTS_KEY] = projects
-    return write_state(state)
+    resolved = str(config_file.expanduser().resolve())
+
+    def register(state: dict[str, Any]) -> tuple[None, bool]:
+        table = state.get(PROJECTS_KEY)
+        projects = dict(table) if isinstance(table, dict) else {}
+        projects[name] = resolved
+        state[PROJECTS_KEY] = projects
+        return None, True
+
+    _, path = _mutate_state(register)
+    return path
 
 
 def forget_project(name: str) -> bool:
@@ -119,15 +128,18 @@ def forget_project(name: str) -> bool:
     Returns:
         bool: Whether there was such an entry.
     """
-    state = read_state()
-    table = state.get(PROJECTS_KEY)
-    projects = dict(table) if isinstance(table, dict) else {}
-    if name not in projects:
-        return False
-    del projects[name]
-    state[PROJECTS_KEY] = projects
-    write_state(state)
-    return True
+
+    def forget(state: dict[str, Any]) -> tuple[bool, bool]:
+        table = state.get(PROJECTS_KEY)
+        projects = dict(table) if isinstance(table, dict) else {}
+        if name not in projects:
+            return False, False
+        del projects[name]
+        state[PROJECTS_KEY] = projects
+        return True, True
+
+    removed, _ = _mutate_state(forget)
+    return removed
 
 
 def project_config_file(name: str) -> Path:
@@ -255,6 +267,16 @@ def load_project(path: Path | None) -> ProjectConfig:
         raise ConfigError(f"{path} does not match the vitruvio schema -- {details}") from error
 
 
+def _read_state_file(path: Path) -> dict[str, Any]:
+    """Read one state path without taking its transaction lock."""
+    if not path.is_file():
+        return {}
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
 def read_state() -> dict[str, Any]:
     """
     Read the XDG state file, tolerating its absence.
@@ -266,13 +288,40 @@ def read_state() -> dict[str, Any]:
     Returns:
         dict[str, Any]: The parsed state, or an empty mapping.
     """
-    path = state_file()
-    if not path.is_file():
-        return {}
+    return _read_state_file(state_file())
+
+
+def _write_state_file(path: Path, state: dict[str, Any]) -> None:
+    """Atomically replace one state path using a temporary file unique to this writer."""
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(temporary_name)
     try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(tomli_w.dumps(state).encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _state_lock(path: Path) -> Any:
+    """Build the inter-process lock without adding filelock's import cost to read-only CLI commands."""
+    from filelock import FileLock
+
+    return FileLock(str(path.with_name(f"{path.name}.lock")))
+
+
+def _mutate_state(mutate: Callable[[dict[str, Any]], tuple[T, bool]]) -> tuple[T, Path]:
+    """Run one read-modify-write transaction under the machine-wide state lock."""
+    path = state_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _state_lock(path):
+        state = _read_state_file(path)
+        result, changed = mutate(state)
+        if changed:
+            _write_state_file(path, state)
+    return result, path
 
 
 def write_state(state: dict[str, Any]) -> Path:
@@ -287,9 +336,8 @@ def write_state(state: dict[str, Any]) -> Path:
     """
     path = state_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".toml.tmp")
-    temporary.write_bytes(tomli_w.dumps(state).encode("utf-8"))
-    temporary.replace(path)
+    with _state_lock(path):
+        _write_state_file(path, state)
     return path
 
 
@@ -312,10 +360,14 @@ def note_brain(brain: Path) -> Path:
         Path: The state file that was written.
     """
     resolved = str(brain.resolve())
-    state = read_state()
-    known = [item for item in state.get("known", []) if item != resolved]
-    state["known"] = [resolved, *known][:20]
-    return write_state(state)
+
+    def note(state: dict[str, Any]) -> tuple[None, bool]:
+        known = [item for item in state.get("known", []) if item != resolved]
+        state["known"] = [resolved, *known][:20]
+        return None, True
+
+    _, path = _mutate_state(note)
+    return path
 
 
 def remember_brain(brain: Path, *, project: str | None = None, name: str | None = None) -> Path:
@@ -338,20 +390,24 @@ def remember_brain(brain: Path, *, project: str | None = None, name: str | None 
         Path: The state file that was written.
     """
     resolved = str(brain.resolve())
-    state = read_state()
-    known = [item for item in state.get("known", []) if item != resolved]
-    # Kept regardless of scope: `known` is a most-recently-seen list for `brain list`, not a selection, and
-    # a brain being *interesting* is machine-wide even when choosing it is not.
-    state["known"] = [resolved, *known][:20]
 
-    if project and name:
-        table = state.get(SELECTED_KEY)
-        selected = dict(table) if isinstance(table, dict) else {}
-        selected[project] = name
-        state[SELECTED_KEY] = selected
-    else:
-        state["current"] = resolved
-    return write_state(state)
+    def remember(state: dict[str, Any]) -> tuple[None, bool]:
+        known = [item for item in state.get("known", []) if item != resolved]
+        # Kept regardless of scope: `known` is a most-recently-seen list for `brain list`, not a selection, and
+        # a brain being *interesting* is machine-wide even when choosing it is not.
+        state["known"] = [resolved, *known][:20]
+
+        if project and name:
+            table = state.get(SELECTED_KEY)
+            selected = dict(table) if isinstance(table, dict) else {}
+            selected[project] = name
+            state[SELECTED_KEY] = selected
+        else:
+            state["current"] = resolved
+        return None, True
+
+    _, path = _mutate_state(remember)
+    return path
 
 
 def selection_key(project: ProjectConfig) -> str | None:
