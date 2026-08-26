@@ -105,6 +105,19 @@ class TestContent:
         assert result["path"] == str(target)
         assert result["size"] == len(source_file.read_bytes())
 
+    def test_export_can_atomically_refuse_to_replace_an_existing_file(
+        self, service: BrainService, source_file: Path, tmp_path: Path
+    ) -> None:
+        registration = service.register(source_file, media_type="text/markdown")
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+        target = tmp_path / "keep.md"
+        target.write_bytes(b"belonged to the user")
+
+        with pytest.raises(FileExistsError):
+            service.export_content(row["blob"], target, overwrite=False)
+
+        assert target.read_bytes() == b"belonged to the user"
+
     def test_exporting_into_a_directory_names_the_file_after_the_digest(
         self, service: BrainService, source_file: Path, tmp_path: Path
     ) -> None:

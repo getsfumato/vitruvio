@@ -176,11 +176,11 @@ class BrainService:
         See :meth:`vitruvio.runtime.ops.browsing.BrowsingOps.content`."""
         return self.browsing_ops.content(digest)
 
-    def export_content(self, digest: str, destination: Path) -> dict[str, Any]:
+    def export_content(self, digest: str, destination: Path, *, overwrite: bool = True) -> dict[str, Any]:
         """Write the bytes a block names to a file.
 
         See :meth:`vitruvio.runtime.ops.browsing.BrowsingOps.export_content`."""
-        return self.browsing_ops.export_content(digest, destination)
+        return self.browsing_ops.export_content(digest, destination, overwrite=overwrite)
 
     def related(self, block_id: str, *, limit: int = 50) -> dict[str, Any]:
         """The provenance records that name a block: how it got here, and what was done to it since.

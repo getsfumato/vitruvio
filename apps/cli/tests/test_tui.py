@@ -112,6 +112,7 @@ class TestTheReadingCommands:
         main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "md"])
         row = json.loads(capsys.readouterr().out)["data"]["rows"][0]
         target = tmp_path / "salida.md"
+        target.write_text("an explicit --out may replace this", encoding="utf-8")
         code = main(["--brain", str(brain), "--json", "inspect", "content", row["blob"], "--out", str(target)])
         payload = json.loads(capsys.readouterr().out)
         assert code == ExitCode.OK
@@ -708,6 +709,7 @@ class TestTheInterface:
             assert "eticompass/metrica-a by flag" in app.sub_title
 
     async def test_exporting_writes_the_bytes_into_the_working_directory(self, brain: Path, tmp_path: Path) -> None:
+        (tmp_path / "apuntes.md").unlink()
         app = BrainBrowser(service_for(brain), brain=str(brain))
         async with app.run_test(size=(140, 40)) as pilot:
             await _settle(pilot)
@@ -716,6 +718,23 @@ class TestTheInterface:
             await pilot.press("e")
             await _settle(pilot)
         assert (tmp_path / "apuntes.md").exists(), "the fixture chdir'd here, and export writes to the cwd"
+
+    async def test_exporting_refuses_to_replace_an_existing_working_directory_file(
+        self, brain: Path, tmp_path: Path
+    ) -> None:
+        target = tmp_path / "apuntes.md"
+        target.write_text("this is not the brain's copy", encoding="utf-8")
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            app.query_one("#filter", Input).value = "apuntes"
+            await _settle(pilot)
+            await pilot.press("e")
+            await _settle(pilot)
+            said = "\n".join(note.message for note in app._notifications)
+
+        assert target.read_text(encoding="utf-8") == "this is not the brain's copy"
+        assert "already exists" in said
 
     async def test_o_hands_over_a_file_the_desktop_can_actually_open(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
