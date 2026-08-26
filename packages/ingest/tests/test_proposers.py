@@ -6,6 +6,9 @@ they build and the answers they discard, and both are inspectable without one.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 import pytest
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.identity.digest import BlockId
@@ -113,7 +116,37 @@ class TestApiProposers:
     def test_the_openai_request_asks_for_the_schema_as_structured_output(self) -> None:
         request = OpenAIProposer(api_key="test").build(a_task(), "text")
         assert request["response_format"]["type"] == "json_schema"
-        assert request["response_format"]["json_schema"]["schema"]["$id"] == "boltzmann.candidates/v1"
+        structured = request["response_format"]["json_schema"]
+        assert structured["strict"] is True
+        schema = structured["schema"]
+        assert set(schema["properties"]) == {"candidates"}, "producer identity is supplied locally, never by the model"
+
+        def assert_strict(node: Any) -> None:
+            if isinstance(node, list):
+                for item in node:
+                    assert_strict(item)
+                return
+            if not isinstance(node, dict):
+                return
+            assert "oneOf" not in node
+            assert "default" not in node
+            if isinstance(node.get("properties"), dict):
+                assert node["additionalProperties"] is False
+                assert node["required"] == list(node["properties"])
+            for value in node.values():
+                assert_strict(value)
+
+        assert_strict(schema)
+        locator = schema["properties"]["candidates"]["items"]["properties"]["locator"]
+        assert {option.get("type") for option in locator["anyOf"]} >= {"string", "null"}
+
+        multi_request = OpenAIProposer(api_key="test").build(
+            a_task(MemoryType.EPISODIC, MemoryType.PROCEDURAL, MemoryType.SEMANTIC), "text"
+        )
+        multi_schema = multi_request["response_format"]["json_schema"]["schema"]
+        variants = multi_schema["properties"]["candidates"]["items"]
+        assert len(variants["anyOf"]) == 3
+        assert_strict(multi_schema)
 
     def test_the_prompt_forbids_floats_and_empty_evidence(self) -> None:
         """Stated as prohibitions on purpose: a model asked nicely to avoid floats emits floats."""
@@ -140,6 +173,59 @@ class TestApiProposers:
     def test_a_key_from_the_environment_is_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("VITRUVIO_ANTHROPIC_API_KEY", "from-env")
         assert AnthropicProposer()._key() == "from-env"
+
+    def test_an_openai_refusal_is_an_actionable_vitruvio_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        response = httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "stop", "message": {"refusal": "I cannot extract this document."}}]},
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+        monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: response)
+
+        with pytest.raises(VitruvioError, match="refused to propose") as caught:
+            OpenAIProposer(api_key="test")(a_task(), DOCUMENT)
+        assert "revise the source" in (caught.value.hint or "")
+
+    def test_an_invalid_openai_candidate_is_translated_to_vitruvio_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        invalid = {
+            "candidates": [
+                {
+                    "memory_type": "telepathy",
+                    "payload": {"kind": "fact", "label": "x", "statement": "x"},
+                    "evidence": [str(SOURCE)],
+                    "locator": None,
+                    "confidence": None,
+                }
+            ]
+        }
+        response = httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(invalid), "refusal": None}}]},
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+        monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: response)
+
+        with pytest.raises(VitruvioError, match="failed local candidate validation"):
+            OpenAIProposer(api_key="test")(a_task(), DOCUMENT)
+
+    def test_an_openai_response_without_structured_content_is_not_an_empty_success(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        response = httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "stop", "message": {}}]},
+            request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+        )
+        monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: response)
+
+        with pytest.raises(VitruvioError, match="no structured candidate content"):
+            OpenAIProposer(api_key="test")(a_task(), DOCUMENT)
 
 
 class TestResolve:

@@ -39,6 +39,79 @@ rule and with table borders, and a proposer that guesses wrong invents a section
 
 FENCE = re.compile(r"^(?:```|~~~)", re.MULTILINE)
 
+_OPENAI_UNSUPPORTED = frozenset(
+    {
+        "$id",
+        "$schema",
+        "default",
+        "examples",
+        "format",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "multipleOf",
+        "pattern",
+        "title",
+    }
+)
+"""Schema vocabulary removed for OpenAI's strict base-and-fine-tuned common subset."""
+
+
+def _allows_null(schema: dict[str, Any]) -> bool:
+    """Whether one schema node already admits JSON null."""
+    kind = schema.get("type")
+    if kind == "null" or (isinstance(kind, list) and "null" in kind):
+        return True
+    return any(isinstance(option, dict) and _allows_null(option) for option in schema.get("anyOf", []))
+
+
+def _openai_strict_node(schema: Any) -> Any:
+    """Recursively translate JSON Schema into OpenAI's strict supported subset."""
+    if isinstance(schema, list):
+        return [_openai_strict_node(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    originally_required = set(schema.get("required", []))
+    adapted: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in _OPENAI_UNSUPPORTED or key in {"required", "additionalProperties"}:
+            continue
+        # OpenAI supports nested `anyOf`, not `oneOf`. Candidate variants are discriminated by memory_type, so the
+        # two have the same useful meaning here and the protocol performs the final local validation regardless.
+        adapted["anyOf" if key == "oneOf" else key] = _openai_strict_node(value)
+
+    properties = adapted.get("properties")
+    if isinstance(properties, dict):
+        for name, subschema in list(properties.items()):
+            if name not in originally_required and isinstance(subschema, dict) and not _allows_null(subschema):
+                properties[name] = {"anyOf": [subschema, {"type": "null"}]}
+        adapted["required"] = list(properties)
+        adapted["additionalProperties"] = False
+    return adapted
+
+
+def _openai_candidates_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """The task schema narrowed to output the one root field Vitruvio accepts from a model."""
+    properties = schema.get("properties")
+    raw_candidates = properties.get("candidates") if isinstance(properties, dict) else None
+    if not isinstance(raw_candidates, dict):
+        raise TypeError("the candidates schema has no candidates array")
+    candidates = _openai_strict_node(raw_candidates)
+    strict = {
+        "type": "object",
+        "properties": {"candidates": candidates},
+        "required": ["candidates"],
+        "additionalProperties": False,
+    }
+    definitions = _openai_strict_node(schema.get("$defs"))
+    if isinstance(definitions, dict):
+        strict["$defs"] = definitions
+    return strict
+
 
 def _sections(text: str) -> list[tuple[str, str, int, int]]:
     """
@@ -271,7 +344,16 @@ class _ApiProposer:
         except httpx.HTTPError as error:
             raise VitruvioError(f"{type(self).__name__} was unreachable: {error}") from error
 
-        payload = self.extract(response.json())
+        try:
+            body = response.json()
+        except ValueError as error:
+            raise VitruvioError(
+                f"{type(self).__name__} answered with something that is not a JSON response envelope"
+            ) from error
+        if not isinstance(body, dict):
+            raise VitruvioError(f"{type(self).__name__} answered with a JSON envelope that is not an object")
+
+        payload = self.extract(body)
         try:
             parsed = json.loads(payload) if isinstance(payload, str) else payload
         except json.JSONDecodeError as error:
@@ -280,15 +362,27 @@ class _ApiProposer:
                 hint="the task schema was sent as structured output; the model ignored it",
             ) from error
 
-        candidates = parsed.get("candidates", []) if isinstance(parsed, dict) else []
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("candidates"), list):
+            raise VitruvioError(
+                f"{type(self).__name__} response did not match the candidate schema",
+                hint="the structured response must be an object containing a candidates array",
+            )
+
+        candidates = parsed["candidates"]
         # The producer is recorded here rather than trusted from the response: it is what a batch invalidation
         # ("drop everything this model version derived") keys on, so a model must not be able to name itself
         # something else.
-        return CandidateSet(
-            task_id=task.task_id,
-            producer=Producer(kind=ProducerKind.MODEL, id=self.model, version=None),
-            candidates=[item for item in candidates if self._citable(item, task)],
-        )
+        try:
+            return CandidateSet(
+                task_id=task.task_id,
+                producer=Producer(kind=ProducerKind.MODEL, id=self.model, version=None),
+                candidates=[item for item in candidates if self._citable(item, task)],
+            )
+        except (TypeError, ValueError) as error:
+            raise VitruvioError(
+                f"{type(self).__name__} response failed local candidate validation: {error}",
+                hint="retry the proposal or use a model that supports strict structured output",
+            ) from error
 
     @staticmethod
     def _citable(candidate: Any, task: ProcessingTask) -> bool:
@@ -398,21 +492,43 @@ class OpenAIProposer(_ApiProposer):
         """The chat request, with the candidates schema as strict structured output."""
         from boltzmann.ingest.schema import candidates_schema
 
-        schema = self.schema or candidates_schema(task)
+        schema = _openai_candidates_schema(self.schema or candidates_schema(task))
         return {
             "model": self.model,
             "max_completion_tokens": self.max_tokens,
             "response_format": {
                 "type": "json_schema",
-                "json_schema": {"name": "candidates", "schema": schema, "strict": False},
+                "json_schema": {"name": "candidates", "schema": schema, "strict": True},
             },
             "messages": [{"role": "user", "content": self.prompt(task, text)}],
         }
 
     def extract(self, body: dict[str, Any]) -> Any:
         """The message content, which is a JSON string."""
-        choices = body.get("choices") or [{}]
-        return choices[0].get("message", {}).get("content") or "{}"
+        from vitruvio.kernel import VitruvioError
+
+        choices = body.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise VitruvioError("OpenAIProposer response contained no completion choice")
+        choice = choices[0]
+        if choice.get("finish_reason") == "length":
+            raise VitruvioError(
+                "OpenAIProposer response was truncated before the structured output completed",
+                hint="increase max_tokens or reduce the source document size",
+            )
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise VitruvioError("OpenAIProposer response contained no assistant message")
+        refusal = message.get("refusal")
+        if isinstance(refusal, str) and refusal:
+            raise VitruvioError(
+                f"OpenAIProposer refused to propose candidates: {refusal[:300]}",
+                hint="revise the source or instructions if the refusal was unexpected",
+            )
+        content = message.get("content")
+        if not isinstance(content, str) or not content:
+            raise VitruvioError("OpenAIProposer response contained no structured candidate content")
+        return content
 
 
 PROPOSERS: dict[str, type] = {
