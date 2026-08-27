@@ -163,9 +163,8 @@ class TaskOps:
 
         # WRITE, even though nothing is written: the gate includes the retention policy's validators, and a report
         # produced without them would say a candidate is committable when the commit will refuse it.
-        brain = self.session.brain(Capability.WRITE)
         parsed = self._parse_candidates(candidates)
-        with translated():
+        with self.session.write() as brain, translated():
             return wire.validation(brain.validate(parsed, ProcessingTask.model_validate(task)))
 
     DUPLICATE = "duplicate"
@@ -219,9 +218,8 @@ class TaskOps:
 
         from vitruvio.kernel import CandidatesRejectedError
 
-        brain = self.session.brain(Capability.WRITE)
         parsed = self._parse_candidates(candidates)
-        with translated():
+        with self.session.write() as brain, translated():
             report = brain.validate(parsed, ProcessingTask.model_validate(task))
             payload = wire.validation(report)
 
@@ -270,12 +268,11 @@ class TaskOps:
         from vitruvio.ingest import suggest
         from vitruvio.kernel import CandidatesRejectedError
 
-        brain = self.session.brain(Capability.WRITE)
         engine = resolve_proposer(proposer, **({"subject": subject} if proposer.startswith("structure") else {}))
         types = [coerce_memory_type(item) for item in allowed] if allowed else None
         pipeline = normalize_with if normalize_with is not None else suggest(media_type)
 
-        with translated():
+        with self.session.write() as brain, translated():
             data = path.read_bytes()
             registration = brain.register(
                 data,

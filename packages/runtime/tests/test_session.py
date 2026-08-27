@@ -7,6 +7,9 @@ capability hands back the same object, a different capability does not, and inva
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from vitruvio.kernel import ResolvedConfig
@@ -36,6 +39,17 @@ class TestMemoization:
         assert BrainSession(config)._cache == {}
 
 
+def test_operation_modules_cannot_open_a_write_brain_directly() -> None:
+    """A direct WRITE open bypasses the session seam that owns coherence."""
+    operations = Path(__file__).parents[1] / "src" / "vitruvio" / "runtime" / "ops"
+    bypasses = []
+    for path in operations.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(isinstance(node, ast.Attribute) and node.attr == "WRITE" for node in ast.walk(tree)):
+            bypasses.append(path.name)
+    assert bypasses == [], f"WRITE brains must be opened through BrainSession.write(): {bypasses}"
+
+
 class TestInvalidation:
     def test_invalidating_forces_a_reopen(self, opened: BrainSession) -> None:
         """What `install.pull` depends on: everything opened before the pointer moved describes the old head."""
@@ -63,3 +77,45 @@ class TestInvalidation:
 
         service.session.invalidate()
         assert service.brain(Capability.INSPECT) is service.session.brain(Capability.INSPECT)
+
+    def test_inspect_write_inspect_reports_the_new_composition(self, service: BrainService, source_file: Path) -> None:
+        """The reported defect: an INSPECT view opened before registration must not survive it."""
+        before = service.state()["snapshot"]["digest"]
+
+        registered = service.register(source_file, media_type="text/markdown")
+        after = service.state()
+
+        assert after["snapshot"]["digest"] == registered["snapshot"]
+        assert after["snapshot"]["digest"] != before
+        assert set(after["installed"]) == {"canonical", "provenance"}
+
+    def test_retrieve_write_retrieve_reopens_the_query_view(self, service: BrainService, source_file: Path) -> None:
+        before = service.brain(Capability.RETRIEVE)
+
+        service.register(source_file, media_type="text/markdown")
+
+        after = service.brain(Capability.RETRIEVE)
+        assert after is not before
+        assert after.snapshot().block_count > 0
+
+    def test_a_store_only_write_does_not_reopen_capability_views(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        before = service.brain(Capability.INSPECT)
+
+        service.put_content(source_file, media_type="text/markdown")
+
+        assert service.brain(Capability.INSPECT) is before
+
+    def test_a_head_change_invalidates_even_when_later_code_raises(
+        self, opened: BrainSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        brain = opened.brain(Capability.WRITE)
+        pointers = iter((b"before", b"after"))
+        monkeypatch.setattr(brain.store, "read_pointer", lambda name: next(pointers))
+
+        with pytest.raises(RuntimeError, match="after commit"):
+            with opened.write():
+                raise RuntimeError("after commit")
+
+        assert opened._cache == {}

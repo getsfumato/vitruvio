@@ -126,36 +126,34 @@ class InstallOps:
         )
         wanted_tag = tag or self.config.project.registry.tag
 
-        brain = self.session.brain(Capability.WRITE)
-        # Captured before, because after the pull the composition is the remote's and there is nothing left to
-        # compare against. This is the only place the count can be exact rather than estimated.
-        before, unreadable_before = self._composition_ids(brain)
-        ignored: list[str] = []
-        with translated():
-            if ignore_vector_indices:
-                require_vector_index_ignore(brain.pull)
-                manifest = asyncio.run(client.resolve(effective, wanted_tag))
-                wanted = chosen if chosen is not None else manifest.modules
-                ignored = [
-                    memory_type.value for memory_type in wanted if manifest.vector_index_for(memory_type) is not None
-                ]
-                snapshot = asyncio.run(
-                    brain.pull(
-                        client,
-                        effective,
-                        wanted_tag,
-                        modules=chosen,
-                        ignore_vector_indices=True,
+        with self.session.write() as brain:
+            # Captured before, because after the pull the composition is the remote's and there is nothing left to
+            # compare against. This is the only place the count can be exact rather than estimated.
+            before, unreadable_before = self._composition_ids(brain)
+            ignored: list[str] = []
+            with translated():
+                if ignore_vector_indices:
+                    require_vector_index_ignore(brain.pull)
+                    manifest = asyncio.run(client.resolve(effective, wanted_tag))
+                    wanted = chosen if chosen is not None else manifest.modules
+                    ignored = [
+                        memory_type.value
+                        for memory_type in wanted
+                        if manifest.vector_index_for(memory_type) is not None
+                    ]
+                    snapshot = asyncio.run(
+                        brain.pull(
+                            client,
+                            effective,
+                            wanted_tag,
+                            modules=chosen,
+                            ignore_vector_indices=True,
+                        )
                     )
-                )
-            else:
-                snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
-        after, unreadable_after = self._composition_ids(brain)
-        orphaned = sorted(before - after)
-        # `plan_pull` may already have memoized an INSPECT-capability brain at the old head. A pull advances the
-        # pointer through the WRITE-capability instance, so every other cached view must be reopened before a caller
-        # asks for state or verification on this same service object.
-        self.session.invalidate()
+                else:
+                    snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
+            after, unreadable_after = self._composition_ids(brain)
+            orphaned = sorted(before - after)
         unreadable = sorted(set(unreadable_before) | set(unreadable_after))
         if unreadable:
             # Said rather than folded into the number. `discarded` is what a caller reads to find out whether a
@@ -244,8 +242,7 @@ class InstallOps:
 
         # WRITE rather than INSPECT: a fetch puts blocks in the store. It moves no pointer, which is the
         # property that makes it safe, but it is not a read.
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             fetched = asyncio.run(brain.fetch(client, effective, wanted_tag, modules=chosen))
 
         payload = {

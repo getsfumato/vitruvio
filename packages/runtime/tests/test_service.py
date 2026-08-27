@@ -59,12 +59,14 @@ class TestLifecycle:
 
 class TestRegistration:
     def test_register_creates_a_canonical_block_and_a_version(self, service: BrainService, source_file: Path) -> None:
+        before = service.state()["snapshot"]["digest"]
         result = service.register(source_file, media_type="text/markdown")
         assert result["block_id"].startswith("sha256:")
         assert result["duplicate"] is False
         assert result["snapshot"] is not None
 
         state = service.state()
+        assert state["snapshot"]["digest"] != before
         assert set(state["installed"]) == {"canonical", "provenance"}
 
     def test_re_registering_identical_bytes_is_a_no_op(self, service: BrainService, source_file: Path) -> None:

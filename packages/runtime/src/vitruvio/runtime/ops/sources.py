@@ -22,6 +22,7 @@ origin, at the cost of one wasted download.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import nullcontext
 from typing import Any
 
 from vitruvio.kernel import ResolvedConfig
@@ -283,32 +284,33 @@ class SourceOps:
         with translated():
             items = list(source.list())
 
-        brain = self.session.brain(Capability.INSPECT if dry_run else Capability.WRITE)
-        rows: list[dict[str, Any]] = []
-        registered = 0
-        for item in items:
-            if limit is not None and registered >= limit:
-                rows.append({**self.fetch._item_row(item), "outcome": "not-reached"})
-                continue
-            row = self.fetch._pull_one(brain, source, spec, item, dry_run=dry_run, refetch=refetch)
-            rows.append(row)
-            if row["outcome"] == "registered":
-                registered += 1
+        scope = nullcontext(self.session.brain(Capability.INSPECT)) if dry_run else self.session.write()
+        with scope as brain:
+            rows: list[dict[str, Any]] = []
+            registered = 0
+            for item in items:
+                if limit is not None and registered >= limit:
+                    rows.append({**self.fetch._item_row(item), "outcome": "not-reached"})
+                    continue
+                row = self.fetch._pull_one(brain, source, spec, item, dry_run=dry_run, refetch=refetch)
+                rows.append(row)
+                if row["outcome"] == "registered":
+                    registered += 1
 
-        counts: dict[str, int] = {}
-        for row in rows:
-            counts[str(row["outcome"])] = counts.get(str(row["outcome"]), 0) + 1
-        return {
-            "source": name,
-            "kind": spec.kind,
-            "brain": self.config.brain_name or str(self.config.brain),
-            "listed": len(items),
-            "registered": registered,
-            "dry_run": dry_run,
-            "option_overrides": sorted(overrides),
-            "counts": counts,
-            "items": rows,
-        }
+            counts: dict[str, int] = {}
+            for row in rows:
+                counts[str(row["outcome"])] = counts.get(str(row["outcome"]), 0) + 1
+            return {
+                "source": name,
+                "kind": spec.kind,
+                "brain": self.config.brain_name or str(self.config.brain),
+                "listed": len(items),
+                "registered": registered,
+                "dry_run": dry_run,
+                "option_overrides": sorted(overrides),
+                "counts": counts,
+                "items": rows,
+            }
 
     def pull_all(self, *, dry_run: bool = False, limit: int | None = None, refetch: bool = False) -> dict[str, Any]:
         """
