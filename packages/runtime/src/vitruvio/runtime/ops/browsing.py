@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from boltzmann.blocks.memory_type import MemoryType
-from boltzmann.brain import Brain
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
+from vitruvio.runtime.provenance import ProvenanceReader, registration_origins
 from vitruvio.runtime.session import BrainSession
 
 
@@ -92,16 +92,25 @@ class BrowsingOps:
                     "truncated": False,
                     "filter": contains,
                     "installed": False,
+                    "provenance": None,
                 }
 
             module = brain.module(kind)
             identities = module.block_ids
             resolvable = module.resolvable()
-            # A canonical block is bytes plus a media type and holds no name -- deliberately, because its identity
-            # must not depend on what anyone called the file. The name a reader recognises lives in the
-            # registration record, so it is read from provenance and attached here rather than invented. One scan
-            # of an append-only module, and only for the one memory type that needs it.
-            origins = self._origins(brain) if kind is MemoryType.CANONICAL else {}
+            origins: dict[str, str] = {}
+            provenance: dict[str, Any] | None = None
+            if kind is MemoryType.CANONICAL:
+                # Only records about identities this operation may render are requested. An ordinary page therefore
+                # performs work proportional to the page, while the explicitly scanning `contains` path requests
+                # the identities it already has to inspect.
+                targets = identities if contains is not None else identities[offset : offset + limit]
+                read = ProvenanceReader(brain).by_subjects(
+                    {str(identity) for identity in targets},
+                    read_limit=max(1, len(targets) * 8),
+                )
+                origins = registration_origins(read)
+                provenance = read.metadata()
 
             rows: list[dict[str, Any]] = []
             if contains is None:
@@ -137,6 +146,7 @@ class BrowsingOps:
                 "truncated": seen > offset + len(rows),
                 "filter": contains,
                 "installed": True,
+                "provenance": provenance,
             }
 
     @staticmethod
@@ -172,43 +182,6 @@ class BrowsingOps:
             return browse.row(module.get(identity), kind, origin=origins.get(str(identity)))
         except Exception as error:  # the store disagreed with the composition; say so, do not stop
             return browse.unreadable(str(identity), kind.value, f"{type(error).__name__}: {error}")
-
-    @staticmethod
-    def _origins(brain: Brain) -> dict[str, str]:
-        """
-        Where each canonical block came from, according to its registration record.
-
-        Args:
-            brain (Brain): The opened brain.
-
-        Returns:
-            dict[str, str]: Block identity to origin. Empty when provenance is not installed -- a selectively
-            pulled brain can hold canonical evidence with no provenance beside it, and that is a brain whose
-            blocks are shown by media type rather than one that fails to list.
-        """
-        found: dict[str, str] = {}
-        try:
-            module = brain.module(MemoryType.PROVENANCE)
-            resolvable = module.resolvable()
-        except Exception:  # provenance is not installed, which the docstring above says is a shape and not a fault
-            return found
-
-        # Scoped to one record rather than to the whole walk. Suppressing the loop meant a store error partway
-        # through returned a *partial* map that looked exactly like the documented empty one: some rows showed an
-        # origin, the rest showed a media type, and nothing said which had been skipped.
-        for identity in module.block_ids:
-            if not resolvable.get(identity, True):
-                continue
-            try:
-                record = module.get(identity).payload().get("record")
-            except Exception:  # one unreadable record must not cost the other thirty-nine their origins
-                continue
-            if not isinstance(record, dict) or record.get("record_type") != "registration":
-                continue
-            block, origin = record.get("block"), record.get("origin")
-            if isinstance(block, str) and isinstance(origin, str) and origin:
-                found[block] = origin
-        return found
 
     def content(self, digest: str) -> bytes:
         """
@@ -272,9 +245,8 @@ class BrowsingOps:
         normalization, supersession, demotion and removal all land in provenance as records naming a block, so
         reading them back is how a reader answers "where did this come from" without trusting a summary of it.
 
-        The provenance module is scanned. There is no index from block to the records about it -- provenance is
-        append-only and small relative to canonical evidence -- and a scan that is honest about its cost is
-        better than an index that has to be kept true.
+        Uses the provenance subject index when it is ready. Without one, the fallback scan is capped and the result
+        says it is incomplete rather than turning one lookup into an unbounded walk.
 
         Args:
             block_id (str): The block to look up.
@@ -289,53 +261,21 @@ class BrowsingOps:
         with translated():
             kind = coerce_memory_type("provenance")
             if kind not in brain.snapshot().installed:
-                return {"block": block_id, "records": [], "count": 0, "truncated": False}
-            module = brain.module(kind)
-            resolvable = module.resolvable()
-            found: list[dict[str, Any]] = []
-            for identity in module.block_ids:
-                if not resolvable.get(identity, True):
-                    continue
-                payload = module.get(identity).payload()
-                record = payload.get("record")
-                if not isinstance(record, dict) or block_id not in mentions(record):
-                    continue
-                found.append({"block_id": str(identity), "record": record})
+                return {
+                    "block": block_id,
+                    "records": [],
+                    "count": 0,
+                    "count_exact": False,
+                    "truncated": False,
+                    "provenance": {"state": "absent", "complete": False, "scanned": 0, "unreadable": 0},
+                }
+            read = ProvenanceReader(brain).by_subjects({block_id}, read_limit=max(limit + 1, 1))
+            found = [{"block_id": identity, "record": record} for identity, record in read.records]
             return {
                 "block": block_id,
                 "records": found[:limit],
                 "count": len(found),
-                "truncated": len(found) > limit,
+                "count_exact": read.complete,
+                "truncated": len(found) > limit or not read.complete,
+                "provenance": read.metadata(),
             }
-
-
-def mentions(record: dict[str, Any]) -> set[str]:
-    """
-    Every block identity a provenance record names, at any depth.
-
-    Walked rather than read field by field because the six record types name blocks under six different keys --
-    ``block``, ``derived_from``, ``supersedes``, ``removed`` -- and a new record type would otherwise be a
-    record whose links silently stop appearing. What is collected is anything that looks like an identity, which
-    is a decision to over-report rather than to miss an edge.
-
-    Args:
-        record (dict[str, Any]): The record's payload.
-
-    Returns:
-        set[str]: The identities it mentions.
-    """
-    found: set[str] = set()
-
-    def walk(value: Any) -> None:
-        if isinstance(value, str):
-            if value.startswith("sha256:"):
-                found.add(value)
-        elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk(item)
-
-    walk(record)
-    return found

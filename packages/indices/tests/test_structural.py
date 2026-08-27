@@ -35,7 +35,7 @@ from vitruvio.indices import (
 )
 from vitruvio.indices import format as envelope
 from vitruvio.indices.graph import quantize
-from vitruvio.indices.projection import Edge, EdgeKind, Facet, Projection
+from vitruvio.indices.projection import PROJECTION_ID, Edge, EdgeKind, Facet, Projection
 
 
 class TestProtocolShape:
@@ -149,6 +149,26 @@ class TestProjection:
         is what turns "have I already acquired this?" into a hash-map lookup instead of a scan of every record."""
         projection = project(provenance_block)
         assert projection.identities[IdentityKey.ORIGIN] == ("fourier.pdf",)
+
+    def test_every_block_a_provenance_record_mentions_is_an_indexed_subject(
+        self, semantic_blocks: list[SemanticBlock]
+    ) -> None:
+        from boltzmann.blocks.provenance import Actor, ActorKind, ProvenanceBlock, SupersessionRecord
+
+        newer, older = semantic_blocks[:2]
+        block = ProvenanceBlock(
+            record=SupersessionRecord(
+                block=newer.block_id,
+                supersedes=older.block_id,
+                actor=Actor(id="tester@example.com", kind=ActorKind.HUMAN),
+                at="2026-05-14T14:00:00Z",
+            )
+        )
+
+        assert set(project(block).identities[IdentityKey.RECORD_SUBJECT]) == {
+            str(newer.block_id),
+            str(older.block_id),
+        }
 
     def test_an_origin_is_folded_like_every_other_identity_key(self, semantic_blocks: list[SemanticBlock]) -> None:
         """Documented rather than incidental: two origins differing only in case collide, worst case a spurious
@@ -514,6 +534,18 @@ class TestPersistence:
         (tmp_path / "semantic.bitmap.vidx").write_bytes(envelope.encode(header, old._dump_body()))
 
         loaded = BitmapIndex(MemoryType.SEMANTIC, tmp_path)
+        assert loaded.population == 0
+        assert loaded.capability().state == "empty"
+
+    def test_an_index_from_an_older_projection_is_left_for_rebuild(
+        self, tmp_path: Path, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        old = HashMapIndex(MemoryType.SEMANTIC)
+        old.build(semantic_blocks, content)
+        header = old.header().model_copy(update={"projection_id": f"{PROJECTION_ID}-stale"})
+        (tmp_path / "semantic.hash_map.vidx").write_bytes(envelope.encode(header, old._dump_body()))
+
+        loaded = HashMapIndex(MemoryType.SEMANTIC, tmp_path)
         assert loaded.population == 0
         assert loaded.capability().state == "empty"
 
