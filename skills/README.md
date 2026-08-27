@@ -18,6 +18,7 @@ vitruvio skills install --into DIR --skill vitruvio-cli --force
 | `vitruvio-retention` | the five removal mechanisms, and which one you actually want |
 | `vitruvio-dist` | publishing and installing |
 | `vitruvio-reconcile` | joining a history somebody else advanced, and deciding what did not apply |
+| `vitruvio-sync` | telling behind, ahead and diverged apart, and getting local and remote back in step without losing either side |
 
 `vitruvio` carries four references: `json-envelope.md`, `exit-codes.md`, `evidence-bundle.md`, and
 `cli-reference.md`.
@@ -43,7 +44,7 @@ should know:
   installing one alone works but loses the routing.
 - **Cross-references are relative and point at the entry skill.** `vitruvio-cli` links to
   `../vitruvio/references/exit-codes.md` and `../vitruvio/references/cli-reference.md`. Install `vitruvio` alongside
-  anything else, or those links dangle. `vitruvio skills install` with no `--skill` installs all six, which is why
+  anything else, or those links dangle. `vitruvio skills install` with no `--skill` installs all of them, which is why
   that is the default.
 
 ## One copy, two addresses

@@ -102,7 +102,7 @@ The whole point of these is "may I retry, and with what changed".
 | 5 | protocol violation: verification, membership, integrity | **do not retry**; this is corruption or a broken claim |
 | 6 | refused by retention policy | **do not retry**; the protocol says no |
 | 7 | candidates rejected by validation | repair the payloads and retry |
-| 8 | push is not a fast-forward | pull, re-commit, push again — never `--force` |
+| 8 | push is not a fast-forward | `dist fetch`, reconcile, push again — never `--force`, never `pull` |
 | 9 | registry unreachable or refused | retryable |
 | 10 | the cascade needs human review | stop and ask a person |
 | 11 | a declared source was unreachable or refused | retryable |
@@ -118,6 +118,7 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 - `vitruvio-retention` — removing things, and why there are five different ways.
 - `vitruvio-dist` — publishing a brain and installing one.
 - `vitruvio-reconcile` — joining a history somebody else advanced, when a push comes back diverged.
+- `vitruvio-sync` — local and remote disagree: which of behind, ahead or diverged it is, and the safe way back for each.
 
 ## References
 

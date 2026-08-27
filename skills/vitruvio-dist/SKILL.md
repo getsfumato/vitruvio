@@ -111,6 +111,9 @@ Two refusals come from the protocol and both are correct:
 
 ### Exit 8 is reconcilable, and `pull` is the wrong reflex
 
+Not sure yet whether the brain is behind, ahead or diverged? The `vitruvio-sync` skill is the decision tree; this
+section is the diverged branch of it.
+
 `pull` *adopts* the published composition, so it resolves the divergence by discarding whatever was committed
 here. `fetch` adopts nothing: it brings their history alongside yours, the pointer does not move, and both sides'
 work survives.
