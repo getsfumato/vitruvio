@@ -1,6 +1,6 @@
 # Documentation
 
-- [Guide](guide/README.md) — how to use vitruvio, in fourteen chapters, in order.
+- [Guide](guide/README.md) — how to use vitruvio, chapter by chapter, in order.
 - [Decisions](adr/README.md) — why it is like this. One ADR per decision, numbered, never renumbered.
 - [Architecture](architecture.md) — the workspace, the layering, and the two contracts that carry weight.
 - [Contributing](contributing.md) — the dev loop, and the gate every change passes.
