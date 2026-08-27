@@ -61,10 +61,13 @@ def outcomes(result: dict[str, Any]) -> dict[str, str]:
 
 class TestPull:
     def test_it_registers_what_a_source_offers(self, project: BrainService) -> None:
+        before = project.state()["snapshot"]["digest"]
         result = project.pull_source("papers")
         assert result["registered"] == 2
         assert set(outcomes(result).values()) == {"registered"}
-        assert project.state()["block_count"] > 0
+        state = project.state()
+        assert state["snapshot"]["digest"] != before
+        assert state["block_count"] > 0
 
     def test_a_second_pull_skips_by_origin_without_fetching(self, project: BrainService, tmp_path: Path) -> None:
         """Skipped *before* the fetch, which is the difference between a cheap repeated pull and an idempotent one.

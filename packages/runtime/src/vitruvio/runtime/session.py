@@ -4,10 +4,9 @@ Split out of ``BrainService`` so that the operations can live in :mod:`vitruvio.
 carrying its own idea of what "the brain" is. It holds the two pieces of state the service ever had -- the resolved
 configuration, and one ``Brain`` per capability -- and nothing else.
 
-**One session, shared by every operation.** This is the part that has to stay true. ``install`` clears the cache
-after a pull, because the brain a ``plan_pull`` memoized describes the *old* head and answering from it afterwards
-would report the state that was just replaced. That invalidation only works if every operation reads through the
-same session, so:
+**One session, shared by every operation.** This is the part that has to stay true. Every WRITE operation executes
+through :meth:`BrainSession.write`, which observes the durable head and clears the cache when it moves. That
+invalidation only works if every operation reads through the same session, so:
 
     An operations object may hold the session. It may never hold a ``Brain``.
 
@@ -22,7 +21,10 @@ would only make it easy to write the version that caches a brain under the wrong
 
 from __future__ import annotations
 
-from boltzmann.brain import Brain
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+from boltzmann.brain import HEAD_POINTER, Brain
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime.assembly import Capability, open_brain
@@ -69,8 +71,29 @@ class BrainSession:
         """
         Forget every opened brain.
 
-        Called after an operation replaces the head from underneath a brain this session already handed out --
-        ``install.pull`` is the one that does it. Everything opened before that describes the composition that was
-        just replaced, and answering a later question from it would report the state the pull overwrote.
+        Everything opened before a head change describes the composition that was just replaced, and answering a
+        later question from it would report stale state. Callers normally use :meth:`write`, which decides whether
+        invalidation is necessary from the durable pointer.
         """
         self._cache.clear()
+
+    @contextmanager
+    def write(self) -> Iterator[Brain]:
+        """Execute with the WRITE brain and keep every cached capability coherent.
+
+        The durable head pointer is the authority, rather than a result type or a caller-provided hint. That makes
+        duplicate registrations and store-only writes free of unnecessary reopenings, while any operation that
+        really advances the composition invalidates every view automatically. The comparison runs even when code
+        after the pointer move raises, because a failed renderer must not leave a successful commit hidden behind a
+        stale INSPECT or RETRIEVE cache.
+
+        Yields:
+            Brain: The session-owned WRITE-capability brain.
+        """
+        brain = self.brain(Capability.WRITE)
+        before = brain.store.read_pointer(HEAD_POINTER)
+        try:
+            yield brain
+        finally:
+            if brain.store.read_pointer(HEAD_POINTER) != before:
+                self.invalidate()
