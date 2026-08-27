@@ -20,7 +20,7 @@ operation asking, and `status` lists what it asked.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from cyclopts import App, Parameter
 from rich.text import Text
@@ -29,6 +29,14 @@ from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
 from vitruvio.kernel import ExitCode, ReconciliationOpenError, UsageError
+from vitruvio.runtime.reconcile_result import (
+    PlanView,
+    ReconcileCommittedResult,
+    ReconcileHaltedResult,
+    ReconcilePlanResult,
+    ReconcileStatusResult,
+    StatusView,
+)
 
 app = App(
     name="reconcile",
@@ -41,7 +49,7 @@ STRATEGIES = ("merge", "rebase", "squash")
 """The three, in the order the attribution table reads best: most preserving first."""
 
 
-def _attribution(plan: dict[str, Any]) -> Any:
+def _attribution(plan: ReconcilePlanResult) -> Any:
     """
     What each strategy would cost, as one table.
 
@@ -50,7 +58,7 @@ def _attribution(plan: dict[str, Any]) -> Any:
     """
     table = render.table("strategy", ("parents", "right"), ("snapshots", "right"), "keeps theirs", "their signatures")
     for name in STRATEGIES:
-        entry = (plan.get("attribution") or {}).get(name)
+        entry = plan["attribution"].get(name)
         if entry is None:
             continue
         table.add_row(
@@ -63,10 +71,10 @@ def _attribution(plan: dict[str, Any]) -> Any:
     return table
 
 
-def _verdicts(plan: dict[str, Any]) -> Any:
+def _verdicts(plan: ReconcilePlanResult) -> Any:
     """Every incoming block and what the gate made of it, which is the report a maintainer acts on."""
     table = render.table("block", "module", "status", "detail")
-    for entry in (plan.get("incoming") or {}).get("verdicts") or ():
+    for entry in PlanView(plan).verdicts:
         detail: list[str] = [issue.get("code", "") for issue in entry.get("issues") or ()]
         for block, why in (entry.get("missing_evidence") or {}).items():
             # The diagnosis rather than the verdict, because this is the pair that carries opposite advice:
@@ -83,7 +91,7 @@ def _verdicts(plan: dict[str, Any]) -> Any:
     return table
 
 
-def _warn_withdrawn(payload: dict[str, Any]) -> None:
+def _warn_withdrawn(payload: ReconcilePlanResult | ReconcileStatusResult) -> None:
     """
     Say out loud that work already here would leave.
 
@@ -92,7 +100,7 @@ def _warn_withdrawn(payload: dict[str, Any]) -> None:
     decision taken on your behalf, which is the one thing this whole loop exists to prevent.
     """
     console = current().console
-    withdrawn = payload.get("withdrawn") or {}
+    withdrawn = payload["withdrawn"]
     total = sum(len(blocks) for blocks in withdrawn.values())
     if not total:
         return
@@ -103,7 +111,7 @@ def _warn_withdrawn(payload: dict[str, Any]) -> None:
     )
 
 
-def _plan_view(payload: dict[str, Any]) -> Any:
+def _plan_view(payload: ReconcilePlanResult) -> Any:
     """The plan, as the one screen somebody decides from."""
     pairs: list[tuple[str, Any]] = [
         ("ancestor", render.digest(payload.get("ancestor"), full=True)),
@@ -155,8 +163,9 @@ def _run(strategy: str, theirs: str, reason: str, ancestor: str | None) -> ExitC
     console = current().console
     result = current().service().reconcile_ops.reconcile(theirs, strategy=strategy, reason=reason, ancestor=ancestor)
     if result.get("halted"):
-        _warn_withdrawn(result.get("plan") or {})
-        open_count = len(result.get("unresolved") or ())
+        halted = cast(ReconcileHaltedResult, result)
+        _warn_withdrawn(halted["plan"])
+        open_count = len(halted["unresolved"])
         # Reported through `fail` rather than `emit`, and the difference is the exit code. `emit` always returns
         # 0, so a halted merge exited 0 while this module's docstring, the skill and exit-codes.md all promised
         # 12 -- an agent branching on the status read "merged" for a reconciliation that committed nothing and
@@ -168,22 +177,23 @@ def _run(strategy: str, theirs: str, reason: str, ancestor: str | None) -> ExitC
                 f"the {strategy} stopped to ask: {open_count} open, and nothing was written",
                 hint="`vitruvio reconcile resolve` decides them, `continue` concludes it, `abort` abandons it",
             ),
-            data=result,
-            view=_status_view(result),
+            data=halted,
+            view=_status_view(halted),
         )
 
-    attribution = result.get("attribution") or {}
+    committed = cast(ReconcileCommittedResult, result)
+    attribution = committed["attribution"]
     pairs: list[tuple[str, Any]] = [
         ("strategy", strategy),
-        ("snapshot", render.digest(result.get("snapshot"), full=True)),
-        ("parents", render.count(attribution.get("parents", "-"))),
-        ("snapshots written", render.count(len(result.get("snapshots") or ()))),
+        ("snapshot", render.digest(committed["snapshot"], full=True)),
+        ("parents", render.count(attribution["parents"])),
+        ("snapshots written", render.count(len(committed["snapshots"]))),
     ]
-    if attribution and not attribution.get("their_signatures_survive", True):
+    if not attribution["their_signatures_survive"]:
         # Stated as a consequence of the choice rather than left to be discovered. The SDK reports it for
         # exactly this reason: it must not present rebased or squashed work as bearing its author's signature.
         console.note(f"a {strategy} reissues their versions under new identities, so their work is now attributed here")
-    return console.emit(f"reconcile.{strategy}", result, view=render.fields(pairs))
+    return console.emit(f"reconcile.{strategy}", committed, view=render.fields(pairs))
 
 
 @app.command(name="merge")
@@ -245,17 +255,17 @@ def squash(theirs: str, *, reason: str, ancestor: str | None = None) -> ExitCode
     return _run("squash", theirs, reason, ancestor)
 
 
-def _status_view(payload: dict[str, Any]) -> Any:
+def _status_view(payload: ReconcileStatusResult) -> Any:
     """Where a reconciliation stands: what is open, what has been decided, and what is leaving."""
-    state = payload.get("state") or {}
+    viewed = StatusView(payload)
+    state = viewed.state
     pairs: list[tuple[str, Any]] = [
-        ("theirs", render.digest(state.get("theirs"), full=True)),
-        ("strategy", state.get("strategy", "-")),
-        ("open", render.count(len(payload.get("unresolved") or ()))),
-        ("decided", render.count(len(payload.get("resolved") or ()))),
+        ("theirs", render.digest(state["theirs"], full=True)),
+        ("strategy", state["strategy"]),
+        ("open", render.count(len(payload["unresolved"]))),
+        ("decided", render.count(len(payload["resolved"]))),
     ]
-    withdrawn = payload.get("withdrawn") or {}
-    if sum(len(blocks) for blocks in withdrawn.values()):
+    if viewed.withdrawn_count:
         pairs.append(
             (
                 "removals",
@@ -265,10 +275,8 @@ def _status_view(payload: dict[str, Any]) -> Any:
             )
         )
     table = render.table("block", "module", "status", "decided")
-    decisions = payload.get("state", {}).get("resolutions") or {}
-    for entry in (payload.get("plan") or {}).get("incoming", {}).get("verdicts") or ():
-        if entry["status"] == "validated":
-            continue
+    decisions = viewed.decisions
+    for entry in viewed.questions:
         made = decisions.get(entry["block"])
         table.add_row(
             render.digest(entry["block"]),

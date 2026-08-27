@@ -29,11 +29,22 @@ from boltzmann.exceptions import ReconciliationError
 from boltzmann.reconcile import ReconcileRequest, ResolutionKind
 
 from vitruvio.kernel import ReconcileStrategy, ResolvedConfig, UsageError, VitruvioError
-from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import block_id, snapshot_digest
 from vitruvio.runtime.coerce import strategy as coerce_strategy
 from vitruvio.runtime.mapping import translated
+from vitruvio.runtime.reconcile_result import (
+    ReconcileCommittedResult,
+    ReconcileOperationResult,
+    ReconcilePlanResult,
+    ReconcileStatusEnvelope,
+    ReconcileStatusResult,
+    halted_result,
+    open_status,
+    serialize_committed,
+    serialize_plan,
+    serialize_status,
+)
 from vitruvio.runtime.session import BrainSession
 
 
@@ -86,7 +97,7 @@ class ReconcileOps:
         with translated():
             return snapshot_digest(theirs) in brain.reachable_history()
 
-    def plan(self, theirs: str, *, ancestor: str | None = None) -> dict[str, Any]:
+    def plan(self, theirs: str, *, ancestor: str | None = None) -> ReconcilePlanResult:
         """
         What joining another history would produce, without writing anything.
 
@@ -107,7 +118,9 @@ class ReconcileOps:
                 snapshot_digest(theirs),
                 snapshot_digest(ancestor) if ancestor else None,
             )
-        return {"theirs": theirs, **wire.reconcile_plan(found)}
+        result = serialize_plan(found)
+        result["theirs"] = theirs
+        return result
 
     def reconcile(
         self,
@@ -116,7 +129,7 @@ class ReconcileOps:
         strategy: ReconcileStrategy | str,
         reason: str,
         ancestor: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> ReconcileOperationResult:
         """
         Join another history into this one, recording it the way the strategy asks.
 
@@ -156,10 +169,13 @@ class ReconcileOps:
                 # as the first labelled somebody else's open merge with the strategy and history just requested.
                 if error.code != "RECONCILE_OPEN":
                     raise
-                return {"halted": True, "strategy": str(chosen), **self._status_payload(brain)}
-            return {"halted": False, **wire.reconcile_result(result)}
+                status = self._status_payload(brain)
+                if not status["open"]:  # pragma: no cover - the SDK just persisted it before raising
+                    raise RuntimeError("a halted reconciliation did not leave an open status") from error
+                return halted_result(str(chosen), status)
+            return serialize_committed(result)
 
-    def status(self) -> dict[str, Any]:
+    def status(self) -> ReconcileStatusEnvelope:
         """
         The reconciliation being resolved, if there is one.
 
@@ -173,7 +189,7 @@ class ReconcileOps:
         brain = self.session.brain(Capability.INSPECT)
         return self._status_payload(brain)
 
-    def resolve(self, block: str, *, kind: str, prefer: str | None = None) -> dict[str, Any]:
+    def resolve(self, block: str, *, kind: str, prefer: str | None = None) -> ReconcileStatusResult:
         """
         Decide one of the questions a halted reconciliation is holding.
 
@@ -212,9 +228,9 @@ class ReconcileOps:
                 decision,
                 block_id(prefer) if prefer else None,
             )
-        return wire.reconcile_status(status)
+        return serialize_status(status)
 
-    def accept_removals(self) -> dict[str, Any]:
+    def accept_removals(self) -> ReconcileStatusResult:
         """
         State that the work this reconciliation removes may go.
 
@@ -227,9 +243,9 @@ class ReconcileOps:
         """
         with self.session.write() as brain, translated():
             status = brain.reconcile_accept_removals()
-        return wire.reconcile_status(status)
+        return serialize_status(status)
 
-    def continue_(self) -> dict[str, Any]:
+    def continue_(self) -> ReconcileCommittedResult:
         """
         Conclude the reconciliation now that its questions are answered.
 
@@ -241,7 +257,7 @@ class ReconcileOps:
         """
         with self.session.write() as brain, translated():
             result = brain.reconcile_continue()
-        return {"halted": False, **wire.reconcile_result(result)}
+        return serialize_committed(result)
 
     def abort(self) -> dict[str, Any]:
         """
@@ -375,7 +391,7 @@ class ReconcileOps:
             ),
         )
 
-    def _status_payload(self, brain: Any) -> dict[str, Any]:
+    def _status_payload(self, brain: Any) -> ReconcileStatusEnvelope:
         """
         One shape for "where does the reconciliation stand", used by three callers.
 
@@ -392,7 +408,7 @@ class ReconcileOps:
             status = brain.reconcile_status()
         if status is None:
             return {"open": False}
-        return {"open": True, **wire.reconcile_status(status)}
+        return open_status(serialize_status(status))
 
 
 __all__ = ["ReconcileOps"]

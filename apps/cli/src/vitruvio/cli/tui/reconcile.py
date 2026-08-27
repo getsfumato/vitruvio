@@ -42,6 +42,11 @@ from textual.widgets import DataTable, Footer, Header, Static
 
 from vitruvio.cli import render
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.reconcile_result import (
+    ReconcileStatusResult,
+    ReconcileVerdictResult,
+    StatusView,
+)
 
 ADMISSIBLE = frozenset({"contradicted", "pending_review"})
 """The verdicts ``admit`` is available for.
@@ -109,8 +114,8 @@ class Resolver(App[None]):
         super().__init__()
         self.service = service
         self.strategy = strategy
-        self.status: dict[str, Any] = {}
-        self.questions: list[dict[str, Any]] = []
+        self.status: ReconcileStatusResult | None = None
+        self.questions: list[ReconcileVerdictResult] = []
 
     # --- Layout ---------------------------------------------------------------
 
@@ -171,17 +176,17 @@ class Resolver(App[None]):
         self.query_one("#verdict", Static).update(Text(hint, style="muted"))
         self.sub_title = "nothing open"
 
-    def _apply(self, status: dict[str, Any]) -> None:
+    def _apply(self, status: ReconcileStatusResult) -> None:
         """
         Fill both panes from a recomputed status.
 
         Args:
-            status (dict[str, Any]): What ``ReconcileOps.status`` produced.
+            status (ReconcileStatusResult): What ``ReconcileOps.status`` produced.
         """
         self.status = status
-        decisions = (status.get("state") or {}).get("resolutions") or {}
-        verdicts = (status.get("plan") or {}).get("incoming", {}).get("verdicts") or []
-        self.questions = [entry for entry in verdicts if entry["status"] != "validated"]
+        viewed = StatusView(status)
+        decisions = viewed.decisions
+        self.questions = viewed.questions
 
         table = self.query_one("#questions", DataTable)
         table.clear()
@@ -194,13 +199,12 @@ class Resolver(App[None]):
                 Text(made["kind"], style="ok") if made else Text("open", style="warn"),
             )
 
-        state = status.get("state") or {}
-        open_count = len(status.get("unresolved") or ())
-        withdrawn = status.get("withdrawn") or {}
-        leaving = sum(len(blocks) for blocks in withdrawn.values())
+        state = viewed.state
+        open_count = len(status["unresolved"])
+        leaving = viewed.withdrawn_count
         pairs: list[tuple[str, Any]] = [
-            ("theirs", render.digest(state.get("theirs"))),
-            ("strategy", state.get("strategy", "-")),
+            ("theirs", render.digest(state["theirs"])),
+            ("strategy", state["strategy"]),
             ("open", render.count(open_count)),
         ]
         if leaving:
@@ -208,20 +212,20 @@ class Resolver(App[None]):
                 (
                     "leaving",
                     render.verdict(
-                        bool(status.get("removals_accepted")),
+                        status["removals_accepted"],
                         yes=f"{leaving} blocks, accepted",
                         no=f"{leaving} of yours -- press k",
                     ),
                 )
             )
         self.query_one("#summary", Static).update(render.fields(pairs))
-        self.sub_title = "ready to conclude" if status.get("is_resolved") else f"{open_count} open"
+        self.sub_title = "ready to conclude" if status["is_resolved"] else f"{open_count} open"
         self._show_detail()
 
     # --- The selected question ------------------------------------------------
 
     @property
-    def selected(self) -> dict[str, Any] | None:
+    def selected(self) -> ReconcileVerdictResult | None:
         """The question under the cursor, or ``None`` when the table is empty."""
         table = self.query_one("#questions", DataTable)
         if not self.questions or table.cursor_row is None:
@@ -300,7 +304,7 @@ class Resolver(App[None]):
         self.refresh_bindings()
 
     @staticmethod
-    def _available(entry: dict[str, Any]) -> list[str]:
+    def _available(entry: ReconcileVerdictResult) -> list[str]:
         """Which decisions the protocol permits for one verdict. ``reject`` always: declining needs no reason."""
         options = ["reject"]
         if entry["status"] in ADMISSIBLE:
@@ -324,12 +328,13 @@ class Resolver(App[None]):
             entry = self.selected
             return entry is not None and action in self._available(entry)
         if action == "accept_removals":
-            withdrawn = self.status.get("withdrawn") or {}
-            return bool(sum(len(blocks) for blocks in withdrawn.values())) and not self.status.get(
-                "removals_accepted", True
+            return (
+                self.status is not None
+                and bool(StatusView(self.status).withdrawn_count)
+                and not self.status["removals_accepted"]
             )
         if action == "conclude":
-            return bool(self.status.get("is_resolved"))
+            return self.status is not None and self.status["is_resolved"]
         return True
 
     # --- Decisions ------------------------------------------------------------
@@ -427,8 +432,8 @@ class Resolver(App[None]):
         would strand somebody in a state whose cause is off-screen. Printed rather than a notification, because
         the point is for it to survive the interface closing.
         """
-        if self.status.get("open") and not self.status.get("is_resolved"):
-            open_count = len(self.status.get("unresolved") or ())
+        if self.status is not None and not self.status["is_resolved"]:
+            open_count = len(self.status["unresolved"])
             self.exit(None)
             print(
                 f"left a reconciliation open with {open_count} question{'' if open_count == 1 else 's'} "
