@@ -16,6 +16,10 @@ sees what the protocol produced.
 response bodies all serialize the dictionaries built here. Three serializers over the same models would
 drift, and the drift would show up as three different answers to the same question.
 
+Reconciliation is the first typed vertical slice and therefore lives in :mod:`vitruvio.runtime.reconcile_result`,
+which owns both its serialization and the result interfaces consumed by the CLI and TUI. The remaining SDK result
+conversions stay here until they migrate behind similarly explicit contracts.
+
 Modelled on ``sandbox/boltzmann_sandbox/wire.py`` in the SDK repository, including its discipline about which
 computed properties to surface.
 """
@@ -37,7 +41,6 @@ from boltzmann.merkle.proof import InclusionProof
 from boltzmann.module.module import Module
 from boltzmann.module.snapshot import Snapshot
 from boltzmann.query.evidence import EvidenceBundle
-from boltzmann.reconcile import ReconcilePlan, ReconcileResult, ReconcileStatus
 from boltzmann.retention.requests import (
     CascadePlan,
     DropResult,
@@ -375,69 +378,3 @@ def fetch_result(value: FetchResult) -> dict[str, Any]:
         contribution of forty blocks is forty blocks and not a brain.
     """
     return {**value.model_dump(mode="json"), "block_count": value.block_count}
-
-
-def reconcile_plan(plan: ReconcilePlan) -> dict[str, Any]:
-    """
-    What joining another history would produce, and what each strategy would cost.
-
-    The four computed properties are the ones a caller branches on, and each answers a different question.
-    ``is_noop``: is their history already in here. ``is_clean``: can this happen without anybody deciding
-    anything -- every incoming block applied and nothing of ours leaves. ``is_blocked``: is a candidate still
-    undecided, which forbids committing. ``excluded``: what leaves, per module.
-
-    ``attribution`` is deliberately reported for all three strategies rather than for one. The composition is
-    identical under all of them, so this table *is* the difference between them, and it is what makes the
-    choice informed rather than discovered afterwards.
-
-    Args:
-        plan (ReconcilePlan): The plan.
-
-    Returns:
-        dict[str, Any]: The plan, plus the four derived answers.
-    """
-    return {
-        **plan.model_dump(mode="json"),
-        "is_noop": plan.is_noop,
-        "is_clean": plan.is_clean,
-        "is_blocked": plan.is_blocked,
-        "excluded": {kind.value: [str(block) for block in blocks] for kind, blocks in plan.excluded.items()},
-    }
-
-
-def reconcile_result(result: ReconcileResult) -> dict[str, Any]:
-    """
-    What a reconciliation committed.
-
-    The snapshot is reduced to the digest that names it, the way every other write's result is: the whole
-    document repeats the module list inside a payload whose point is which version this produced. ``brain
-    state`` is one command away.
-
-    The plan is kept in full rather than dropped, because it carries every verdict -- the record of what was
-    judged and how is the audit trail for a reconciliation, and no provenance block holds it.
-
-    Args:
-        result (ReconcileResult): What was committed.
-
-    Returns:
-        dict[str, Any]: The result, with ``snapshot`` as a digest string.
-    """
-    return _versioned(result, result.snapshot)
-
-
-def reconcile_status(status: ReconcileStatus) -> dict[str, Any]:
-    """
-    Where a reconciliation in progress stands.
-
-    Args:
-        status (ReconcileStatus): The status, whose plan was recomputed rather than remembered.
-
-    Returns:
-        dict[str, Any]: The status, plus ``is_resolved`` -- whether every open question has an answer and the
-        reconciliation can be concluded.
-    """
-    return {
-        **status.model_dump(mode="json"),
-        "plan": reconcile_plan(status.plan),
-        "is_resolved": status.is_resolved,
-    }
