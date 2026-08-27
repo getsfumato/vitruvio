@@ -32,10 +32,12 @@ from boltzmann.blocks.provenance import ProvenanceBlock
 from boltzmann.blocks.semantic import SemanticBlock
 from boltzmann.indices.base import ContentReader
 
-PROJECTION_ID = "vitruvio-projection/2"
+PROJECTION_ID = "vitruvio-projection/3"
 """Bumped whenever what gets extracted, or how it is weighted, changes.
 
-``/2`` added :attr:`IdentityKey.ORIGIN`. A bump is not free -- the identifier is in every index header and inside
+``/3`` makes ``record_subject`` cover every block identity a provenance record mentions, which lets browse and
+related-record lookup avoid a full provenance scan. ``/2`` added :attr:`IdentityKey.ORIGIN`. A bump is not free --
+the identifier is in every index header and inside
 every vector index's model tag, so every existing brain needs ``index build`` again and every published brain a
 re-push -- and it is honest rather than avoidable: an index built under ``/1`` has no origin table, and letting it
 answer "have I ingested this?" would return "no" for everything and re-fetch a whole brain's worth of material.
@@ -417,15 +419,20 @@ def _provenance(block: ProvenanceBlock) -> Projection:
         Facet.RECORD_TYPE: (str(record_type),),
     }
 
-    subjects: list[str] = []
-    edges: list[Edge] = []
-    for attribute in ("block", "blocks"):
-        value = getattr(record, attribute, None)
-        if value is None:
-            continue
-        for identity in value if isinstance(value, list) else [value]:
-            subjects.append(str(identity))
+    def mentioned_identities(value: Any) -> set[str]:
+        found: set[str] = set()
+        if isinstance(value, str) and value.startswith("sha256:"):
+            found.add(value)
+        elif isinstance(value, dict):
+            for item in value.values():
+                found.update(mentioned_identities(item))
+        elif isinstance(value, list):
+            for item in value:
+                found.update(mentioned_identities(item))
+        return found
 
+    subjects = sorted(mentioned_identities(record.model_dump(mode="json")))
+    edges: list[Edge] = []
     for attribute, kind in (("derived_from", EdgeKind.DERIVED_FROM), ("supersedes", EdgeKind.SUPERSEDES)):
         value = getattr(record, attribute, None)
         if value is None:

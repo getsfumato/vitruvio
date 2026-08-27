@@ -140,6 +140,55 @@ class TestRelated:
         assert result["count"] == 1
         assert result["records"][0]["record"]["record_type"] == "registration"
         assert result["records"][0]["record"]["block"] == registration["block_id"]
+        assert result["count_exact"] is True
+
+    def test_related_uses_the_subject_index_when_one_is_available(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.indices import HashMapIndex
+        from vitruvio.indices.testing import MemoryContent
+        from vitruvio.runtime.assembly import Capability
+
+        registration = service.register(source_file, media_type="text/markdown")
+        brain = service.brain(Capability.INSPECT)
+        module = brain.module(MemoryType.PROVENANCE)
+        index = HashMapIndex(MemoryType.PROVENANCE)
+        index.build([module.get(identity) for identity in module.block_ids], MemoryContent())
+        index.bind(str(module.root))
+        brain.indices[MemoryType.PROVENANCE] = [index]
+
+        result = service.related(registration["block_id"])
+
+        assert result["provenance"]["state"] == "indexed"
+        assert result["count_exact"] is True
+
+    def test_fallback_lookup_is_bounded_and_says_it_is_incomplete(
+        self,
+        service: BrainService,
+        registered: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.runtime import provenance
+        from vitruvio.runtime.assembly import Capability
+
+        brain = service.brain(Capability.INSPECT)
+        monkeypatch.setitem(brain.indices, MemoryType.PROVENANCE, [])
+        monkeypatch.setattr(provenance, "PROVENANCE_SCAN_LIMIT", 1)
+
+        result = service.related(registered["markdown"])
+
+        assert result["provenance"] == {
+            "state": "bounded",
+            "complete": False,
+            "scanned": 1,
+            "unreadable": 0,
+        }
+        assert result["count_exact"] is False
+        assert result["truncated"] is True
 
     def test_a_block_nothing_records_comes_back_empty_rather_than_failing(self, service: BrainService) -> None:
         """Normal in a selectively pulled brain, where provenance may not be installed at all."""
@@ -147,8 +196,36 @@ class TestRelated:
             "block": "sha256:" + "1" * 64,
             "records": [],
             "count": 0,
+            "count_exact": False,
             "truncated": False,
+            "provenance": {"state": "absent", "complete": False, "scanned": 0, "unreadable": 0},
         }
+
+    def test_unreadable_provenance_is_not_reported_as_an_empty_lookup(
+        self,
+        service: BrainService,
+        registered: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.runtime.assembly import Capability
+
+        brain = service.brain(Capability.INSPECT)
+        original = brain.module
+
+        def unreadable(kind: MemoryType) -> Any:
+            if kind is MemoryType.PROVENANCE:
+                raise RuntimeError("provenance root will not open")
+            return original(kind)
+
+        monkeypatch.setattr(brain, "module", unreadable)
+
+        result = service.related(registered["markdown"])
+
+        assert result["records"] == []
+        assert result["provenance"]["state"] == "unreadable"
+        assert result["count_exact"] is False
 
 
 class TestOriginsDegradeHonestly:
@@ -187,13 +264,12 @@ class TestOriginsDegradeHonestly:
             return original(identity)
 
         monkeypatch.setattr(module, "get", flaky)
-        monkeypatch.setattr(
-            brain, "module", lambda kind: module if kind is MemoryType.PROVENANCE else brain.module(kind)
-        )
-
-        origins = service.browsing_ops._origins(brain)
+        result = service.blocks("canonical")
         assert len(seen) > 1, "the walk stopped at the first unreadable record instead of continuing"
-        assert origins, "every record after the unreadable one lost its origin too"
+        assert result["provenance"]["unreadable"] == 1
+        assert any(row["title"].endswith(".md") for row in result["rows"]), (
+            "every record after the unreadable one lost its origin too"
+        )
 
 
 class TestPagingReadsOnlyThePage:
@@ -217,25 +293,34 @@ class TestPagingReadsOnlyThePage:
 
         from vitruvio.runtime.assembly import Capability
 
-        self._fill(service, source_file, 12)
+        self._fill(service, source_file, 40)
         brain = service.brain(Capability.INSPECT)
         module = brain.module(MemoryType.CANONICAL)
+        provenance = brain.module(MemoryType.PROVENANCE)
         original = module.get
+        original_provenance = provenance.get
         reads: list[Any] = []
+        provenance_reads: list[Any] = []
 
         def counted(identity: Any) -> Any:
             reads.append(identity)
             return original(identity)
 
+        def counted_provenance(identity: Any) -> Any:
+            provenance_reads.append(identity)
+            return original_provenance(identity)
+
         # Only the canonical module's `get` is counted. `brain.module` caches, so patching the instance is enough --
         # and patching `brain.module` itself made `_origins` walk canonical instead of provenance, which is how the
         # first version of this test measured 15 reads and blamed the code.
         monkeypatch.setattr(module, "get", counted)
+        monkeypatch.setattr(provenance, "get", counted_provenance)
 
         result = service.browsing_ops.blocks("canonical", limit=3)
         assert len(result["rows"]) == 3
         assert result["matched"] == result["block_count"], "matched is the module's count when nothing is filtered"
         assert len(reads) == 3, f"read {len(reads)} blocks to return 3 rows"
+        assert len(provenance_reads) <= 24, f"read {len(provenance_reads)} provenance blocks to return 3 canonical rows"
 
     def test_a_filtered_page_still_reports_the_whole_match_count(
         self, service: BrainService, source_file: Path
