@@ -73,16 +73,19 @@ Use it to *install* someone's brain, not to escape a divergence — `dist fetch`
 pull leave the composition. Both commands report it:
 
 ```bash
-vitruvio dist plan-pull --tag v2.4 --json    # read data.local_work.diverged and data.local_work.blocks
-vitruvio dist pull --tag v2.4 --json         # read data.discarded and data.discarded_blocks
+vitruvio dist plan-pull --tag v2.4 --json    # read data.impact: certainty, blocks, block_ids
+vitruvio dist pull --tag v2.4 --json         # the same shape; completed impact is exact when readable
 ```
 
-`discarded > 0` means the user lost the membership of that many blocks. Say so plainly and name the snapshot from
-`brain history` that still holds them; do not describe the pull as clean. Nothing is destroyed -- the blobs remain
-and the snapshot is retained -- but **no command restores it**, so do not promise a rollback you cannot perform.
+Read `impact.certainty` before treating the count as a fact: planning is `approximate`, completed readable pulls are
+`exact`, and an unreadable comparison is `unknown` with `blocks: null`. `discarded` and `discarded_blocks` remain as
+legacy fields, but they cannot represent unknown honestly. When exact impact is greater than zero, say plainly that
+the blocks left the composition and name the snapshot from `brain history` that still holds them. Nothing is
+destroyed -- the blobs remain and the snapshot is retained -- but **no command restores it**, so do not promise a
+rollback you cannot perform.
 
 When a user asks to update a brain they have been writing into, run `plan-pull` first and show them
-`local_work.blocks` before pulling. That is the only point at which the choice is still theirs.
+`impact`, including its certainty, before pulling. That is the only point at which the choice is still theirs.
 
 ### Never publish a brain the project marked unpublishable
 

@@ -18,6 +18,14 @@ from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.ops.remote import RemoteOps, require_vector_index_ignore
+from vitruvio.runtime.pull_impact import (
+    CompositionMembers,
+    ImpactCertainty,
+    PullImpact,
+    compare_members,
+    composition_members,
+    read_snapshot,
+)
 from vitruvio.runtime.session import BrainSession
 
 
@@ -120,11 +128,13 @@ class InstallOps:
             plan = await self.remote._request(
                 brain.plan_pull(remote.client, remote.effective, remote.tag, modules=chosen)
             )
+        local_work = self._local_work(brain)
         return {
             "reference": remote.reference,
             "tag": remote.tag,
             **wire.install_plan(plan, manifest),
-            "local_work": self._local_work(brain),
+            "local_work": local_work,
+            "impact": local_work["impact"],
             "warnings": remote.warnings,
         }
 
@@ -187,9 +197,7 @@ class InstallOps:
         )
 
         with self.session.write() as brain:
-            # Captured before, because after the pull the composition is the remote's and there is nothing left to
-            # compare against. This is the only place the count can be exact rather than estimated.
-            before, unreadable_before = self._composition_ids(brain)
+            before = composition_members(brain, brain.snapshot())
             ignored: list[str] = []
             if ignore_vector_indices:
                 require_vector_index_ignore(brain.pull)
@@ -211,15 +219,12 @@ class InstallOps:
                 snapshot = await self.remote._request(
                     brain.pull(remote.client, remote.effective, remote.tag, modules=chosen)
                 )
-            after, unreadable_after = self._composition_ids(brain)
-            orphaned = sorted(before - after)
-        unreadable = sorted(set(unreadable_before) | set(unreadable_after))
-        if unreadable:
-            # Said rather than folded into the number. `discarded` is what a caller reads to find out whether a
-            # pull cost them evidence, and a scan that skipped a module cannot produce it exactly.
+            after = composition_members(brain, brain.snapshot())
+            impact = compare_members(before, after, planned=False)
+        if impact.certainty is ImpactCertainty.UNKNOWN:
             remote.warnings.append(
-                f"could not enumerate {', '.join(unreadable)} while comparing what this pull replaced, so "
-                "`discarded` is approximate; `vitruvio brain verify` reports what is actually resolvable"
+                f"could not enumerate {', '.join(impact.unreadable)} while comparing what this pull replaced, so "
+                "its impact is unknown; `vitruvio brain verify` reports what is actually resolvable"
             )
         if ignored:
             named = ", ".join(ignored)
@@ -232,8 +237,11 @@ class InstallOps:
             "tag": remote.tag,
             "snapshot": wire.snapshot(snapshot),
             "partial": chosen is not None,
-            "discarded": len(orphaned),
-            "discarded_blocks": orphaned[:20],
+            # Kept for JSON compatibility. New consumers should read `impact`, whose certainty prevents an unknown
+            # scan from being mistaken for an exact zero.
+            "discarded": impact.blocks or 0,
+            "discarded_blocks": list(impact.block_ids[:20]),
+            "impact": impact.as_dict(),
             "ignored_vector_indices": ignored,
             "warnings": remote.warnings,
         }
@@ -416,9 +424,9 @@ class InstallOps:
         """
         What is installed here that no pull put here.
 
-        Answered from ``Origin``, which records the snapshot digest of the last pull, so the question "did I commit
-        anything since?" is a local comparison and costs no round trip. The count is a delta between two snapshot
-        documents rather than a set difference, because a plan must not download a composition to answer it.
+        Answered from ``Origin``, which records the snapshot digest of the last pull, so the question is a local
+        comparison and costs no registry round trip. Membership is compared by identity, so replacement and
+        simultaneous addition/removal cannot disappear behind equal totals.
 
         Args:
             brain (Brain): The opened brain.
@@ -427,69 +435,64 @@ class InstallOps:
             dict[str, Any]: ``diverged``, how many blocks are at stake, and which snapshot holds them.
         """
         snapshot = brain.snapshot()
-        installed = sum(reference.block_count for reference in snapshot.modules.values())
+        current = composition_members(brain, snapshot)
         origin = brain.origin
-        clean = {"diverged": False, "blocks": 0, "snapshot": None, "pulled": None}
+        empty = CompositionMembers(frozenset())
 
-        if installed == 0:
-            return clean
         if origin is None:
-            # Never pulled, and it holds blocks: everything in it is local, and a pull replaces the lot.
-            return {"diverged": True, "blocks": installed, "snapshot": str(snapshot.digest), "pulled": None}
+            impact = compare_members(current, empty, planned=True)
+            return self._local_work_payload(
+                impact,
+                diverged=bool(current.block_ids or current.unreadable),
+                snapshot=str(snapshot.digest),
+                pulled=None,
+            )
         if str(snapshot.digest) == str(origin.snapshot):
-            return clean
+            return self._local_work_payload(
+                compare_members(current, current, planned=False),
+                diverged=False,
+                snapshot=None,
+                pulled=None,
+            )
 
-        baseline = self._snapshot_at(brain, str(origin.snapshot))
-        blocks = None if baseline is None else max(installed - baseline, 0)
+        baseline = read_snapshot(brain, str(origin.snapshot))
+        if baseline is None:
+            missing = CompositionMembers(frozenset(), ("baseline snapshot (unreadable)",))
+            impact = compare_members(current, missing, planned=True)
+            return self._local_work_payload(
+                impact,
+                diverged=True,
+                snapshot=str(snapshot.digest),
+                pulled=str(origin.snapshot),
+            )
+
+        diverged = snapshot.modules != baseline.modules
+        previous = composition_members(brain, baseline)
+        impact = compare_members(current, previous, planned=diverged)
+        return self._local_work_payload(
+            impact,
+            diverged=diverged,
+            snapshot=str(snapshot.digest) if diverged else None,
+            pulled=str(origin.snapshot) if diverged else None,
+        )
+
+    @staticmethod
+    def _local_work_payload(
+        impact: PullImpact,
+        *,
+        diverged: bool,
+        snapshot: str | None,
+        pulled: str | None,
+    ) -> dict[str, Any]:
+        """Preserve the old fields while attaching the explicit shared impact result."""
+        detail = impact.as_dict()
         return {
-            "diverged": True,
-            "blocks": blocks,
-            "snapshot": str(snapshot.digest),
-            "pulled": str(origin.snapshot),
+            "diverged": diverged,
+            "blocks": impact.blocks,
+            "snapshot": snapshot,
+            "pulled": pulled,
+            "certainty": detail["certainty"],
+            "block_ids": detail["block_ids"],
+            "unreadable": detail["unreadable"],
+            "impact": detail,
         }
-
-    @staticmethod
-    def _snapshot_at(brain: Brain, digest: str) -> int | None:
-        """
-        How many blocks one retained snapshot held, or ``None`` when it can no longer be read.
-
-        ``None`` rather than zero: a missing baseline means the size of the local work is *unknown*, and reporting
-        an unknown as "nothing" is the failure this whole report exists to prevent.
-        """
-        from boltzmann.brain import Snapshot
-        from boltzmann.identity.digest import OciDigest
-
-        try:
-            document = brain.store.get_bytes(OciDigest.parse(digest))
-        # Broad on purpose: a pruned or unreadable blob is not an error here, it is an unknown.
-        except Exception:
-            return None
-        try:
-            return sum(reference.block_count for reference in Snapshot.model_validate_json(document).modules.values())
-        except ValueError:  # pragma: no cover - a blob that is not a snapshot document
-            return None
-
-    @staticmethod
-    def _composition_ids(brain: Brain) -> tuple[set[str], list[str]]:
-        """
-        Every block identity currently a member of some installed module, and which modules could not be read.
-
-        The second value is returned rather than suppressed because the caller subtracts two of these to report how
-        many blocks a pull discarded. A module skipped on the way *in* makes that count too small; one skipped on
-        the way *out* makes it too large. Either way it is the number that tells someone they lost evidence, so a
-        count taken over an incomplete scan has to say so rather than look exact.
-
-        Args:
-            brain (Brain): The brain to read.
-
-        Returns:
-            tuple[set[str], list[str]]: The identities, and one entry per module that would not enumerate.
-        """
-        found: set[str] = set()
-        unreadable: list[str] = []
-        for kind in brain.snapshot().installed:
-            try:
-                found.update(str(identity) for identity in brain.module(kind).block_ids)
-            except Exception as error:  # a module that will not enumerate is a fact about the count, not a failure
-                unreadable.append(f"{kind.value} ({type(error).__name__})")
-        return found, unreadable

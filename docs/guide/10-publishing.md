@@ -120,12 +120,12 @@ root, no longer appears in a search, and a pack no longer carries it.
 ```console
 $ vitruvio dist plan-pull --tag v2.4
 transfer    212.4 KiB
-discards    5 blocks committed here since the last pull (they are in sha256:cabe876f9d)
+discards    approximately 5 blocks committed here since the last pull (they are in sha256:cabe876f9d)
 
 $ vitruvio dist pull --tag v2.4
-warning: 5 blocks committed here are no longer in the composition; the snapshot that held
+warning: 5 blocks committed here are no longer in the composition (exact impact); the snapshot that held
          them is still in `brain history`
-discarded   5 blocks committed here, now outside the composition
+discarded   5 blocks, exact impact
 ```
 
 Nothing is destroyed. The blobs stay on disk and the previous snapshot stays in `brain history` — the retention
@@ -137,5 +137,7 @@ committed into a brain somebody else publishes, `dist fetch` is the operation yo
 locally and joins them, keeping what each side did. Reach for `pull` to *install* a brain, not to catch up with
 one. See [Reconciling](16-reconciling.md).
 
-`plan-pull` estimates the count from two snapshot documents, which is why it needs no download. `pull` counts it
-exactly, because it is the one moment both compositions are known.
+`plan-pull` compares the locally retained compositions by block identity and marks the result `approximate`, which is
+why equal-size replacement cannot look like zero and why it needs no extra registry round trip. `pull` applies the
+same set difference to the before and after compositions and marks it `exact`. If either composition cannot be read,
+the JSON result says `certainty: "unknown"` and `blocks: null` instead of presenting zero as a fact.
