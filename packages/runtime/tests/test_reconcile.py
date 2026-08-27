@@ -22,6 +22,7 @@ from vitruvio.kernel import ExitCode, UsageError, VitruvioError, resolve
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import snapshot_digest
+from vitruvio.runtime.reconcile_result import ReconcileStatusResult
 
 PROJECT = """
 [brain]
@@ -511,8 +512,9 @@ class TestWhenItCannotBeSettledMechanically:
         assert halted["open"] is True
         assert beto.state()["snapshot"]["digest"] == before, "a halt must write nothing"
 
-        status = beto.reconcile_ops.status()
-        assert status["open"] is True
+        envelope = beto.reconcile_ops.status()
+        assert envelope["open"] is True
+        status: ReconcileStatusResult = envelope
 
         for block in list(status["unresolved"]):
             status = beto.reconcile_ops.resolve(block, kind="reject")
@@ -546,6 +548,7 @@ class TestWhenItCannotBeSettledMechanically:
         registry, reference, beto = dirty
         fetched = beto.fetch(reference, tag="v2", reconcile=False, local=registry)
         halted = beto.reconcile_ops.reconcile(fetched["digest"], strategy="merge", reason="x")
+        assert halted["halted"] is True
         if not halted["unresolved"] and halted["removals_accepted"]:
             pytest.skip("nothing was left open, so there is nothing to refuse")
 
@@ -613,7 +616,9 @@ class TestWhenItCannotBeSettledMechanically:
 
         assert "already unresolved" in caught.value.message or "still unresolved" in caught.value.message
         assert "abort" in (caught.value.hint or "")
-        assert beto.reconcile_ops.status()["state"]["strategy"] == "merge", "the open one is untouched"
+        status = beto.reconcile_ops.status()
+        assert status["open"] is True
+        assert status["state"]["strategy"] == "merge", "the open one is untouched"
 
     def test_a_store_failure_during_abort_is_mapped_not_reported_as_our_bug(
         self, dirty: tuple[Path, str, BrainService], monkeypatch: pytest.MonkeyPatch
@@ -710,9 +715,12 @@ class TestARejectionCannotBeAdmitted:
             beto.reconcile_ops.resolve(rejected[0], kind="admit")
 
         # Rejecting it is always available, and concludes.
-        for block in list(beto.reconcile_ops.status()["unresolved"]):
+        status = beto.reconcile_ops.status()
+        assert status["open"] is True
+        for block in list(status["unresolved"]):
             beto.reconcile_ops.resolve(block, kind="reject")
         status = beto.reconcile_ops.status()
+        assert status["open"] is True
         if not status["removals_accepted"]:
             beto.reconcile_ops.accept_removals()
         beto.reconcile_ops.continue_()
