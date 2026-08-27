@@ -161,8 +161,6 @@ class TaskOps:
         """
         from boltzmann.ingest.task import ProcessingTask
 
-        # WRITE, even though nothing is written: the gate includes the retention policy's validators, and a report
-        # produced without them would say a candidate is committable when the commit will refuse it.
         parsed = self._parse_candidates(candidates)
         with self.session.write() as brain, translated():
             return wire.validation(brain.validate(parsed, ProcessingTask.model_validate(task)))

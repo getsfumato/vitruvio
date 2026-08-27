@@ -146,14 +146,6 @@ class ReconcileOps:
                 with translated():
                     result = brain.reconcile(request)
             except VitruvioError as error:
-                # A halt wrote nothing and moved no pointer, but it did record the state, so the reconciliation is
-                # now open and there is somewhere to put an answer. Reported as data rather than re-raised: the
-                # caller's next step is to read the questions, and a raise would make it go looking for them.
-                #
-                # Only reachable as a halt because `_require_none_open` ran first. `Brain.reconcile` refuses a
-                # second reconciliation by raising the *same* class, so this code alone cannot tell "the history
-                # you asked for stopped to ask" from "a different one is already open" -- and reporting the second
-                # as the first labelled somebody else's open merge with the strategy and history just requested.
                 if error.code != "RECONCILE_OPEN":
                     raise
                 return {"halted": True, "strategy": str(chosen), **self._status_payload(brain)}
@@ -253,27 +245,10 @@ class ReconcileOps:
         Returns:
             dict[str, Any]: What was abandoned, so the report can name it rather than say "done".
         """
-        # The `try` sits *inside* `translated()`, which is not cosmetic. `reconcile_status` recomputes the plan
-        # and therefore reads blocks, so `BlockNotFoundError` and `BlockIntegrityError` are reachable here and
-        # neither is a `ReconciliationError`. Outside the boundary they escaped unmapped, and the CLI's
-        # last-resort handler reports an unmapped exception as "internal error -- this is a bug in vitruvio":
-        # a corrupt store denounced as our defect instead of `INTEGRITY_FAILED`. The special case below stays;
-        # everything else goes through the one table.
         with self.session.write() as brain, translated():
             try:
                 status = brain.reconcile_status()
             except ReconciliationError:
-                # The one state abandoning exists for, and the one this used to be unable to abandon.
-                #
-                # `reconcile_status` refuses, before recomputing anything, when the head no longer matches the
-                # one the reconciliation was started against -- a layout changed from outside. Its own message
-                # says to abandon it. Reading the status first therefore made `abort` raise in exactly the
-                # situation it is the remedy for, and `status` raises for the same reason, so both commands the
-                # hint names were dead and the brain stayed locked against every ordinary write.
-                #
-                # The raise is itself proof that one is open: the SDK checks the state exists before it checks
-                # the head. So abandon it, and report the little that can still be said honestly -- what failed
-                # is reading the detail, not the abandoning.
                 brain.reconcile_abort()
                 return {"aborted": True, "theirs": None, "strategy": None, "decisions": None, "stale": True}
 
