@@ -2,6 +2,7 @@
 
 ```console
 uv sync --all-packages          # the default dev environment: no torch, fast
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
 
 A bare environment is deliberate. Every code path must be exercisable without a 2.5 GB download, which is why the
@@ -22,6 +23,11 @@ uv run vitruvio bench --tier 800 --queries 12 --gate
 ```
 
 Two of them are worth explaining.
+
+**Generated facade.** A pre-commit hook runs when a runtime operation, the operation catalogue or the generator is
+staged. It regenerates `_generated_facade.py` and stages that artifact, so the commit already in progress includes
+the facade matching the operation change. The hook never creates a second commit; CI's `generate_facade --check`
+remains the independent guard for commits made with `--no-verify`.
 
 **`reference --check`.** `skills/vitruvio/references/cli-reference.md` is generated from the cyclopts declarations —
 the same declarations that parse the arguments. A stale reference is worse than none: an agent that trusts a flag

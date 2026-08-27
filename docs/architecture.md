@@ -100,6 +100,10 @@ earlier describes the composition that was just replaced. It can only invalidate
 not. The naming is close enough to be worth stating: `ops/publish.py` publishes, `runtime/distribution.py`
 transports; `ops/registration.py` registers a block, `runtime/registry.py` talks to an OCI registry.
 
+`runtime/operation_catalogue.py` is the authoritative list of those protocol operations. It drives the generated
+`BrainService` forwarding surface, documentation metadata and conformance checks; `ops/reconcile.py` is marked there
+as the deliberate property-exposed exception rather than being absent from the catalogue.
+
 **Heavy imports stay inside functions.** `import vitruvio.runtime` costs ~124ms, and eager `vitruvio.indices`
 (+24ms), `asyncio` (+17ms), `stats`, `embeddings` and `bench` would add ~50ms to every invocation, `--help`
 included. `packages/runtime/tests/test_import_cost.py` fails if any of them leaks, in a subprocess because by the
