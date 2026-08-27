@@ -12,7 +12,6 @@ from typing import Any
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import wire
-from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
 
@@ -61,8 +60,7 @@ class RegistrationOps:
         """
         from boltzmann.ingest.register import RegistrationRequest
 
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             data = path.read_bytes()
             request = RegistrationRequest(
                 media_type=media_type,
@@ -104,8 +102,7 @@ class RegistrationOps:
         from boltzmann.identity.digest import BlockId
         from boltzmann.ingest.register import RegistrationRequest
 
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             request = RegistrationRequest(
                 media_type=media_type,
                 actor=self.config.actor(),
@@ -130,7 +127,6 @@ class RegistrationOps:
         Returns:
             dict[str, Any]: The content reference.
         """
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             reference = brain.put_content(path.read_bytes(), media_type)
             return reference.model_dump(mode="json")

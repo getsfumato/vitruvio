@@ -15,7 +15,6 @@ from boltzmann.blocks.memory_type import MemoryType
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import wire
-from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import block_id
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
@@ -58,8 +57,7 @@ class RetentionOps:
         Returns:
             dict[str, Any]: The cascade, its size, and whether it needs review.
         """
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             return wire.cascade(brain.plan_drop(self._drop_request(blocks, memory_type, reason, rederive_against)))
 
     def drop(
@@ -86,9 +84,8 @@ class RetentionOps:
         Returns:
             dict[str, Any]: What was dropped, the new roots, and the cascade it followed.
         """
-        brain = self.session.brain(Capability.WRITE)
         request = self._drop_request(blocks, memory_type, reason, rederive_against)
-        with translated():
+        with self.session.write() as brain, translated():
             plan = wire.cascade(brain.plan_drop(request))
             return {**wire.dropped(brain.drop(request)), "cascade": plan}
 
@@ -121,13 +118,12 @@ class RetentionOps:
         from boltzmann.blocks.provenance import Producer, ProducerKind
         from boltzmann.retention.requests import ProducerDropRequest
 
-        brain = self.session.brain(Capability.WRITE)
         types = (
             [coerce_memory_type(item) for item in memory_types]
             if memory_types
             else [MemoryType.SEMANTIC, MemoryType.PROCEDURAL, MemoryType.EPISODIC]
         )
-        with translated():
+        with self.session.write() as brain, translated():
             request = ProducerDropRequest(
                 producer=Producer(kind=ProducerKind(kind), id=producer_id, version=version),
                 memory_types=types,
@@ -154,8 +150,7 @@ class RetentionOps:
         Returns:
             dict[str, Any]: The new version and the record written.
         """
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             result = brain.supersede(
                 block_id(block), block_id(superseded), coerce_memory_type(memory_type), reason=reason
             )
@@ -176,8 +171,7 @@ class RetentionOps:
         Returns:
             dict[str, Any]: The new version and the record written.
         """
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             return {
                 **wire.supersession(brain.demote(block_id(block), coerce_memory_type(memory_type), reason=reason)),
                 "block": block,
@@ -197,8 +191,7 @@ class RetentionOps:
         Returns:
             dict[str, Any]: What would be, or was, reclaimed.
         """
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             return {**wire.prune(brain.prune(dry_run=not apply)), "applied": apply}
 
     def redact(self, block: str, *, memory_type: str, reason: str) -> dict[str, Any]:
@@ -220,8 +213,7 @@ class RetentionOps:
         Returns:
             dict[str, Any]: What was destroyed, and what was held back because another block still names it.
         """
-        brain = self.session.brain(Capability.WRITE)
-        with translated():
+        with self.session.write() as brain, translated():
             return {
                 **wire.redaction(brain.redact(block_id(block), coerce_memory_type(memory_type), reason)),
                 "block": block,

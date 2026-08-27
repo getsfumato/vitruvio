@@ -53,11 +53,10 @@ class PublishOps:
         from vitruvio.runtime.vouch import vouch_travelling
 
         chosen = [coerce_memory_type(item) for item in modules] if modules else None
-        brain = self.session.brain(Capability.WRITE)
-        vouched = vouch_travelling(brain, chosen)
-
-        with translated():
-            manifest = brain.pack(tag=tag or self.config.project.registry.tag, modules=chosen)
+        with self.session.write() as brain:
+            vouched = vouch_travelling(brain, chosen)
+            with translated():
+                manifest = brain.pack(tag=tag or self.config.project.registry.tag, modules=chosen)
         return {**wire.manifest(manifest), "vouched": vouched}
 
     def registry_check(
@@ -131,18 +130,18 @@ class PublishOps:
             target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
         )
 
-        brain = self.session.brain(Capability.WRITE)
-        vouched = vouch_travelling(brain, chosen)
-        with translated():
-            digest = asyncio.run(
-                brain.push(
-                    client,
-                    reference=effective,
-                    tag=tag or self.config.project.registry.tag,
-                    force=force,
-                    modules=chosen,
+        with self.session.write() as brain:
+            vouched = vouch_travelling(brain, chosen)
+            with translated():
+                digest = asyncio.run(
+                    brain.push(
+                        client,
+                        reference=effective,
+                        tag=tag or self.config.project.registry.tag,
+                        force=force,
+                        modules=chosen,
+                    )
                 )
-            )
         return {
             "reference": target,
             "effective": effective,
