@@ -140,6 +140,9 @@ ignore = [
 # Textual event handlers, not protocol operations -- ADR-0012 already fixes that the TUI holds no protocol logic.
 # Exempted by name rather than by raising the threshold, so the number keeps meaning something for the service.
 "**/cli/tui/app.py" = ["PLR0904"]
+# Protocol surface generated from the authoritative operation catalogue. Its method count is data; completeness
+# checks replace PLR0904 as the ratchet against facade drift.
+"**/runtime/_generated_facade.py" = ["PLR0904"]
 "tests/**/*.py" = ["ARG", "PLR2004", "S101", "N802", "N806", "PTH", "DTZ", "B007", "UP038", "SIM117", "E402", "C401"]
 "**/tests/**/*.py" = ["ARG", "PLR2004", "S101", "N802", "N806", "PTH", "DTZ", "B007", "UP038", "SIM117", "E402", "C401"]
 

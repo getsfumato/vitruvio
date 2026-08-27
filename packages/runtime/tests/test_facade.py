@@ -16,57 +16,25 @@ delegator is a failure here rather than something nobody notices.
 
 from __future__ import annotations
 
-from inspect import signature
-from typing import Any
+import importlib
+from inspect import getmembers, isfunction, signature
+from typing import Any, cast
 
 import pytest
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import BrainService
-from vitruvio.runtime.ops.benchmarking import BenchmarkOps
-from vitruvio.runtime.ops.browsing import BrowsingOps
+from vitruvio.runtime.generate_facade import TARGET, render
+from vitruvio.runtime.operation_catalogue import OPERATION_CATALOGUE, Exposure, facade_operations
 from vitruvio.runtime.ops.embedders import EmbedderOps
-from vitruvio.runtime.ops.indices import IndexOps
-from vitruvio.runtime.ops.inspection import InspectionOps
-from vitruvio.runtime.ops.install import InstallOps
-from vitruvio.runtime.ops.lifecycle import LifecycleOps
-from vitruvio.runtime.ops.projects import ProjectOps
-from vitruvio.runtime.ops.publish import PublishOps
-from vitruvio.runtime.ops.registration import RegistrationOps
-from vitruvio.runtime.ops.remote import RemoteOps
-from vitruvio.runtime.ops.retention import RetentionOps
-from vitruvio.runtime.ops.retrieval import RetrievalOps
-from vitruvio.runtime.ops.sources import SourceOps
-from vitruvio.runtime.ops.tasks import TaskOps
 
-DOMAINS: tuple[tuple[type, tuple[str, ...]], ...] = (
-    (BenchmarkOps, ("bench",)),
-    (BrowsingOps, ("blocks", "content", "export_content", "related")),
-    (EmbedderOps, ("embedders", "test_embedder")),
-    (IndexOps, ("index_list", "index_build", "index_stats", "index_verify", "index_gc")),
-    (InspectionOps, ("resolvability", "resolve", "prove", "module", "roots")),
-    (LifecycleOps, ("init", "state", "verify", "history", "info")),
-    (ProjectOps, ("project", "add_brain", "remove_brain")),
-    (RemoteOps, ("reference_for",)),
-    (PublishOps, ("pack", "registry_check", "push", "tags")),
-    (InstallOps, ("plan_pull", "pull")),
-    (RegistrationOps, ("register", "replace", "put_content")),
-    (RetentionOps, ("plan_drop", "drop", "drop_by_producer", "supersede", "demote", "prune", "redact", "policy")),
-    (RetrievalOps, ("search", "explain")),
-    (
-        SourceOps,
-        ("sources", "source_kinds", "scaffold_source", "add_source", "remove_source", "pull_source", "pull_all"),
-    ),
-    (TaskOps, ("define_task", "task_schema", "validate_candidates", "commit_candidates", "ingest_run", "pipelines")),
-)
-"""Each operations class, and the names `BrainService` must expose for it.
 
-Extended as each domain moves. The second element is deliberately explicit rather than derived from the class: a
-list computed from the class cannot tell the difference between "this operation has no delegator" and "this
-operation was never meant to have one".
-"""
+def operation_type(module: str, class_name: str) -> type:
+    """Resolve a catalogue entry to the class it names."""
+    return cast(type, getattr(importlib.import_module(module), class_name))
 
-CASES = [(domain, name) for domain, names in DOMAINS for name in names]
+
+CASES = [(operation_type(item.module, item.class_name), name) for item, name in facade_operations()]
 
 
 @pytest.mark.parametrize(("domain", "name"), CASES, ids=[f"{d.__name__}.{n}" for d, n in CASES])
@@ -121,3 +89,28 @@ def test_every_operations_object_shares_the_service_session(config: ResolvedConf
     """The property `invalidate()` depends on. One cache, reachable from everything that reads a brain."""
     service = BrainService(config)
     assert service.embedder_ops.session is service.session
+
+
+def test_the_generated_facade_is_current() -> None:
+    """A catalogue edit without regeneration fails before it can ship a stale public interface."""
+    assert TARGET.read_text(encoding="utf-8") == render()
+
+
+@pytest.mark.parametrize("domain", OPERATION_CATALOGUE, ids=lambda item: item.class_name)
+def test_every_public_domain_operation_is_catalogued(domain: Any) -> None:
+    """Adding an operation requires declaring it in the one authoritative place."""
+    owner = operation_type(domain.module, domain.class_name)
+    public = {name for name, member in getmembers(owner, isfunction) if not name.startswith("_") and name != "config"}
+    assert public == set(domain.operations)
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [item for item in OPERATION_CATALOGUE if item.exposure is Exposure.PROPERTY],
+    ids=lambda item: item.class_name,
+)
+def test_property_exposed_domains_are_reachable(domain: Any, config: ResolvedConfig) -> None:
+    """A deliberately non-forwarded domain is still part of the runtime interface."""
+    assert isinstance(
+        getattr(BrainService(config), domain.property_name), operation_type(domain.module, domain.class_name)
+    )

@@ -40,18 +40,17 @@ TUI and the future MCP server all reach an operation on the service, and none of
 
 ## Consequences
 
-- **The signature of every operation is now written twice**, and that is the real cost. A facade drifted from its
-  operation would be a second place to keep in sync forever — strictly worse than the one large class. So
-  `test_facade.py` asserts, per operation, that the delegator exists, that the signature is identical including
-  keyword-only defaults, that both carry a docstring, and that it forwards. The delegators are *generated* from the
-  operations' signatures rather than typed out, because `register` takes six keyword arguments and there were sixty
-  to copy.
+- **The operation catalogue is authoritative.** `operation_catalogue.py` declares each domain, operation and exposure
+  mode once; the checked-in facade methods are generated from the operation implementations, and conformance and
+  documentation metadata read the same catalogue. Adding an operation without declaring it, or changing a signature
+  without regenerating the facade, fails `test_facade.py`.
 - What that test buys over mypy is narrow and worth stating exactly. Drop a keyword argument that some caller
   already passes by name and mypy catches it. What mypy cannot catch is the shape that actually shipped in
   `dist push --all`: `_push_all` never had an `anonymous` parameter, so nothing called it with that keyword, every
   call site type-checked, and `--anonymous` silently published with stored credentials.
-- **`ruff`'s `PLR0904` is enabled** as the ratchet. Before this change it flagged exactly two classes in the
-  workspace; a facade that starts absorbing logic again trips it.
+- **`ruff`'s `PLR0904` remains the ratchet on handwritten classes.** The generated facade is exempt because its
+  method count is protocol data rather than absorbed implementation; catalogue completeness is the stronger ratchet
+  on that artifact.
 - Long docstrings live with the implementation in `ops/`; the delegator carries a one-line summary and a pointer.
   One source of truth, at the cost of `help(BrainService.push)` being a summary rather than the full text.
 - `bench` had to be rewired rather than moved: it constructed a second `BrainService`, which would have made
