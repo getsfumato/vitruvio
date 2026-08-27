@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-embeddings"
-version = "0.6.9"
+version = "0.6.10"
 description = "Pluggable text and vision embedders with a composite model tag, for vitruvio's vector index"
 readme = "README.md"
 license = {text = "MIT"}

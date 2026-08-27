@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-bench"
-version = "0.6.9"
+version = "0.6.10"
 description = "Synthetic corpora with known ground truth, and a recall/latency harness (not published)"
 readme = "README.md"
 license = {text = "MIT"}
