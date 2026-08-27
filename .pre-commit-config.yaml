@@ -30,6 +30,17 @@ repos:
 
   - repo: local
     hooks:
+      - id: generate-facade
+        name: regenerate and stage the BrainService facade
+        # Keep the checked-in facade in the commit that changed its source. `git add` updates the index of the
+        # commit already in progress; the hook must not create a nested commit and recursively invoke itself.
+        entry: >-
+          bash -c 'uv run --frozen python -m vitruvio.runtime.generate_facade &&
+          git add -- packages/runtime/src/vitruvio/runtime/_generated_facade.py'
+        language: system
+        files: >-
+          ^packages/runtime/src/vitruvio/runtime/(operation_catalogue\.py|generate_facade\.py|ops/.*\.py)$
+        pass_filenames: false
       - id: no-namespace-init
         name: no __init__.py in the shared vitruvio namespace
         # The failure this prevents is not an error but a silence: one member wins the namespace and the
