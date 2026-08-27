@@ -276,6 +276,16 @@ def _push_all(
     )
 
 
+def _impact_count(impact: dict[str, Any]) -> str:
+    """Phrase a count without erasing its certainty."""
+    blocks = impact.get("blocks")
+    certainty = impact.get("certainty", "unknown" if blocks is None else "approximate")
+    if certainty == "unknown" or blocks is None:
+        return "an unknown number of blocks (impact unknown)"
+    amount = f"{blocks} block{'' if blocks == 1 else 's'}"
+    return amount if certainty == "exact" else f"approximately {amount}"
+
+
 def _local_work_line(result: dict[str, Any]) -> str | None:
     """
     One line about what a pull replaces, or ``None`` when it replaces nothing of yours.
@@ -286,8 +296,8 @@ def _local_work_line(result: dict[str, Any]) -> str | None:
     work = result.get("local_work") or {}
     if not work.get("diverged"):
         return None
-    blocks = work.get("blocks")
-    count = "an unknown number of blocks" if blocks is None else f"{blocks} block{'' if blocks == 1 else 's'}"
+    impact = work.get("impact") or work
+    count = _impact_count(impact)
     where = f" (they are in {short(str(work['snapshot']))})" if work.get("snapshot") else ""
     return f"this pull discards {count} committed here since the last pull{where}"
 
@@ -518,17 +528,16 @@ def pull(
     pairs: list[tuple[str, object]] = [("pulled", f"{result['reference']}:{result['tag']}")]
     if ignored := result["ignored_vector_indices"]:
         pairs.append(("ignored vectors", ", ".join(ignored)))
-    if discarded := int(result["discarded"]):
-        # Counted exactly here rather than estimated: this is the one moment both compositions are known, so the
-        # report says what happened instead of what was likely to. Stated after the fact because a pull is a
-        # request to install the other side's version -- `plan-pull` is where it is stated before.
+    impact = result["impact"]
+    certainty = str(impact["certainty"])
+    discarded = impact["blocks"]
+    if certainty != "exact" or discarded:
+        detail = _impact_count(impact)
         console.warn(
-            f"{discarded} block{'' if discarded == 1 else 's'} committed here are no longer in the composition; "
+            f"{detail} committed here are no longer in the composition ({certainty} impact); "
             f"the snapshot that held them is still in `brain history`"
         )
-        pairs.append(
-            ("discarded", Text(f"{discarded} blocks committed here, now outside the composition", style="warn"))
-        )
+        pairs.append(("discarded", Text(f"{detail}, {certainty} impact", style="warn")))
     return console.emit(
         "dist.pull",
         result,

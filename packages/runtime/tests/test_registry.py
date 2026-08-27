@@ -562,6 +562,7 @@ class TestWhatAPullReplaces:
         plan = consumer.plan_pull(reference, tag="v1", local=registry_root)
         assert plan["local_work"]["diverged"] is False
         assert plan["local_work"]["blocks"] == 0
+        assert plan["impact"]["certainty"] == "exact"
 
     def test_a_fresh_empty_brain_reports_nothing_to_lose(self, published: tuple[Path, str], tmp_path: Path) -> None:
         """An empty brain has never pulled and has no origin, which is the case that would otherwise be reported as
@@ -583,7 +584,25 @@ class TestWhatAPullReplaces:
         assert work["diverged"] is True
         assert work["blocks"] is not None
         assert work["blocks"] > 0
+        assert work["certainty"] == "approximate"
         assert work["snapshot"] is not None
+
+    def test_selective_plan_and_pull_count_local_work_in_modules_the_install_omits(
+        self, consumer: BrainService, published: tuple[Path, str], mine: Path
+    ) -> None:
+        registry_root, reference = published
+        local = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+
+        plan = consumer.plan_pull(reference, tag="v1", modules=["semantic"], local=registry_root)
+        result = consumer.pull(reference, tag="v1", modules=["semantic"], local=registry_root)
+
+        assert plan["local_work"]["diverged"] is True
+        assert plan["impact"]["certainty"] == "approximate"
+        assert plan["impact"]["blocks"] > 0
+        assert result["impact"]["certainty"] == "exact"
+        assert result["impact"]["blocks"] > 0
+        assert local["block_id"] in result["impact"]["block_ids"]
+        assert "canonical" not in consumer.state()["installed"]
 
     def test_the_pull_reports_exactly_what_left_the_composition(
         self, consumer: BrainService, published: tuple[Path, str], mine: Path
@@ -596,6 +615,7 @@ class TestWhatAPullReplaces:
         result = consumer.pull(reference, tag="v1", local=registry_root)
         assert result["discarded"] > 0
         assert registered["block_id"] in result["discarded_blocks"]
+        assert result["impact"]["certainty"] == "exact"
 
     def test_the_discarded_block_really_is_out_of_the_composition(
         self, consumer: BrainService, published: tuple[Path, str], mine: Path
