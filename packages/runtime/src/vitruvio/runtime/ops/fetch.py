@@ -212,44 +212,14 @@ class FetchOps:
         to ``None`` -- never to a scan -- when no such index is registered: a pull that silently became O(n) per
         item over a large brain would look like a hang, and content addressing still catches the duplicate.
         """
-        from boltzmann.blocks.memory_type import MemoryType
+        from vitruvio.runtime.provenance import ProvenanceReader
 
-        from vitruvio.indices import HashMapIndex, IdentityKey, IdQuery, fold
-
-        index = next(
-            (
-                candidate
-                for candidate in brain.indices.get(MemoryType.PROVENANCE, [])
-                if isinstance(candidate, HashMapIndex)
-            ),
-            None,
-        )
-        if index is None or not index.population:
-            return None
-
-        results = index.lookup(IdQuery(keys=((IdentityKey.ORIGIN, fold(origin)),)))
-        for identity in results.identities():
-            record = self._registration_record(brain, identity)
-            if record is not None:
-                return record
+        read = ProvenanceReader(brain).registrations_by_origin(origin)
+        for _, record in read.records:
+            target = record.get("block")
+            if isinstance(target, str):
+                return {"block": target, **self._canonical_shape(brain, target)}
         return None
-
-    def _registration_record(self, brain: Brain, provenance_id: str) -> dict[str, Any] | None:
-        """The canonical block one registration record talks about, with what it was registered as."""
-        from boltzmann.identity.digest import BlockId
-
-        try:
-            with translated():
-                block = brain.resolve(BlockId.parse(provenance_id))
-        except VitruvioError:
-            # A record whose provenance block is no longer resolvable tells us nothing useful, and a pull is not
-            # the place to raise about it.
-            return None
-        record: Any = getattr(block, "record", None)
-        target = getattr(record, "block", None)
-        if target is None:
-            return None
-        return {"block": str(target), **self._canonical_shape(brain, str(target))}
 
     def _canonical_shape(self, brain: Brain, block_id: str) -> dict[str, Any]:
         """

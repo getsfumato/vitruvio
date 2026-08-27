@@ -383,8 +383,10 @@ class VitruvioIndex(AbstractIndex):
         header, body = found
         if header.kind != self.KIND.value or header.memory_type != self.memory_type.value:
             return
-        if header.body_version != self.BODY_VERSION:
-            # A structural index is cheap to rebuild, so an older body is dropped rather than migrated.
+        if header.body_version != self.BODY_VERSION or header.projection_id != PROJECTION_ID:
+            # A structural index is cheap to rebuild. The same block set projected under different field policy is
+            # a different index even when its body encoding did not change; loading either stale form would make a
+            # newly indexed key answer confident false negatives.
             return
         try:
             self._load_body(body)
