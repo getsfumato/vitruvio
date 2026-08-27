@@ -69,6 +69,28 @@ class PublishOps:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
+        """Test a registry from synchronous code."""
+        return self.remote._run(
+            self.registry_check_async(
+                reference,
+                username=username,
+                token=token,
+                anonymous=anonymous,
+                insecure=insecure,
+                local=local,
+            )
+        )
+
+    async def registry_check_async(
+        self,
+        reference: str | None = None,
+        *,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
         """
         Test a registry with an artifact shaped exactly like a brain.
 
@@ -78,20 +100,49 @@ class PublishOps:
         Returns:
             dict[str, Any]: Per-check outcomes, and a hint naming the real alternatives when it fails.
         """
-        import asyncio
-
         from vitruvio.runtime.distribution import preflight
 
-        target = self.remote.reference_for(reference)
-        client, _, warnings = self.remote._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        remote = self.remote._prepare(
+            reference,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
         brain = self.session.brain(Capability.INSPECT)
-        with translated():
-            result = asyncio.run(preflight(target, client, brain.store))
-        return {**result, "warnings": warnings}
+        result = await self.remote._request(preflight(remote.reference, remote.client, brain.store))
+        return {**result, "warnings": remote.warnings}
 
     def push(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        force: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Publish the brain from synchronous code."""
+        return self.remote._run(
+            self.push_async(
+                reference,
+                tag=tag,
+                modules=modules,
+                force=force,
+                username=username,
+                token=token,
+                anonymous=anonymous,
+                insecure=insecure,
+                local=local,
+            )
+        )
+
+    async def push_async(
         self,
         reference: str | None = None,
         *,
@@ -119,36 +170,38 @@ class PublishOps:
                 resolved and before a credential is read, because a refusal that happens after a credential lookup
                 has already told a keyring what you were about to do.
         """
-        import asyncio
-
         from vitruvio.runtime.vouch import vouch_travelling
 
         self._require_publishable()
-        target = self.remote.reference_for(reference)
         chosen = [coerce_memory_type(item) for item in modules] if modules else None
-        client, effective, warnings = self.remote._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        remote = self.remote._prepare(
+            reference,
+            tag=tag,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
 
         with self.session.write() as brain:
             vouched = vouch_travelling(brain, chosen)
-            with translated():
-                digest = asyncio.run(
-                    brain.push(
-                        client,
-                        reference=effective,
-                        tag=tag or self.config.project.registry.tag,
-                        force=force,
-                        modules=chosen,
-                    )
+            digest = await self.remote._request(
+                brain.push(
+                    remote.client,
+                    reference=remote.effective,
+                    tag=remote.tag,
+                    force=force,
+                    modules=chosen,
                 )
+            )
         return {
-            "reference": target,
-            "effective": effective,
-            "tag": tag or self.config.project.registry.tag,
+            "reference": remote.reference,
+            "effective": remote.effective,
+            "tag": remote.tag,
             "digest": str(digest),
             "vouched": vouched,
-            "warnings": warnings,
+            "warnings": remote.warnings,
         }
 
     def _require_publishable(self) -> None:
@@ -192,18 +245,22 @@ class PublishOps:
         Returns:
             dict[str, Any]: The tags, or an explanation when the registry does not offer a listing.
         """
-        target = self.remote.reference_for(reference)
-        client, effective, warnings = self.remote._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        remote = self.remote._prepare(
+            reference,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
         from boltzmann.exceptions import DistributionError, ReferenceNotFoundError
 
-        lister = getattr(client, "tags", None)
+        lister = getattr(remote.client, "tags", None)
         try:
             if lister is None:
-                found = sorted(client.registry.get_tags(effective))
+                found = sorted(remote.client.registry.get_tags(remote.effective))
             else:
-                found = sorted(lister(effective))
+                found = sorted(lister(remote.effective))
         except (DistributionError, ReferenceNotFoundError):
             # A repository with nothing published is the ordinary state before a first push, and "no tags" is the
             # answer -- not an error, and certainly not an internal one, which is what an unwrapped raise produced.
@@ -211,4 +268,9 @@ class PublishOps:
         except Exception as error:
             raise translate(error) from error
 
-        return {"reference": target, "tags": found, "warnings": warnings, "published": bool(found)}
+        return {
+            "reference": remote.reference,
+            "tags": found,
+            "warnings": remote.warnings,
+            "published": bool(found),
+        }

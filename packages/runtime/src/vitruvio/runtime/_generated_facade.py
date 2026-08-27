@@ -540,10 +540,27 @@ class GeneratedFacade:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """Test a registry with an artifact shaped exactly like a brain.
+        """Test a registry from synchronous code.
 
         See :meth:`vitruvio.runtime.ops.publish.PublishOps.registry_check`."""
         return self.publish_ops.registry_check(
+            reference, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        )
+
+    async def registry_check_async(
+        self,
+        reference: str | None = None,
+        *,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Test a registry with an artifact shaped exactly like a brain.
+
+        See :meth:`vitruvio.runtime.ops.publish.PublishOps.registry_check_async`."""
+        return await self.publish_ops.registry_check_async(
             reference, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
         )
 
@@ -560,10 +577,38 @@ class GeneratedFacade:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """Publish the brain.
+        """Publish the brain from synchronous code.
 
         See :meth:`vitruvio.runtime.ops.publish.PublishOps.push`."""
         return self.publish_ops.push(
+            reference,
+            tag=tag,
+            modules=modules,
+            force=force,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    async def push_async(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        force: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Publish the brain.
+
+        See :meth:`vitruvio.runtime.ops.publish.PublishOps.push_async`."""
+        return await self.publish_ops.push_async(
             reference,
             tag=tag,
             modules=modules,
@@ -610,10 +655,38 @@ class GeneratedFacade:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """Report what a pull would transfer, before transferring it.
+        """Report what a pull would transfer from synchronous code.
 
         See :meth:`vitruvio.runtime.ops.install.InstallOps.plan_pull`."""
         return self.install_ops.plan_pull(
+            reference,
+            tag=tag,
+            modules=modules,
+            ignore_vector_indices=ignore_vector_indices,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    async def plan_pull_async(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Report what a pull would transfer, before transferring it.
+
+        See :meth:`vitruvio.runtime.ops.install.InstallOps.plan_pull_async`."""
+        return await self.install_ops.plan_pull_async(
             reference,
             tag=tag,
             modules=modules,
@@ -638,10 +711,38 @@ class GeneratedFacade:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """Install a published brain.
+        """Install a published brain from synchronous code.
 
         See :meth:`vitruvio.runtime.ops.install.InstallOps.pull`."""
         return self.install_ops.pull(
+            reference,
+            tag=tag,
+            modules=modules,
+            ignore_vector_indices=ignore_vector_indices,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    async def pull_async(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Install a published brain.
+
+        See :meth:`vitruvio.runtime.ops.install.InstallOps.pull_async`."""
+        return await self.install_ops.pull_async(
             reference,
             tag=tag,
             modules=modules,
@@ -667,10 +768,40 @@ class GeneratedFacade:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
-        """Retrieve a remote history without moving the local pointer, and reconcile it when that is safe.
+        """Retrieve a remote history from synchronous code.
 
         See :meth:`vitruvio.runtime.ops.install.InstallOps.fetch`."""
         return self.install_ops.fetch(
+            reference,
+            tag=tag,
+            modules=modules,
+            reconcile=reconcile,
+            reason=reason,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    async def fetch_async(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        reconcile: bool = True,
+        reason: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve a remote history without moving the local pointer, and reconcile it when that is safe.
+
+        See :meth:`vitruvio.runtime.ops.install.InstallOps.fetch_async`."""
+        return await self.install_ops.fetch_async(
             reference,
             tag=tag,
             modules=modules,

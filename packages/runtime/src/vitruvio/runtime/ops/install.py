@@ -17,7 +17,6 @@ from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
-from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.ops.remote import RemoteOps, require_vector_index_ignore
 from vitruvio.runtime.session import BrainSession
 
@@ -51,6 +50,34 @@ class InstallOps:
         insecure: bool | None = None,
         local: Path | None = None,
     ) -> dict[str, Any]:
+        """Report what a pull would transfer from synchronous code."""
+        return self.remote._run(
+            self.plan_pull_async(
+                reference,
+                tag=tag,
+                modules=modules,
+                ignore_vector_indices=ignore_vector_indices,
+                username=username,
+                token=token,
+                anonymous=anonymous,
+                insecure=insecure,
+                local=local,
+            )
+        )
+
+    async def plan_pull_async(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
         """
         Report what a pull would transfer, before transferring it.
 
@@ -63,42 +90,73 @@ class InstallOps:
         Returns:
             dict[str, Any]: The plan, with the byte count taken from the resolved manifest.
         """
-        import asyncio
-
-        target = self.remote.reference_for(reference)
         chosen = [coerce_memory_type(item) for item in modules] if modules else None
-        client, effective, warnings = self.remote._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        remote = self.remote._prepare(
+            reference,
+            tag=tag,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
-        wanted_tag = tag or self.config.project.registry.tag
 
         brain = self.session.brain(Capability.INSPECT)
-        with translated():
-            manifest = asyncio.run(client.resolve(effective, wanted_tag))
-            if ignore_vector_indices:
-                require_vector_index_ignore(brain.plan_pull)
-                plan = asyncio.run(
-                    brain.plan_pull(
-                        client,
-                        effective,
-                        wanted_tag,
-                        modules=chosen,
-                        ignore_vector_indices=True,
-                    )
+        manifest = await self.remote._request(remote.client.resolve(remote.effective, remote.tag))
+        if ignore_vector_indices:
+            require_vector_index_ignore(brain.plan_pull)
+            plan = await self.remote._request(
+                brain.plan_pull(
+                    remote.client,
+                    remote.effective,
+                    remote.tag,
+                    modules=chosen,
+                    ignore_vector_indices=True,
                 )
-            else:
-                # Keep the ordinary pull compatible with the previous SDK API. Only the new opt-in path requires
-                # the SDK release that added `ignore_vector_indices`.
-                plan = asyncio.run(brain.plan_pull(client, effective, wanted_tag, modules=chosen))
+            )
+        else:
+            # Keep the ordinary pull compatible with the previous SDK API. Only the new opt-in path requires
+            # the SDK release that added `ignore_vector_indices`.
+            plan = await self.remote._request(
+                brain.plan_pull(remote.client, remote.effective, remote.tag, modules=chosen)
+            )
         return {
-            "reference": target,
-            "tag": wanted_tag,
+            "reference": remote.reference,
+            "tag": remote.tag,
             **wire.install_plan(plan, manifest),
             "local_work": self._local_work(brain),
-            "warnings": warnings,
+            "warnings": remote.warnings,
         }
 
     def pull(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        ignore_vector_indices: bool = False,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Install a published brain from synchronous code."""
+        return self.remote._run(
+            self.pull_async(
+                reference,
+                tag=tag,
+                modules=modules,
+                ignore_vector_indices=ignore_vector_indices,
+                username=username,
+                token=token,
+                anonymous=anonymous,
+                insecure=insecure,
+                local=local,
+            )
+        )
+
+    async def pull_async(
         self,
         reference: str | None = None,
         *,
@@ -117,69 +175,100 @@ class InstallOps:
         Returns:
             dict[str, Any]: The snapshot now installed.
         """
-        import asyncio
-
-        target = self.remote.reference_for(reference)
         chosen = [coerce_memory_type(item) for item in modules] if modules else None
-        client, effective, warnings = self.remote._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        remote = self.remote._prepare(
+            reference,
+            tag=tag,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
-        wanted_tag = tag or self.config.project.registry.tag
 
         with self.session.write() as brain:
             # Captured before, because after the pull the composition is the remote's and there is nothing left to
             # compare against. This is the only place the count can be exact rather than estimated.
             before, unreadable_before = self._composition_ids(brain)
             ignored: list[str] = []
-            with translated():
-                if ignore_vector_indices:
-                    require_vector_index_ignore(brain.pull)
-                    manifest = asyncio.run(client.resolve(effective, wanted_tag))
-                    wanted = chosen if chosen is not None else manifest.modules
-                    ignored = [
-                        memory_type.value
-                        for memory_type in wanted
-                        if manifest.vector_index_for(memory_type) is not None
-                    ]
-                    snapshot = asyncio.run(
-                        brain.pull(
-                            client,
-                            effective,
-                            wanted_tag,
-                            modules=chosen,
-                            ignore_vector_indices=True,
-                        )
+            if ignore_vector_indices:
+                require_vector_index_ignore(brain.pull)
+                manifest = await self.remote._request(remote.client.resolve(remote.effective, remote.tag))
+                wanted = chosen if chosen is not None else manifest.modules
+                ignored = [
+                    memory_type.value for memory_type in wanted if manifest.vector_index_for(memory_type) is not None
+                ]
+                snapshot = await self.remote._request(
+                    brain.pull(
+                        remote.client,
+                        remote.effective,
+                        remote.tag,
+                        modules=chosen,
+                        ignore_vector_indices=True,
                     )
-                else:
-                    snapshot = asyncio.run(brain.pull(client, effective, wanted_tag, modules=chosen))
+                )
+            else:
+                snapshot = await self.remote._request(
+                    brain.pull(remote.client, remote.effective, remote.tag, modules=chosen)
+                )
             after, unreadable_after = self._composition_ids(brain)
             orphaned = sorted(before - after)
         unreadable = sorted(set(unreadable_before) | set(unreadable_after))
         if unreadable:
             # Said rather than folded into the number. `discarded` is what a caller reads to find out whether a
             # pull cost them evidence, and a scan that skipped a module cannot produce it exactly.
-            warnings.append(
+            remote.warnings.append(
                 f"could not enumerate {', '.join(unreadable)} while comparing what this pull replaced, so "
                 "`discarded` is approximate; `vitruvio brain verify` reports what is actually resolvable"
             )
         if ignored:
             named = ", ".join(ignored)
-            warnings.append(
+            remote.warnings.append(
                 f"ignored published vector indices for {named}; run `vitruvio index build --force` to build "
                 "compatible local vectors before relying on semantic retrieval"
             )
         return {
-            "reference": target,
-            "tag": wanted_tag,
+            "reference": remote.reference,
+            "tag": remote.tag,
             "snapshot": wire.snapshot(snapshot),
             "partial": chosen is not None,
             "discarded": len(orphaned),
             "discarded_blocks": orphaned[:20],
             "ignored_vector_indices": ignored,
-            "warnings": warnings,
+            "warnings": remote.warnings,
         }
 
     def fetch(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        reconcile: bool = True,
+        reason: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Retrieve a remote history from synchronous code."""
+        return self.remote._run(
+            self.fetch_async(
+                reference,
+                tag=tag,
+                modules=modules,
+                reconcile=reconcile,
+                reason=reason,
+                username=username,
+                token=token,
+                anonymous=anonymous,
+                insecure=insecure,
+                local=local,
+            )
+        )
+
+    async def fetch_async(
         self,
         reference: str | None = None,
         *,
@@ -229,27 +318,31 @@ class InstallOps:
             dict[str, Any]: What arrived, and under ``reconciliation`` what was done about it -- or why nothing
             was.
         """
-        import asyncio
-
         from vitruvio.runtime.ops.reconcile import ReconcileOps
 
-        target = self.remote.reference_for(reference)
         chosen = [coerce_memory_type(item) for item in modules] if modules else None
-        client, effective, warnings = self.remote._client(
-            target, username=username, token=token, anonymous=anonymous, insecure=insecure, local=local
+        remote = self.remote._prepare(
+            reference,
+            tag=tag,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
         )
-        wanted_tag = tag or self.config.project.registry.tag
 
         # WRITE rather than INSPECT: a fetch puts blocks in the store. It moves no pointer, which is the
         # property that makes it safe, but it is not a read.
-        with self.session.write() as brain, translated():
-            fetched = asyncio.run(brain.fetch(client, effective, wanted_tag, modules=chosen))
+        with self.session.write() as brain:
+            fetched = await self.remote._request(
+                brain.fetch(remote.client, remote.effective, remote.tag, modules=chosen)
+            )
 
         payload = {
-            "reference": target,
-            "tag": wanted_tag,
+            "reference": remote.reference,
+            "tag": remote.tag,
             **wire.fetch_result(fetched),
-            "warnings": warnings,
+            "warnings": remote.warnings,
         }
         if not reconcile:
             return {**payload, "reconciliation": {"attempted": False, "why": "not requested"}}
