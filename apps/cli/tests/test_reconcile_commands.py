@@ -181,9 +181,8 @@ def halting(tmp_path: Path) -> tuple[Path, Path]:
 def halted(halting: tuple[Path, Path]) -> tuple[Any, Path]:
     """A reconciliation already open, and the service to drive it with.
 
-    Synchronous on purpose. `fetch`, like `push` and `pull`, drives the registry through `asyncio.run`, which
-    cannot be called from inside a running event loop -- so the setup for an async interface test has to happen
-    before the loop exists. The resolver itself only calls synchronous operations, which is why it can.
+    Kept synchronous because this fixture prepares state for both synchronous CLI and async interface tests. Registry
+    operations also expose native async methods now, and the compatibility wrappers are safe under an existing loop.
     """
     registry, beto_config = halting
     beto = BrainService(resolve(brain=registry.parent / "beto" / "brain", config=beto_config))

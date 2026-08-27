@@ -6,12 +6,29 @@ an authenticated client for it. Split out so that `publish` and `install` depend
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from inspect import signature
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from vitruvio.kernel import ResolvedConfig, VitruvioError
+from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
+
+ResultT = TypeVar("ResultT")
+
+
+@dataclass(slots=True)
+class PreparedRemote:
+    """A fully resolved registry destination shared by every distribution operation."""
+
+    reference: str
+    effective: str
+    tag: str
+    client: Any
+    warnings: list[str]
 
 
 def require_vector_index_ignore(method: Any) -> None:
@@ -74,6 +91,59 @@ class RemoteOps:
 
             configured = self.config.repository(account_for())
         return require_reference(configured, None)
+
+    def _prepare(
+        self,
+        reference: str | None = None,
+        *,
+        tag: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        allow_docker: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> PreparedRemote:
+        """Resolve naming, credentials, transport selection, and tag once for an operation."""
+        target = self.reference_for(reference)
+        client, effective, warnings = self._client(
+            target,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            allow_docker=allow_docker,
+            insecure=insecure,
+            local=local,
+        )
+        return PreparedRemote(
+            reference=target,
+            effective=effective,
+            tag=tag or self.config.project.registry.tag,
+            client=client,
+            warnings=warnings,
+        )
+
+    async def _request(self, operation: Awaitable[ResultT]) -> ResultT:
+        """Await one registry operation through the shared exception-translation boundary."""
+        with translated():
+            return await operation
+
+    def _run(self, operation: Coroutine[Any, Any, ResultT]) -> ResultT:
+        """Adapt an async registry operation for synchronous callers.
+
+        CLI calls normally have no event loop and use ``asyncio.run`` here. If a synchronous compatibility method
+        is invoked while its caller already owns a loop, the coroutine runs in an isolated worker thread instead of
+        attempting a nested loop. Async protocol adapters should call the public ``*_async`` methods directly.
+        """
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(operation)
+
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="vitruvio-registry") as executor:
+            return executor.submit(lambda: asyncio.run(operation)).result()
 
     def _client(
         self,

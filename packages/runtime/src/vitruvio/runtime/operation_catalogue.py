@@ -91,9 +91,17 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
     ),
     OperationDomain("vitruvio.runtime.ops.remote", "RemoteOps", "remote_ops", ("reference_for",)),
     OperationDomain(
-        "vitruvio.runtime.ops.publish", "PublishOps", "publish_ops", ("pack", "registry_check", "push", "tags")
+        "vitruvio.runtime.ops.publish",
+        "PublishOps",
+        "publish_ops",
+        ("pack", "registry_check", "registry_check_async", "push", "push_async", "tags"),
     ),
-    OperationDomain("vitruvio.runtime.ops.install", "InstallOps", "install_ops", ("plan_pull", "pull", "fetch")),
+    OperationDomain(
+        "vitruvio.runtime.ops.install",
+        "InstallOps",
+        "install_ops",
+        ("plan_pull", "plan_pull_async", "pull", "pull_async", "fetch", "fetch_async"),
+    ),
     OperationDomain(
         "vitruvio.runtime.ops.reconcile",
         "ReconcileOps",

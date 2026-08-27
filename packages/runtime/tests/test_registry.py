@@ -304,6 +304,42 @@ class TestLocalRoundTrip:
         assert consumer.verify()["verified"] is True
         assert "canonical" in consumer.state()["installed"]
 
+    async def test_async_runtime_round_trips_without_owning_the_callers_loop(
+        self, tmp_path: Path, source_file: Path
+    ) -> None:
+        registry_root = tmp_path / "registry"
+        registry_root.mkdir()
+        producer = BrainService(resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False))
+        producer.init()
+        producer.register(source_file, media_type="text/markdown")
+
+        pushed = await producer.push_async("demo/async", tag="v1", local=registry_root)
+
+        consumer = BrainService(resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False))
+        consumer.init()
+        plan = await consumer.plan_pull_async("demo/async", tag="v1", local=registry_root)
+        pulled = await consumer.pull_async("demo/async", tag="v1", local=registry_root)
+        fetched = await consumer.fetch_async("demo/async", tag="v1", reconcile=False, local=registry_root)
+
+        assert pushed["digest"]
+        assert plan["is_noop"] is False
+        assert pulled["snapshot"]["digest"]
+        assert fetched["reconciliation"]["why"] == "not requested"
+        assert consumer.verify()["verified"] is True
+
+    async def test_sync_compatibility_methods_are_safe_inside_an_existing_loop(
+        self, published: tuple[Path, str], tmp_path: Path
+    ) -> None:
+        registry_root, reference = published
+        consumer = BrainService(resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False))
+        consumer.init()
+
+        plan = consumer.plan_pull(reference, tag="v1", local=registry_root)
+        pulled = consumer.pull(reference, tag="v1", local=registry_root)
+
+        assert plan["is_noop"] is False
+        assert pulled["snapshot"]["digest"]
+
     def test_plan_pull_reports_the_transfer_before_paying_for_it(
         self, published: tuple[Path, str], tmp_path: Path
     ) -> None:
