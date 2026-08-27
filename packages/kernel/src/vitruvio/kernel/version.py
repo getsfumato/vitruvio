@@ -7,5 +7,5 @@ under the name the reader guessed, and there are nine of them. This module is th
 
 from __future__ import annotations
 
-__version__ = "0.6.8"
+__version__ = "0.6.9"
 """The version of every vitruvio distribution in this repository."""
