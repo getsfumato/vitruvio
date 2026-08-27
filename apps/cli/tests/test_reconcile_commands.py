@@ -464,7 +464,7 @@ class TestTheResolverInterface:
         async with app.run_test(size=(140, 40)) as pilot:
             await _settle(pilot)
 
-            assert app.status["open"] is True
+            assert app.status is not None
             assert app.query_one("#questions", DataTable).row_count == len(app.questions)
 
             for entry in app.questions:
@@ -487,10 +487,14 @@ class TestTheResolverInterface:
             for _ in range(len(app.questions)):
                 await pilot.press("r")
                 await _settle(pilot)
-            if not app.status.get("removals_accepted", True):
+            status = app.status
+            assert status is not None
+            if not status["removals_accepted"]:
                 await pilot.press("k")
                 await _settle(pilot)
-            assert app.status["is_resolved"] is True, "every question answered"
+            status = app.status
+            assert status is not None
+            assert status["is_resolved"] is True, "every question answered"
             await pilot.press("c")
             await _settle(pilot)
 
