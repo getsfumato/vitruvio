@@ -81,22 +81,20 @@ def _forwarder(domain: OperationDomain, name: str) -> ast.FunctionDef | ast.Asyn
         ast.Return(value=result),
     ]
     if isinstance(source, ast.AsyncFunctionDef):
-        return ast.AsyncFunctionDef(
-            name=name,
-            args=args,
-            body=body,
-            decorator_list=[],
-            returns=copy.deepcopy(source.returns),
-            type_comment=None,
-        )
-    return ast.FunctionDef(
-        name=name,
-        args=args,
-        body=body,
-        decorator_list=[],
-        returns=copy.deepcopy(source.returns),
-        type_comment=None,
-    )
+        node = ast.parse("async def generated():\n    pass").body[0]
+        assert isinstance(node, ast.AsyncFunctionDef)
+    else:
+        node = ast.parse("def generated():\n    pass").body[0]
+        assert isinstance(node, ast.FunctionDef)
+    # Let the running interpreter create the complete AST node first. Python 3.12 added ``type_params`` to function
+    # nodes, so constructing them field by field makes the generator depend on one interpreter's AST schema.
+    node.name = name
+    node.args = args
+    node.body = body
+    node.decorator_list = []
+    node.returns = copy.deepcopy(source.returns)
+    node.type_comment = None
+    return node
 
 
 def render() -> str:
