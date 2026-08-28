@@ -18,5 +18,6 @@ In order. Each page assumes the ones before it.
 14. [Sources](14-sources.md) — declaring where material comes from, and why a pull cannot resurrect redacted bytes.
 15. [Browsing](15-browsing.md) — reading and querying in the terminal interface, and what its views can show.
 16. [Reconciling](16-reconciling.md) — joining a history somebody else advanced: why the three strategies land the same blocks, and what each one costs in attribution.
+17. [Compound](17-compound.md) — one question across several brains of one project: why the result is grouped by default, what `--fuse` does, and what a block two brains hold means.
 
 For the reasoning behind the design, read the [ADRs](../adr/README.md).

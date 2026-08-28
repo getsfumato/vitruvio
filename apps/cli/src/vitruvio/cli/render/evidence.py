@@ -64,6 +64,79 @@ def _identifying(payload: Mapping[str, Any]) -> str:
     return "(no identifying field)"
 
 
+def _identity(match: Mapping[str, Any]) -> Text:
+    """
+    The one-line identification of a match: what the block is, its flags, and the sources it cites.
+
+    Args:
+        match (Mapping[str, Any]): One match of a bundle.
+
+    Returns:
+        Text: The cell.
+    """
+    flags = []
+    if match.get("superseded_by"):
+        flags.append(f"superseded by {short(match['superseded_by'])}")
+    if not match.get("resolvable", True):
+        # A redacted block is a verifiable member whose bytes were destroyed under policy. A caller has to
+        # be able to tell that from corruption, so it is named rather than hidden.
+        flags.append("not resolvable (redacted or not installed)")
+
+    identity = Text(_identifying(match.get("content") or {}))
+    if flags:
+        identity.append_text(Text(f"   [{'; '.join(flags)}]", style="flag"))
+    for source in match.get("sources", []):
+        locator = f" #{source['locator']}" if source.get("locator") else ""
+        identity.append_text(Text(f"\nsource: {short(source.get('block_id'))}{locator}", style="muted"))
+    return identity
+
+
+def _unverified(data: Mapping[str, Any]) -> Text | None:
+    """
+    The warning every view prints when a bundle says it holds something unverified.
+
+    Should be unreachable: a conforming planner drops what it cannot verify rather than returning it unverified.
+    Reported loudly rather than assumed away, and from one place -- the fused compound view once omitted it, which
+    is exactly how corruption or a non-conforming member comes to look like a clean, slightly smaller result.
+    """
+    if data.get("matches") and not data.get("all_verified", True):
+        return Text("WARNING: not every match verified against the installed snapshot", style="bad")
+    return None
+
+
+def _rows(matches: Sequence[Mapping[str, Any]], *, content: bool, origins: bool = False) -> list[RenderableType]:
+    """
+    The match table, followed by each match's full payload when ``--content`` asked for it.
+
+    One builder for the single-brain bundle and the fused compound, differing only in whether a ``brains`` column
+    is drawn. The two views used to assemble their rows separately, and two copies of "position, score, memory,
+    block, identity" is how a change to the row format reaches one table and not the other.
+
+    Args:
+        matches (Sequence[Mapping[str, Any]]): The matches, in the order to print.
+        content (bool): Append each block's full payload after the table.
+        origins (bool): Draw the ``brains`` column, for a ranking that spans brains.
+    """
+    columns: list[str | tuple[str, str]] = [("#", "right"), ("score", "right")]
+    if origins:
+        columns.append("brains")
+    columns.extend(["memory", "block", "identity"])
+    rows = theme.table(*columns)
+    detail: list[RenderableType] = []
+    for position, match in enumerate(matches, start=1):
+        cells: list[RenderableType] = [str(position), Text(str(match.get("score", "-")), style="score")]
+        if origins:
+            cells.append(_origins(match))
+        cells.extend([theme.kind(match.get("memory_type")), theme.digest(match.get("block_id")), _identity(match)])
+        rows.add_row(*cells)
+        if content:
+            detail.append(
+                theme.fields([("block", theme.digest(match.get("block_id"), full=True))], title=f"[{position}]")
+            )
+            detail.append(payload(match.get("content") or {}))
+    return [rows, *detail]
+
+
 def bundle(data: Mapping[str, Any], *, content: bool = False) -> list[RenderableType]:
     """
     Render an Evidence Bundle.
@@ -98,12 +171,7 @@ def bundle(data: Mapping[str, Any], *, content: bool = False) -> list[Renderable
             ]
         )
 
-    unverified = None
-    if matches and not data.get("all_verified", True):
-        # Should be unreachable: a conforming planner drops what it cannot verify rather than returning it
-        # unverified. Reported loudly rather than assumed away, because silence here would hide corruption.
-        unverified = Text("WARNING: not every match verified against the installed snapshot", style="bad")
-
+    unverified = _unverified(data)
     if not matches:
         return theme.stack(
             header,
@@ -112,43 +180,112 @@ def bundle(data: Mapping[str, Any], *, content: bool = False) -> list[Renderable
             "",
             theme.empty("The brain holds nothing matching. That is an answer, not an error."),
         )
+    return theme.stack(header, roots, unverified, "", *_rows(matches, content=content))
 
-    rows = theme.table(("#", "right"), ("score", "right"), "memory", "block", "identity")
-    detail: list[RenderableType] = []
-    for position, match in enumerate(matches, start=1):
-        flags = []
-        if match.get("superseded_by"):
-            flags.append(f"superseded by {short(match['superseded_by'])}")
-        if not match.get("resolvable", True):
-            # A redacted block is a verifiable member whose bytes were destroyed under policy. A caller has to
-            # be able to tell that from corruption, so it is named rather than hidden.
-            flags.append("not resolvable (redacted or not installed)")
 
-        payload_block: Mapping[str, Any] = match.get("content") or {}
-        identity = Text(_identifying(payload_block))
-        if flags:
-            identity.append_text(Text(f"   [{'; '.join(flags)}]", style="flag"))
-        for source in match.get("sources", []):
-            locator = f" #{source['locator']}" if source.get("locator") else ""
-            identity.append_text(Text(f"\nsource: {short(source.get('block_id'))}{locator}", style="muted"))
+def _member_roots(members: Sequence[Mapping[str, Any]]) -> RenderableType | None:
+    """
+    One ``verified against`` line per brain, never one merged line.
 
-        rows.add_row(
-            str(position),
-            Text(str(match.get("score", "-")), style="score"),
-            theme.kind(match.get("memory_type")),
-            theme.digest(match.get("block_id")),
-            identity,
-        )
-        if content:
-            detail.append(
-                theme.fields(
-                    [("block", theme.digest(match.get("block_id"), full=True))],
-                    title=f"[{position}]",
+    Two brains holding semantic memory have two semantic roots. A single line keyed by memory type could carry only
+    one of them, and a citation drawn from a fused match has to name the root of the brain it was verified in.
+    """
+    pairs: list[tuple[str, Any]] = []
+    for member in members:
+        roots: Mapping[str, str] = member.get("verified_against") or {}
+        if roots:
+            pairs.append(
+                (
+                    str(member["brain"]),
+                    Text("  ").join(
+                        Text.assemble(theme.kind(name), " ", theme.digest(root)) for name, root in sorted(roots.items())
+                    ),
                 )
             )
-            detail.append(payload(payload_block))
+    return theme.fields(pairs, title="verified against") if pairs else None
 
-    return theme.stack(header, roots, unverified, "", rows, *detail)
+
+def _origins(match: Mapping[str, Any]) -> Text:
+    """
+    ``metrica-a#1  metrica-b#3``: each brain that returned the match, with its rank there.
+
+    Rank rather than each brain's score, because rank is the quantity fusion actually used -- and printing two
+    per-brain scores side by side would invite comparing numbers that were each normalised to a different ``1.00``.
+    """
+    return Text("  ".join(f"{item['brain']}#{item['rank']}" for item in match.get("brains", [])), style="muted")
+
+
+def _grouped(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
+    """
+    One section per brain, each drawn by :func:`bundle`.
+
+    A compound section and a ``search`` result are then the same table: a reader who has learnt one has learnt the
+    other, and the two cannot drift, because there is one renderer rather than a copy of it.
+    """
+    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    sections: list[RenderableType] = []
+    for member in data.get("members", []):
+        name = str(member["brain"])
+        own = [match for match in matches if match.get("brains", [{}])[0].get("brain") == name]
+        sections.append("")
+        sections.append(Text(name, style="heading"))
+        sections.extend(
+            bundle(
+                {
+                    "matches": own,
+                    "verified_against": member.get("verified_against") or {},
+                    "truncated": member.get("truncated", False),
+                    "all_verified": member.get("all_verified", True),
+                },
+                content=content,
+            )
+        )
+    return sections
+
+
+def _fused(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
+    """
+    One table across brains, with a ``brains`` column, rather than one section per brain.
+
+    The ranking spans brains, so per-brain sections would misstate it -- the whole point of ``--fuse`` is a single
+    order. The verification warning is drawn here too: a member that returned something unverified is not less
+    alarming for having been fused with others.
+    """
+    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    if not matches:
+        return theme.stack("", theme.empty("No brain holds anything matching. That is an answer, not an error."))
+    return theme.stack(_unverified(data), "", *_rows(matches, content=content, origins=True))
+
+
+def compound(data: Mapping[str, Any], *, content: bool = False) -> list[RenderableType]:
+    """
+    Render a compound: several brains' evidence for one query.
+
+    Grouped output reuses :func:`bundle` per brain, so a compound section and a single-brain result are the same
+    table -- one shape to learn. Fused output is one table with a ``brains`` column, because the ranking is across
+    brains and a per-brain section would misstate it.
+
+    Args:
+        data (Mapping[str, Any]): What ``CompoundOps.compound_search`` produced.
+        content (bool): Print each block's full payload rather than one identifying line.
+
+    Returns:
+        list[RenderableType]: What to print.
+    """
+    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    members: Sequence[Mapping[str, Any]] = data.get("members", [])
+    header = Text.assemble(
+        (str(len(matches)), "count"),
+        f" match{'' if len(matches) == 1 else 'es'} across ",
+        (str(len(members)), "count"),
+        f" brain{'' if len(members) == 1 else 's'}",
+        ("  (truncated -- there may be more)", "warn") if data.get("truncated") else "",
+    )
+    skipped = data.get("skipped") or []
+    note = Text(f"skipped: {', '.join(str(item['brain']) for item in skipped)}", style="muted") if skipped else None
+    if data.get("fused"):
+        return theme.stack(header, _member_roots(members), note, *_fused(data, content=content))
+    return theme.stack(header, note, *_grouped(data, content=content))
 
 
 def payload(value: Any) -> RenderableType:

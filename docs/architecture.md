@@ -94,10 +94,11 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/benchmarking.py` | bench | RETRIEVE, over its own corpus |
 | `ops/embedders.py` | embedders, test_embedder | — |
 | `ops/retrieval.py` | search, explain | RETRIEVE |
+| `ops/compound.py` | compound_search, compound_explain | RETRIEVE, once per member brain |
 
 `ops/*.py` are the operations, which open brains. `runtime/*.py` beside them — `wire`, `mapping`, `assembly`,
-`browse`, `registry`, `distribution`, `indexset`, `vouch`, `query_diagnostics` — are stateless helpers, which do
-not. The naming is close enough to be worth stating: `ops/publish.py` publishes, `runtime/distribution.py`
+`browse`, `registry`, `distribution`, `indexset`, `vouch`, `query_diagnostics`, `cross_brain` — are stateless helpers,
+which do not. The naming is close enough to be worth stating: `ops/publish.py` publishes, `runtime/distribution.py`
 transports; `ops/registration.py` registers a block, `runtime/registry.py` talks to an OCI registry.
 
 `runtime/operation_catalogue.py` is the authoritative list of those protocol operations. It drives the generated

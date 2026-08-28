@@ -190,6 +190,18 @@ Produce a verified Merkle inclusion proof for one block.
 
 Show how a query would be answered, and what the alternatives cost.
 
+## `vitruvio compound`
+
+Ask several brains of one project the same question.
+
+### `vitruvio compound search` `[text]` `--brains` `--all` `--fuse` `--memory-type` `--subject` `--since` `--until` `--tag` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
+
+Search several brains of this project at once and print the composed evidence.
+
+### `vitruvio compound explain` `[text]` `--brains` `--all` `--memory-type` `--subject` `--since` `--until` `--tag` `--include-superseded` `--mode` `--limit` `--expand-depth` `--analyze`
+
+Show how each brain of a compound would answer the query, side by side.
+
 ## `vitruvio browse` `--memory-type`
 
 Read and query the brain in a terminal workspace that also shows the executed plan and selected indices.

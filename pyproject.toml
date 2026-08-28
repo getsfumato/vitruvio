@@ -32,7 +32,7 @@ dev = [
     "hypothesis>=6.100.0",
     # The SDK's behavioural conformance suites are pytest classes we inherit. They are the gate that
     # says vitruvio conforms to the protocol rather than merely imports it.
-    "pyboltzmann[conformance]>=0.6.0,<0.7.0",
+    "pyboltzmann[conformance]==0.6.0",
     # Not because the default install needs it -- the API providers are behind [api] and stay there. It is here so
     # that their tests *run*, and what those tests pin is response ordering and vector width: two things that fail
     # silently and would otherwise be exercised only on a machine that happened to have the extra installed.

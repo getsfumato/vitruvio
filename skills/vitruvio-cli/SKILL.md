@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Fifteen groups, ninety-one commands. This skill is the map: which group owns a task, which command inside it, and
+Sixteen groups, ninety-three commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -131,6 +131,15 @@ better than passing flags every time.
 | `query prove BLOCK` | a Merkle inclusion proof. `--memory-type` |
 
 `vitruvio search TEXT` is a top-level alias for `query search`.
+
+### `compound` — the same question, several brains of one project
+| command | for |
+|---|---|
+| `compound search TEXT` | one query across two or more of the project's brains. `--brains a --brains b` (or `--brains a,b`), or `--all`; `--fuse` merges by rank instead of grouping per brain |
+| `compound explain TEXT` | one plan per brain, side by side. Same selection flags |
+
+Brains are named, never given as paths — a compound composes *this* project's brains only. `vitruvio-compound` is the
+skill that walks a user through choosing them.
 
 ### `retain` — removal, five mechanisms
 | command | for |

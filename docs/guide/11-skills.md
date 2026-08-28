@@ -11,7 +11,7 @@ The paper treats a **skill** as one of a brain's access contracts, alongside the
 that real: any repository holding a brain obtains the skills without cloning vitruvio, so the knowledge of *how to
 drive this* travels with the brain.
 
-Six skills ship, and they are layered rather than exhaustive:
+Nine skills ship, and they are layered rather than exhaustive:
 
 | skill | covers |
 |---|---|
@@ -22,6 +22,8 @@ Six skills ship, and they are layered rather than exhaustive:
 | `vitruvio-retention` | the five removal mechanisms and the discipline each needs |
 | `vitruvio-dist` | publishing and installing |
 | `vitruvio-reconcile` | joining two histories: merge, rebase or squash, and the attribution each costs |
+| `vitruvio-sync` | telling behind, ahead and diverged apart, and getting local and remote back in step |
+| `vitruvio-compound` | composing several brains of one project into one query, and reading what they agree on |
 
 The entry skill carries four references: `json-envelope.md`, `exit-codes.md`, `evidence-bundle.md`, and
 `cli-reference.md`.

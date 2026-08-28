@@ -28,7 +28,7 @@ dev = [
     { name = "import-linter", specifier = ">=2.0" },
     { name = "mypy", specifier = ">=1.8.0" },
     { name = "pre-commit", specifier = ">=3.5.0" },
-    { name = "pyboltzmann", extras = ["conformance"], specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", extras = ["conformance"], specifier = "==0.6.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.0" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
@@ -3538,7 +3538,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", specifier = "==0.6.0" },
     { name = "vitruvio-indices", editable = "packages/indices" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
     { name = "vitruvio-planner", editable = "packages/planner" },
@@ -3574,7 +3574,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'api'", specifier = ">=0.27.0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", marker = "extra == 'vision'", specifier = ">=10.0.0" },
-    { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", specifier = "==0.6.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
     { name = "pypdfium2", marker = "extra == 'vision'", specifier = ">=4.30.0" },
     { name = "sentence-transformers", marker = "extra == 'local-text'", specifier = ">=3.0.0" },
@@ -3604,7 +3604,7 @@ dependencies = [
 requires-dist = [
     { name = "msgspec", specifier = ">=0.18.0" },
     { name = "numpy", specifier = ">=1.26" },
-    { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", specifier = "==0.6.0" },
     { name = "pyroaring", specifier = ">=1.0.0" },
     { name = "snowballstemmer", specifier = ">=2.2.0" },
     { name = "usearch", specifier = ">=2.12.0" },
@@ -3633,7 +3633,7 @@ vision = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", marker = "extra == 'api'", specifier = ">=0.27.0" },
-    { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", specifier = "==0.6.0" },
     { name = "pypdfium2", marker = "extra == 'vision'", specifier = ">=4.30.0" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
 ]
@@ -3655,7 +3655,7 @@ dependencies = [
 requires-dist = [
     { name = "filelock", specifier = ">=3.13.0" },
     { name = "packaging", specifier = ">=23.0" },
-    { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", specifier = "==0.6.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
 ]
@@ -3673,7 +3673,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", specifier = "==0.6.0" },
     { name = "vitruvio-indices", editable = "packages/indices" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
     { name = "vitruvio-stats", editable = "packages/stats" },
@@ -3701,7 +3701,7 @@ keyring = [
 [package.metadata]
 requires-dist = [
     { name = "keyring", marker = "extra == 'keyring'", specifier = ">=25.0.0" },
-    { name = "pyboltzmann", extras = ["oci"], specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", extras = ["oci"], specifier = "==0.6.0" },
     { name = "vitruvio-embeddings", editable = "packages/embeddings" },
     { name = "vitruvio-indices", editable = "packages/indices" },
     { name = "vitruvio-ingest", editable = "packages/ingest" },
@@ -3723,7 +3723,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pyboltzmann", specifier = ">=0.6.0,<0.7.0" },
+    { name = "pyboltzmann", specifier = "==0.6.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
 ]
