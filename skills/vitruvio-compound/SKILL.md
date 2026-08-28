@@ -82,8 +82,12 @@ Branch on `data.fused`, then read three things:
   roots, and a citation names the one it verified against. A `truncated` member means there may be more in *that*
   brain -- check it before saying a brain holds nothing on the topic.
 - **`data.matches[].brains[]`** -- which brain or brains returned the block, at what rank in each, with the score
-  that brain gave it. Grouped: always one entry. Fused: one entry per brain that returned it, and two entries is the
-  cross-brain agreement worth pointing out.
+  that brain gave it, and that brain's own `resolvable`, `superseded_by` and `sources`. Grouped: always one entry.
+  Fused: one entry per brain that returned it, and two entries is the cross-brain agreement worth pointing out.
+  A block id fixes the content, not a brain's installation of it: under `--fuse` the match-level `resolvable` is
+  true if *any* brain can resolve the bytes, `superseded_by` is set if *any* brain names a successor, and `sources`
+  is the union -- read `brains[]` to say which brain has which state, and never cite a block as current when one
+  brain has superseded it.
 - **`data.skipped[]`** -- declared brains that were not consulted, and why. A compound that silently dropped a brain
   would misstate what the project says; it does not, and neither should you.
 

@@ -12,6 +12,7 @@ import pytest
 
 from vitruvio.kernel import ExitCode, UsageError, VitruvioError, resolve
 from vitruvio.runtime.ops.compound import CompoundOps
+from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.session import BrainSession
 
 PROJECT = """
@@ -135,3 +136,51 @@ class TestFailuresNameTheBrain:
         assert caught.value.code == "PROTOCOL_VIOLATION"
         assert caught.value.exit_code == ExitCode.PROTOCOL
         assert caught.value.hint == "do nothing"
+
+
+class TestFiltersReachEveryMember:
+    """The public signature takes any iterable and hands the same object to every brain. A generator consumed by the
+    first would reach the second empty, and nothing would say so."""
+
+    def test_a_generator_filter_is_materialised_once_for_search(
+        self, ops: CompoundOps, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[tuple[object, object, object]] = []
+
+        def search(self: RetrievalOps, text: str, **options: object) -> dict[str, object]:
+            seen.append((options["memory_types"], options["tags"], options["evidence"]))
+            return {"matches": [], "verified_against": {}, "truncated": False, "all_verified": True}
+
+        monkeypatch.setattr(RetrievalOps, "search", search)
+        ops.compound_search(
+            "x",
+            brains=["algebra", "analisis-ii"],
+            memory_types=(kind for kind in ["semantic"]),
+            tags=iter(["fourier"]),
+            evidence=iter(["sha256:abc"]),
+        )
+        assert seen == [(("semantic",), ("fourier",), ("sha256:abc",))] * 2
+
+    def test_a_generator_filter_is_materialised_once_for_explain(
+        self, ops: CompoundOps, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[tuple[object, object]] = []
+
+        def explain(self: RetrievalOps, text: str, **options: object) -> dict[str, object]:
+            seen.append((options["memory_types"], options["tags"]))
+            return {"chosen": {}, "considered": [], "degradations": []}
+
+        monkeypatch.setattr(RetrievalOps, "explain", explain)
+        ops.compound_explain("x", brains=["algebra", "analisis-ii"], memory_types=iter(["semantic"]), tags=iter(["t"]))
+        assert seen == [(("semantic",), ("t",))] * 2
+
+    def test_none_stays_none(self, ops: CompoundOps, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: list[object] = []
+
+        def search(self: RetrievalOps, text: str, **options: object) -> dict[str, object]:
+            seen.append(options["memory_types"])
+            return {"matches": [], "verified_against": {}, "truncated": False, "all_verified": True}
+
+        monkeypatch.setattr(RetrievalOps, "search", search)
+        ops.compound_search("x", brains=["algebra", "analisis-ii"])
+        assert seen == [None, None]

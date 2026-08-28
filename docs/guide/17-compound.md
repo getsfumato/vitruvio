@@ -94,7 +94,14 @@ Three fields beyond what a single bundle carries:
   and are never merged: two brains holding semantic memory have two semantic roots, and a citation names the one
   it verified against. A `truncated` member means there may be more in *that* brain.
 - **`matches[].brains[]`** -- which brain or brains returned the block, at what rank in each, with the score that
-  brain gave it. One entry when grouped; one per contributing brain when fused.
+  brain gave it -- and that brain's own `resolvable`, `superseded_by` and `sources`. One entry when grouped; one per
+  contributing brain when fused. A block id fixes the *content*; it does not fix a brain's *installation* of it: a
+  block redacted in one brain and readable in another, or superseded in one and current in another, is one block
+  with two states, and this is where both are kept.
+- Under `--fuse` the match-level fields follow a stated policy: `resolvable` is true if **any** brain can resolve the
+  bytes (they can be quoted from that brain), `superseded_by` names a successor if **any** brain names one (cite it
+  as current only after checking), and `sources` is the union. Reversing the order of the brains changes only the
+  order of those lists.
 - **`skipped[]`** -- declared brains that were not consulted, and why.
 
 Cite the block **and** the brain. Everything chapter 5 says about `truncated`, `superseded_by` and `resolvable`

@@ -14,6 +14,13 @@ Two shapes over one payload:
   brains is one block -- its identity is the hash of its content, with no actor, time or task in it -- so it
   accumulates from both and rises. That is the cross-brain signal a compound exists to surface.
 
+**What a block id does and does not guarantee.** It guarantees the *content*: ``block_id``, ``memory_type`` and
+``content`` are identical wherever the block appears. It says nothing about a brain's *installation* of it:
+``resolvable`` (were the bytes redacted or never pulled here), ``superseded_by`` (did this brain accept a successor)
+and ``sources`` (where this brain's registration found the evidence) can all differ between two brains holding the
+same block. Those fields are kept **per origin** in ``brains[]``, and the match-level value follows one explicit
+policy (:func:`_merge`) so that reversing the order of the members changes nothing but the order of lists.
+
 Stateless: this module opens no brain and works over the dictionaries :func:`vitruvio.runtime.wire.evidence`
 produced. ``vitruvio.planner.fusion`` is imported inside the function that needs it, because importing the planner
 package pulls ``vitruvio.stats`` onto the eager path and ``test_import_cost`` forbids that.
@@ -53,8 +60,60 @@ def summarize(name: str, payload: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _origin(name: str, rank: int, match: Mapping[str, Any]) -> dict[str, Any]:
-    """Where a match came from: which brain, at what rank there, with the score that brain gave it."""
-    return {"brain": name, "rank": rank, "score": match.get("score")}
+    """
+    Where a match came from, and what that brain's installation of the block looked like.
+
+    Rank and score are what fusion used and what a reader compares. The installation fields ride along because they
+    are the ones a content-addressed identity does *not* fix: a block redacted in one brain and readable in another
+    is one block with two states, and dropping either would misreport one of the brains.
+    """
+    return {
+        "brain": name,
+        "rank": rank,
+        "score": match.get("score"),
+        "resolvable": match.get("resolvable", True),
+        "superseded_by": match.get("superseded_by"),
+        "sources": list(match.get("sources", [])),
+    }
+
+
+def _merge(returned: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """
+    One match from the several a block's brains returned, under a stated policy.
+
+    Content fields are taken from the first brain in the given order and are identical everywhere by construction.
+    The installation fields are merged so the match-level value is the one a *caller* needs before citing:
+
+    * ``resolvable`` is ``True`` if any brain can resolve the bytes -- ``False`` means "cannot be quoted", and it
+      can be quoted from the brain that has it, which ``brains[]`` names.
+    * ``superseded_by`` names a successor if any brain names one. A block replaced in one brain and current in
+      another is a fact the caller must know before citing it as current, and ``None`` would hide it.
+    * ``sources`` is the union, order kept, de-duplicated on ``(block_id, locator)``: two registrations of the
+      same file in two brains are two locators worth keeping, and the same locator twice is one.
+    * ``verified`` is ``True`` only if every brain verified it. The protocol discards what fails verification, so
+      this is always ``True`` in practice; stated as ``all`` rather than copied so the payload stays honest if a
+      non-conforming member ever returned otherwise.
+
+    Args:
+        returned (Sequence[Mapping[str, Any]]): The same block, as each brain returned it, in member order.
+
+    Returns:
+        dict[str, Any]: The merged match, without ``score`` or ``brains`` -- the caller sets those.
+    """
+    merged = dict(returned[0])
+    merged["verified"] = all(item.get("verified", True) for item in returned)
+    merged["resolvable"] = any(item.get("resolvable", True) for item in returned)
+    merged["superseded_by"] = next((item["superseded_by"] for item in returned if item.get("superseded_by")), None)
+    seen: set[tuple[Any, Any]] = set()
+    sources: list[Any] = []
+    for item in returned:
+        for source in item.get("sources", []):
+            key = (source.get("block_id"), source.get("locator"))
+            if key not in seen:
+                seen.add(key)
+                sources.append(source)
+    merged["sources"] = sources
+    return merged
 
 
 def grouped(members: Sequence[Member]) -> list[dict[str, Any]]:
@@ -78,10 +137,10 @@ def fused(members: Sequence[Member], *, k: int | None = None) -> list[dict[str, 
     """
     One ranking across brains, by reciprocal rank.
 
-    A block returned by several brains is one match: its block dictionary is the first brain's (content-addressed,
-    so the payload is identical everywhere) and ``brains`` lists every brain that returned it with its rank there.
-    The fused score is rescaled so the top match reads ``1.00`` and rendered the way the protocol carries a score,
-    as a decimal string -- it is agreement between brains and strategies, not a probability.
+    A block returned by several brains is one match, merged under the policy :func:`_merge` states, with ``brains``
+    listing every brain that returned it, its rank there, and that brain's installation state. The fused score is
+    rescaled so the top match reads ``1.00`` and rendered the way the protocol carries a score, as a decimal string
+    -- it is agreement between brains and strategies, not a probability.
 
     Args:
         members (Sequence[Member]): The brains and their payloads.
@@ -95,13 +154,13 @@ def fused(members: Sequence[Member], *, k: int | None = None) -> list[dict[str, 
 
     constant = RRF_K if k is None else k
     totals: dict[str, float] = {}
-    first: dict[str, Mapping[str, Any]] = {}
+    returned: dict[str, list[Mapping[str, Any]]] = {}
     origins: dict[str, list[dict[str, Any]]] = {}
     for name, payload in members:
         for rank, match in enumerate(payload.get("matches", []), start=1):
             block = str(match["block_id"])
             totals[block] = totals.get(block, 0.0) + 1.0 / (constant + rank)
-            first.setdefault(block, match)
+            returned.setdefault(block, []).append(match)
             origins.setdefault(block, []).append(_origin(name, rank, match))
 
     # Ordered on the full float, before rendering collapses it to two decimals; the identity breaks ties so the
@@ -109,7 +168,7 @@ def fused(members: Sequence[Member], *, k: int | None = None) -> list[dict[str, 
     ordered = sorted(totals, key=lambda block: (-totals[block], block))
     top = totals[ordered[0]] if ordered else 0.0
     return [
-        {**first[block], "score": render(totals[block] / top if top > 0 else 0.0), "brains": origins[block]}
+        {**_merge(returned[block]), "score": render(totals[block] / top if top > 0 else 0.0), "brains": origins[block]}
         for block in ordered
     ]
 

@@ -29,6 +29,18 @@ from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.session import BrainSession
 
 
+def _frozen(values: Iterable[str] | None) -> tuple[str, ...] | None:
+    """
+    Materialise a filter once, before any member sees it.
+
+    The public signature accepts any iterable, and the same object is handed to every member. A generator would be
+    consumed by the first brain's query and reach every later brain empty -- three brains, three different filters,
+    and nothing to say so. Freezing here makes the behaviour independent of the iterable type the caller happened
+    to pass.
+    """
+    return None if values is None else tuple(values)
+
+
 class CompoundOps:
     """Several brains of one project, as operations."""
 
@@ -178,6 +190,7 @@ class CompoundOps:
         """
         from vitruvio.runtime.cross_brain import compose
 
+        memory_types, tags, evidence = _frozen(memory_types), _frozen(tags), _frozen(evidence)
         members, skipped = self._members(brains, all_brains)
         results = []
         for name, retrieval in members:
@@ -234,6 +247,7 @@ class CompoundOps:
         Returns:
             dict[str, Any]: ``members``, each with its brain's full explanation.
         """
+        memory_types, tags = _frozen(memory_types), _frozen(tags)
         members, skipped = self._members(brains, all_brains)
         explanations = []
         for name, retrieval in members:

@@ -50,8 +50,14 @@ comparable across brains where scores are not. A block is the hash of its conten
 one block, and it accumulates from both: that is the cross-brain signal the feature exists to surface, and it falls
 out of using the identity the protocol already gives rather than anything added.
 
-The block dictionary in a fused match is the first brain's. Per-brain state that could differ -- `superseded_by`,
-`resolvable` -- is therefore the first brain's too, and `brains[]` is where a reader finds out which brains said so.
+A block id guarantees the content and nothing about a brain's *installation* of it: `resolvable`, `superseded_by`
+and the `sources` locators can differ between two brains holding the same block. Those fields are kept per origin in
+`brains[]`, and the match-level value follows a stated policy rather than the first brain's accident of ordering:
+`resolvable` is `any` (the bytes can be quoted from the brain that has them), `superseded_by` is the first successor
+any brain names (a caller must know before citing it as current), `sources` is the order-preserving union
+de-duplicated on `(block_id, locator)`, and `verified` is `all`. Reversing the members changes only the order of
+lists. The first version of this took the first brain's dictionary wholesale, which review caught: it made the
+answer depend on the order the user typed the names.
 
 ### 4. Roots stay per brain; one payload shape for both modes
 
