@@ -224,3 +224,76 @@ class TestHumanRendering:
         code, out, _ = run(capsys, "--no-color", "compound", "explain", "base", "--brains", "algebra,analisis-ii")
         assert code == ExitCode.OK
         assert out.count("Bundle") == 2
+
+
+def rendered(parts: list[Any]) -> str:
+    """Draw renderables into plain text, the way a terminal would without colour."""
+    from rich.console import Console
+
+    console = Console(record=True, width=120, force_terminal=False, color_system=None)
+    for part in parts:
+        console.print(part)
+    return console.export_text()
+
+
+class TestTheFusedViewIsAsHonestAsTheGroupedOne:
+    """Unreachable through the CLI -- a conforming planner drops what it cannot verify -- so the renderer is driven
+    directly. The fused view once omitted the warning the grouped view printed."""
+
+    def test_the_fused_view_warns_when_a_member_returned_something_unverified(self) -> None:
+        from vitruvio.cli import render
+
+        origin = {"brain": "a", "rank": 1, "score": "1.00", "resolvable": True, "superseded_by": None, "sources": []}
+        match = {
+            "block_id": "sha256:x",
+            "memory_type": "semantic",
+            "content": {"label": "x"},
+            "score": "1.00",
+            "sources": [],
+            "verified": False,
+            "resolvable": True,
+            "superseded_by": None,
+            "brains": [origin],
+        }
+        member = {
+            "brain": "a",
+            "count": 1,
+            "truncated": False,
+            "all_verified": False,
+            "verified_against": {},
+            "plan": None,
+        }
+        data = {
+            "project": "p",
+            "brains": ["a", "b"],
+            "skipped": [],
+            "fused": True,
+            "members": [member, {**member, "brain": "b", "count": 0, "all_verified": True}],
+            "matches": [match],
+            "truncated": False,
+            "all_verified": False,
+        }
+        text = rendered(render.compound(data))
+        assert "WARNING: not every match verified" in text
+        assert "a#1" in text
+
+    def test_the_grouped_view_still_warns_too(self) -> None:
+        from vitruvio.cli import render
+
+        member = {
+            "brain": "a",
+            "count": 1,
+            "truncated": False,
+            "all_verified": False,
+            "verified_against": {},
+            "plan": None,
+        }
+        match = {
+            "block_id": "sha256:x",
+            "memory_type": "semantic",
+            "content": {},
+            "score": "1.00",
+            "brains": [{"brain": "a", "rank": 1}],
+        }
+        data = {"fused": False, "members": [member], "matches": [match], "brains": ["a"], "skipped": []}
+        assert "WARNING: not every match verified" in rendered(render.compound(data))
