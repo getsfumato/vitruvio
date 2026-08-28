@@ -78,3 +78,11 @@ canonical block names, and `inspect links BLOCK_ID` gets the provenance records 
 Below roughly 500 blocks, an exhaustive scan usually beats any index — embedding a query costs about 4.5 ms, which
 at 200 blocks is more than reading all of them. `explain` showing `SeqScan` on a small brain is the cost model
 being right, not the planner giving up.
+
+## Several brains at once
+
+When the question spans two or more brains of one project, `vitruvio compound search "TEXT" --brains a --brains b --json`
+asks each on its own and composes the bundles — grouped per brain by default, because each brain's scores are
+normalised to its own best match and do not compare, or merged by rank with `--fuse`. Every field above keeps its
+meaning per match; each match also carries `brains[]`, saying which brain returned it and at what rank. The
+`vitruvio-compound` skill covers choosing the project and the brains, and reading the composed result.

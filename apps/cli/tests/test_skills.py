@@ -28,6 +28,7 @@ EXPECTED = {
     "vitruvio-retention",
     "vitruvio-dist",
     "vitruvio-reconcile",
+    "vitruvio-compound",
 }
 
 

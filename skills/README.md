@@ -14,6 +14,7 @@ vitruvio skills install --into DIR --skill vitruvio-cli --force
 | `vitruvio` | the entry point: what a brain is, the envelope, the exit codes, the five modules |
 | `vitruvio-cli` | the command surface: every group, every command, the flag that decides the outcome |
 | `vitruvio-query` | searching, and reading a bundle without over-claiming |
+| `vitruvio-compound` | composing several brains of one project into one query, and reading the cross-brain evidence |
 | `vitruvio-ingest` | the propose → validate → commit loop, and pulling from declared sources |
 | `vitruvio-retention` | the five removal mechanisms, and which one you actually want |
 | `vitruvio-dist` | publishing and installing |

@@ -23,3 +23,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0012](0012-the-terminal-interface.md) | The terminal interface, and one renderer for both of them |
 | [0013](0013-decomposing-the-service-layer.md) | Decomposing the service layer, and what stayed on the facade |
 | [0014](0014-reconciliation.md) | Reconciliation, and the four choices vitruvio had to make itself |
+| [0015](0015-compound-retrieval.md) | Compound retrieval across a project's brains, and why it fuses by rank |
