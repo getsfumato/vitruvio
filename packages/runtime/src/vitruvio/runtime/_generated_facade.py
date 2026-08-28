@@ -8,6 +8,7 @@ from typing import Any
 
 from vitruvio.runtime.ops.benchmarking import BenchmarkOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
+from vitruvio.runtime.ops.compound import CompoundOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
 from vitruvio.runtime.ops.inspection import InspectionOps
@@ -885,6 +886,85 @@ class GeneratedFacade:
             until=until,
             tags=tags,
             evidence=evidence,
+            include_superseded=include_superseded,
+            mode=mode,
+            limit=limit,
+            expand_depth=expand_depth,
+            analyze=analyze,
+        )
+
+    @cached_property
+    def compound_ops(self) -> CompoundOps:
+        """The CompoundOps operations."""
+        return CompoundOps(self.session)
+
+    def compound_search(
+        self,
+        text: str = "",
+        *,
+        brains: Iterable[str] | None = None,
+        all_brains: bool = False,
+        fuse: bool = False,
+        memory_types: Iterable[str] | None = None,
+        subject: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        tags: Iterable[str] | None = None,
+        evidence: Iterable[str] | None = None,
+        include_superseded: bool = False,
+        mode: str | None = None,
+        limit: int = 10,
+        expand_depth: int = 0,
+    ) -> dict[str, Any]:
+        """Retrieve evidence from several brains of this project for one query.
+
+        See :meth:`vitruvio.runtime.ops.compound.CompoundOps.compound_search`."""
+        return self.compound_ops.compound_search(
+            text,
+            brains=brains,
+            all_brains=all_brains,
+            fuse=fuse,
+            memory_types=memory_types,
+            subject=subject,
+            since=since,
+            until=until,
+            tags=tags,
+            evidence=evidence,
+            include_superseded=include_superseded,
+            mode=mode,
+            limit=limit,
+            expand_depth=expand_depth,
+        )
+
+    def compound_explain(
+        self,
+        text: str = "",
+        *,
+        brains: Iterable[str] | None = None,
+        all_brains: bool = False,
+        memory_types: Iterable[str] | None = None,
+        subject: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        tags: Iterable[str] | None = None,
+        include_superseded: bool = False,
+        mode: str | None = None,
+        limit: int = 10,
+        expand_depth: int = 0,
+        analyze: bool = False,
+    ) -> dict[str, Any]:
+        """Report how each brain of a compound would answer the query, side by side.
+
+        See :meth:`vitruvio.runtime.ops.compound.CompoundOps.compound_explain`."""
+        return self.compound_ops.compound_explain(
+            text,
+            brains=brains,
+            all_brains=all_brains,
+            memory_types=memory_types,
+            subject=subject,
+            since=since,
+            until=until,
+            tags=tags,
             include_superseded=include_superseded,
             mode=mode,
             limit=limit,

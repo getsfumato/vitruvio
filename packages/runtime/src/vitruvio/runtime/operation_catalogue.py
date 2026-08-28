@@ -121,6 +121,9 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         exposure=Exposure.PROPERTY,
     ),
     OperationDomain("vitruvio.runtime.ops.retrieval", "RetrievalOps", "retrieval_ops", ("search", "explain")),
+    OperationDomain(
+        "vitruvio.runtime.ops.compound", "CompoundOps", "compound_ops", ("compound_search", "compound_explain")
+    ),
 )
 
 
