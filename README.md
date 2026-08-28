@@ -17,7 +17,7 @@ committed, and distribution over any OCI registry.
 ## Install
 
 ```console
-curl -fsSL https://vitruvio.sfumato.sh/install.sh | sh
+curl -fsSL https://vitruvio.sh/install.sh | sh
 vitruvio --version
 ```
 

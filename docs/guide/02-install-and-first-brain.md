@@ -1,7 +1,7 @@
 # 2. Install, and a first brain
 
 ```bash
-curl -fsSL https://vitruvio.sfumato.sh/install.sh | sh
+curl -fsSL https://vitruvio.sh/install.sh | sh
 vitruvio --version
 ```
 

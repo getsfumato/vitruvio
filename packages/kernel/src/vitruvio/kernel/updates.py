@@ -39,7 +39,7 @@ RELEASES_API = "https://api.github.com/repos/getsfumato/vitruvio/releases/latest
 being offered to everybody the moment it is cut.
 """
 
-INSTALLER_URL = "https://vitruvio.sfumato.sh/install.sh"
+INSTALLER_URL = "https://vitruvio.sh/install.sh"
 """The documented installer, which is what an update re-runs rather than reimplementing."""
 
 OPT_OUT = "VITRUVIO_NO_UPDATE_CHECK"
