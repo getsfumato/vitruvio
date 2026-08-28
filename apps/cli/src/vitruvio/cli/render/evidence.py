@@ -64,6 +64,43 @@ def _identifying(payload: Mapping[str, Any]) -> str:
     return "(no identifying field)"
 
 
+def _identity(match: Mapping[str, Any]) -> Text:
+    """
+    The one-line identification of a match: what the block is, its flags, and the sources it cites.
+
+    Args:
+        match (Mapping[str, Any]): One match of a bundle.
+
+    Returns:
+        Text: The cell.
+    """
+    flags = []
+    if match.get("superseded_by"):
+        flags.append(f"superseded by {short(match['superseded_by'])}")
+    if not match.get("resolvable", True):
+        # A redacted block is a verifiable member whose bytes were destroyed under policy. A caller has to
+        # be able to tell that from corruption, so it is named rather than hidden.
+        flags.append("not resolvable (redacted or not installed)")
+
+    identity = Text(_identifying(match.get("content") or {}))
+    if flags:
+        identity.append_text(Text(f"   [{'; '.join(flags)}]", style="flag"))
+    for source in match.get("sources", []):
+        locator = f" #{source['locator']}" if source.get("locator") else ""
+        identity.append_text(Text(f"\nsource: {short(source.get('block_id'))}{locator}", style="muted"))
+    return identity
+
+
+def _detail(position: int, match: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
+    """The full payload of one match, when ``--content`` asked for it; nothing otherwise."""
+    if not content:
+        return []
+    return [
+        theme.fields([("block", theme.digest(match.get("block_id"), full=True))], title=f"[{position}]"),
+        payload(match.get("content") or {}),
+    ]
+
+
 def bundle(data: Mapping[str, Any], *, content: bool = False) -> list[RenderableType]:
     """
     Render an Evidence Bundle.
@@ -116,39 +153,112 @@ def bundle(data: Mapping[str, Any], *, content: bool = False) -> list[Renderable
     rows = theme.table(("#", "right"), ("score", "right"), "memory", "block", "identity")
     detail: list[RenderableType] = []
     for position, match in enumerate(matches, start=1):
-        flags = []
-        if match.get("superseded_by"):
-            flags.append(f"superseded by {short(match['superseded_by'])}")
-        if not match.get("resolvable", True):
-            # A redacted block is a verifiable member whose bytes were destroyed under policy. A caller has to
-            # be able to tell that from corruption, so it is named rather than hidden.
-            flags.append("not resolvable (redacted or not installed)")
-
-        payload_block: Mapping[str, Any] = match.get("content") or {}
-        identity = Text(_identifying(payload_block))
-        if flags:
-            identity.append_text(Text(f"   [{'; '.join(flags)}]", style="flag"))
-        for source in match.get("sources", []):
-            locator = f" #{source['locator']}" if source.get("locator") else ""
-            identity.append_text(Text(f"\nsource: {short(source.get('block_id'))}{locator}", style="muted"))
-
         rows.add_row(
             str(position),
             Text(str(match.get("score", "-")), style="score"),
             theme.kind(match.get("memory_type")),
             theme.digest(match.get("block_id")),
-            identity,
+            _identity(match),
         )
-        if content:
-            detail.append(
-                theme.fields(
-                    [("block", theme.digest(match.get("block_id"), full=True))],
-                    title=f"[{position}]",
-                )
-            )
-            detail.append(payload(payload_block))
+        detail.extend(_detail(position, match, content=content))
 
     return theme.stack(header, roots, unverified, "", rows, *detail)
+
+
+def _member_roots(members: Sequence[Mapping[str, Any]]) -> RenderableType | None:
+    """One ``verified against`` line per brain. Roots are per brain and are never merged."""
+    pairs: list[tuple[str, Any]] = []
+    for member in members:
+        roots: Mapping[str, str] = member.get("verified_against") or {}
+        if roots:
+            pairs.append(
+                (
+                    str(member["brain"]),
+                    Text("  ").join(
+                        Text.assemble(theme.kind(name), " ", theme.digest(root)) for name, root in sorted(roots.items())
+                    ),
+                )
+            )
+    return theme.fields(pairs, title="verified against") if pairs else None
+
+
+def _origins(match: Mapping[str, Any]) -> Text:
+    """Which brains returned a match, and at what rank in each: ``metrica-a#1  metrica-b#3``."""
+    return Text("  ".join(f"{item['brain']}#{item['rank']}" for item in match.get("brains", [])), style="muted")
+
+
+def _grouped(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
+    """Each brain's own bundle, one section per brain, in the shape ``bundle`` prints for a single brain."""
+    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    sections: list[RenderableType] = []
+    for member in data.get("members", []):
+        name = str(member["brain"])
+        own = [match for match in matches if match.get("brains", [{}])[0].get("brain") == name]
+        sections.append("")
+        sections.append(Text(name, style="heading"))
+        sections.extend(
+            bundle(
+                {
+                    "matches": own,
+                    "verified_against": member.get("verified_against") or {},
+                    "truncated": member.get("truncated", False),
+                    "all_verified": member.get("all_verified", True),
+                },
+                content=content,
+            )
+        )
+    return sections
+
+
+def _fused(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
+    """One table across brains, with a column saying which brains returned each block."""
+    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    if not matches:
+        return theme.stack("", theme.empty("No brain holds anything matching. That is an answer, not an error."))
+    rows = theme.table(("#", "right"), ("score", "right"), "brains", "memory", "block", "identity")
+    detail: list[RenderableType] = []
+    for position, match in enumerate(matches, start=1):
+        rows.add_row(
+            str(position),
+            Text(str(match.get("score", "-")), style="score"),
+            _origins(match),
+            theme.kind(match.get("memory_type")),
+            theme.digest(match.get("block_id")),
+            _identity(match),
+        )
+        detail.extend(_detail(position, match, content=content))
+    return theme.stack("", rows, *detail)
+
+
+def compound(data: Mapping[str, Any], *, content: bool = False) -> list[RenderableType]:
+    """
+    Render a compound: several brains' evidence for one query.
+
+    Grouped output reuses :func:`bundle` per brain, so a compound section and a single-brain result are the same
+    table -- one shape to learn. Fused output is one table with a ``brains`` column, because the ranking is across
+    brains and a per-brain section would misstate it.
+
+    Args:
+        data (Mapping[str, Any]): What ``CompoundOps.compound_search`` produced.
+        content (bool): Print each block's full payload rather than one identifying line.
+
+    Returns:
+        list[RenderableType]: What to print.
+    """
+    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    members: Sequence[Mapping[str, Any]] = data.get("members", [])
+    header = Text.assemble(
+        (str(len(matches)), "count"),
+        f" match{'' if len(matches) == 1 else 'es'} across ",
+        (str(len(members)), "count"),
+        f" brain{'' if len(members) == 1 else 's'}",
+        ("  (truncated -- there may be more)", "warn") if data.get("truncated") else "",
+    )
+    skipped = data.get("skipped") or []
+    note = Text(f"skipped: {', '.join(str(item['brain']) for item in skipped)}", style="muted") if skipped else None
+    if data.get("fused"):
+        return theme.stack(header, _member_roots(members), note, *_fused(data, content=content))
+    return theme.stack(header, note, *_grouped(data, content=content))
 
 
 def payload(value: Any) -> RenderableType:

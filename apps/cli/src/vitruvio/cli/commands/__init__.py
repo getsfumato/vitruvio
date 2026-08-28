@@ -14,6 +14,7 @@ from vitruvio.cli.commands import (
     brain,
     browse,
     completion,
+    compound,
     config,
     dist,
     index,
@@ -38,6 +39,7 @@ GROUPS = (
     ingest,
     index,
     query,
+    compound,
     browse,
     retain,
     dist,
@@ -60,6 +62,9 @@ never opens one.
 
 ``reconcile`` follows ``dist`` because that is the order somebody meets it: you publish, the push is refused
 because somebody else published first, and reconciling is what you do about it.
+
+``compound`` follows ``query`` because it is the same question asked of several brains at once: somebody who
+has searched one subject and wants two is the reader it is placed for.
 
 ``browse`` sits beside ``query`` rather than under ``inspect``, where its data comes from, because the order
 here is editorial: it is what somebody reaches for right after their first search, and a reader looking for

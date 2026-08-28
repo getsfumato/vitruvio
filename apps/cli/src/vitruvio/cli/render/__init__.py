@@ -12,12 +12,24 @@ own console is a renderer that can write into a JSON stream.
 from __future__ import annotations
 
 from vitruvio.cli.render import media
-from vitruvio.cli.render.evidence import bundle, divergence, graph, modules, payload, records, rows, short, snapshot
+from vitruvio.cli.render.evidence import (
+    bundle,
+    compound,
+    divergence,
+    graph,
+    modules,
+    payload,
+    records,
+    rows,
+    short,
+    snapshot,
+)
 from vitruvio.cli.render.theme import THEME, count, digest, empty, fields, kind, lines, stack, table, verdict
 
 __all__ = [
     "THEME",
     "bundle",
+    "compound",
     "count",
     "digest",
     "divergence",
