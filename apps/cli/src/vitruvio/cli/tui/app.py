@@ -65,6 +65,31 @@ because a record is a set of fields rather than a text, and the payload tab show
 """
 
 
+def named_bytes(row: dict[str, Any]) -> tuple[str, str | None, str] | None:
+    """
+    The bytes a row lets ``o`` and ``e`` act on: content address, a name for the file, and the media type.
+
+    One resolver rather than each action reading the row itself, because there are now two places a row can
+    name bytes -- flat for a canonical block, whose bytes are the block, and nested under ``content`` for a
+    derived block whose bytes are its own datum -- and an action that knew only the first told the owner of a
+    diagram-bearing semantic block that it "names no content".
+
+    Args:
+        row (dict[str, Any]): A row from ``service.blocks``.
+
+    Returns:
+        tuple[str, str | None, str] | None: ``(blob, name, media_type)``, or ``None`` when the row names no
+        bytes at all. The name is the canonical block's recorded origin, or the derived block's title -- what
+        a viewer's title bar should say, since a content address identifies without identifying anything *to*
+        the person reading it.
+    """
+    if blob := row.get("blob"):
+        return str(blob), row.get("origin"), str(row.get("media_type") or "")
+    if content := row.get("content"):
+        return str(content["blob"]), row.get("title"), str(content.get("media_type") or "")
+    return None
+
+
 class ModuleTree(Tree[str]):
     """
     The module sidebar, with one binding the default tree does not have.
@@ -387,13 +412,17 @@ class BrainBrowser(App[None]):
         table = self.query_one("#blocks", DataTable)
         table.clear()
         for row in self.rows:
-            size = row.get("size")
+            # The size and type columns fall back to the content a derived block names: a semantic block whose
+            # datum is a 2 MB diagram has a size the same way a canonical PDF does, and blank columns would say
+            # otherwise.
+            content = row.get("content") or {}
+            size = row.get("size", content.get("size"))
             table.add_row(
                 render.digest(row.get("block_id")),
                 Text(str(row.get("title", "")), style="value" if row.get("resolvable", True) else "bad"),
                 Text(str(row.get("detail", "")), style="muted"),
                 Text(_bytes(size) if isinstance(size, int) else "", style="muted"),
-                Text(str(row.get("media_type") or row.get("kind") or ""), style="muted"),
+                Text(str(row.get("media_type") or row.get("kind") or content.get("media_type") or ""), style="muted"),
                 key=row["block_id"],
             )
         shown = f"{len(self.rows)} of {result['matched']}"
@@ -496,21 +525,78 @@ class BrainBrowser(App[None]):
             return Group(head, "", render.media.preview(data, str(view.get("media_type", "text/plain")), width=width))
 
         if blob := row.get("blob"):
-            media_type = str(row.get("media_type", "application/octet-stream"))
-            try:
-                data = self.opened.content(str(blob))
-            except Exception as error:
-                return Group(head, "", Text(str(error), style="bad"))
-            body = render.media.preview(data, media_type, width=width, page=self.pdf_page)
-            hint = None
-            if render.media.is_pdf(media_type):
-                pages = render.media.pdf_pages(data)
-                hint = Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")
-            elif view.get("blob"):
-                hint = Text("t shows the normalized text view of these bytes", style="muted")
-            return Group(head, "", body, *(("", hint) if hint is not None else ()))
+            return self._blob_preview(row, str(blob), view, head=head, width=width)
+
+        if content := row.get("content"):
+            return self._content_preview(row, content, head=head, width=width)
 
         return Group(head, "", self._reading(row))
+
+    def _blob_preview(
+        self, row: dict[str, Any], blob: str, view: dict[str, Any], *, head: RenderableType, width: int
+    ) -> RenderableType:
+        """
+        A canonical block's bytes, drawn. The block *is* its bytes, so they are the whole preview.
+
+        Args:
+            row (dict[str, Any]): The selected row.
+            blob (str): The content address.
+            view (dict[str, Any]): The row's normalized view, for the hint that ``t`` would show it.
+            head (RenderableType): The metadata block above the drawing.
+            width (int): Cells available.
+
+        Returns:
+            RenderableType: The rendering.
+        """
+        from rich.console import Group
+
+        media_type = str(row.get("media_type", "application/octet-stream"))
+        try:
+            data = self.opened.content(blob)
+        except Exception as error:
+            return Group(head, "", Text(str(error), style="bad"))
+        body = render.media.preview(data, media_type, width=width, page=self.pdf_page)
+        hint = None
+        if render.media.is_pdf(media_type):
+            pages = render.media.pdf_pages(data)
+            hint = Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")
+        elif view.get("blob"):
+            hint = Text("t shows the normalized text view of these bytes", style="muted")
+        return Group(head, "", body, *(("", hint) if hint is not None else ()))
+
+    def _content_preview(
+        self, row: dict[str, Any], content: dict[str, Any], *, head: RenderableType, width: int
+    ) -> RenderableType:
+        """
+        A derived block that names bytes shows both halves, text first.
+
+        The text is what the block claims *about* the bytes and is the only part a query can reach, so reading
+        it before the drawing keeps the preview in the same order retrieval sees the block in.
+
+        Args:
+            row (dict[str, Any]): The selected row.
+            content (dict[str, Any]): The reference the block names: ``blob``, ``media_type``, ``size``.
+            head (RenderableType): The metadata block above the text.
+            width (int): Cells available.
+
+        Returns:
+            RenderableType: The rendering.
+        """
+        from rich.console import Group
+
+        media_type = str(content.get("media_type", "application/octet-stream"))
+        try:
+            data = self.opened.content(str(content["blob"]))
+        except Exception as error:
+            # A block may legitimately name bytes this brain does not hold -- a selective install -- and it is
+            # still fully readable without them. The missing datum is reported under the text, not instead of it.
+            return Group(head, "", self._reading(row), "", Text(str(error), style="bad"))
+        parts: list[RenderableType] = [head, "", self._reading(row), ""]
+        parts.append(render.media.preview(data, media_type, width=width, page=self.pdf_page))
+        if render.media.is_pdf(media_type):
+            pages = render.media.pdf_pages(data)
+            parts += ["", Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")]
+        return Group(*parts)
 
     def _reading(self, row: dict[str, Any]) -> RenderableType:
         """
@@ -789,8 +875,8 @@ class BrainBrowser(App[None]):
             self.load_rows()
 
     def action_next_pdf_page(self) -> None:
-        """Turn to the next page of a PDF."""
-        if self.selected and render.media.is_pdf(str(self.selected.get("media_type", ""))):
+        """Turn to the next page of a PDF -- the block's own bytes, or the content a derived block names."""
+        if self.selected is not None and (named := named_bytes(self.selected)) and render.media.is_pdf(named[2]):
             self.pdf_page += 1
             self.load_detail(self.selected)
 
@@ -816,14 +902,11 @@ class BrainBrowser(App[None]):
 
     def action_export(self) -> None:
         """Write the selected block's bytes into the working directory."""
-        if not self.selected or not self.selected.get("blob"):
+        named = named_bytes(self.selected) if self.selected else None
+        if named is None:
             self.notify("this block names no content to export", severity="warning")
             return
-        self.export(
-            str(self.selected["blob"]),
-            self.selected.get("origin"),
-            str(self.selected.get("media_type") or ""),
-        )
+        self.export(*named)
 
     @work(thread=True, group="export")
     def export(self, blob: str, name: str | None, media_type: str | None = None) -> None:
@@ -862,14 +945,11 @@ class BrainBrowser(App[None]):
         The bytes are written to a temporary file first, because the brain is a content-addressed store and
         there is no path inside it to hand over.
         """
-        if not self.selected or not self.selected.get("blob"):
+        named = named_bytes(self.selected) if self.selected else None
+        if named is None:
             self.notify("this block names no content to open", severity="warning")
             return
-        self.open_externally(
-            str(self.selected["blob"]),
-            self.selected.get("origin"),
-            str(self.selected.get("media_type") or ""),
-        )
+        self.open_externally(*named)
 
     @work(thread=True, group="open")
     def open_externally(self, blob: str, name: str | None, media_type: str | None = None) -> None:

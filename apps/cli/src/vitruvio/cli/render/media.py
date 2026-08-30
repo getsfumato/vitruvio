@@ -363,6 +363,14 @@ def describe(entry: Mapping[str, Any]) -> RenderableType:
         pairs.append(("size", f"{entry['size']} bytes"))
     if blob := entry.get("blob"):
         pairs.append(("content", theme.digest(blob, full=True)))
+    if content := entry.get("content"):
+        # A derived block's named bytes. The type and size ride along because they are what a reader uses to
+        # decide whether `o` is worth pressing, and this row has no flat `media_type`/`size` of its own.
+        pairs.append(("content", theme.digest(content.get("blob"), full=True)))
+        if content.get("media_type"):
+            pairs.append(("media type", str(content["media_type"])))
+        if isinstance(content.get("size"), int):
+            pairs.append(("size", f"{content['size']} bytes"))
     if view := entry.get("normalized_view"):
         pairs.append(("normalized", theme.digest(view.get("blob"), full=True)))
     if tags := entry.get("tags"):
