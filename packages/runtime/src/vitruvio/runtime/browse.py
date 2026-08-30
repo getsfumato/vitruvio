@@ -165,6 +165,16 @@ def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, res
             "media_type": view.get("media_type", "text/plain"),
             "size": view.get("size", 0),
         }
+    content = payload.get("content")
+    if isinstance(content, dict) and isinstance(content.get("blob"), str):
+        # Nested rather than flattened into `blob`: a canonical block *is* its bytes, while a derived block
+        # *names* bytes as its own datum, and a reader of the row has to be able to tell which of the two it is
+        # holding. Same shape as `normalized_view` so a consumer that follows one can follow the other.
+        result["content"] = {
+            "blob": content["blob"],
+            "media_type": content.get("media_type", "application/octet-stream"),
+            "size": content.get("size", 0),
+        }
     for field in ("evidence", "sources", "steps", "relations"):
         value = payload.get(field)
         if isinstance(value, list) and value:
@@ -221,6 +231,9 @@ def matches(entry: Mapping[str, Any], needle: str) -> bool:
         str(entry.get("subject", "")),
         str(entry.get("block_id", "")),
         str(entry.get("media_type", "")),
+        # The named content's type counts too, so "png" finds the semantic block whose datum is a diagram the
+        # same way it finds the canonical block whose bytes are one.
+        str((entry.get("content") or {}).get("media_type", "")),
         *(str(tag) for tag in entry.get("tags", []) or []),
     ]
     return any(wanted in item.casefold() for item in haystack)
