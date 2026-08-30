@@ -50,6 +50,42 @@ obvious mistake and it is trivially detectable.
 
 Propose nothing rather than guessing. An empty candidate list is a valid, honest answer.
 
+## When the datum is bytes, not a sentence
+
+Any proposable type — semantic, episodic, procedural — may name its own datum as bytes instead of inlining it: a
+rendered diagram, a lecture recording, a worked example. The payload carries a `content` reference rather than the
+bytes themselves, because a payload is JSON that is canonically hashed on every access, and a binary does not
+belong inside one. The schema from step 3 already offers the field on every type; absent means inline, which is
+the ordinary case.
+
+```bash
+# the bytes go into the store first; what comes back is the reference, exactly as the payload needs it
+vitruvio source put figure.png --media-type image/png --json
+```
+
+```json
+{"memory_type": "semantic", "evidence": ["<SOURCE_BLOCK_ID>"], "locator": "[page 3]",
+ "payload": {"kind": "concept", "label": "pendulum phase portrait",
+             "statement": "the undamped pendulum traces closed orbits around the stable equilibrium",
+             "content": {"blob": "sha256:...", "media_type": "image/png", "size": 48123}}}
+```
+
+Three rules on top of the four above:
+
+1. **Copy the reference verbatim.** `blob`, `media_type` and `size` are all hashed into the `block_id`, and the
+   gate checks the last two against the store; the rejection is `content-mismatch`. It exists because a consumer
+   reads exactly those fields to decide whether to fetch bytes it does not yet hold.
+2. **The text fields stay required, and are not captions.** `label` and `statement` (semantic), `summary`
+   (episodic), `goal` and `steps` (procedural) are what a text query reaches — content is invisible to search.
+   When the datum is binary, the statement is what the block claims *about* the bytes; a block whose text were
+   empty would be installed, provable against the root, and unreachable.
+3. **Content is not evidence.** `evidence` still cites the canonical source, exactly as rule 1 above demands.
+   Content is the block's own datum: nothing else may cite it, and it leaves the store with its block. Material
+   that other blocks will cite goes through `vitruvio source register`, as it always did.
+
+`vitruvio inspect content <DIGEST>` reads the bytes back; `--open` hands them to the desktop. In
+`vitruvio browse`, a block that names content previews its text first and the bytes beneath, and `o` opens them.
+
 ## Reading the verdict
 
 Each result carries a `status`:

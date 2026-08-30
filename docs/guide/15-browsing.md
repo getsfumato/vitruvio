@@ -55,6 +55,13 @@ module in the middle. The selected block on the right, in four tabs:
 | links | the provenance records naming it: registration, derivation, supersession, removal |
 | proof | its Merkle inclusion proof, already checked against the module root |
 
+"The bytes the block names" is not only canonical: a derived block may carry its own datum out of line — a
+semantic block whose `content` names a rendered diagram, an episodic one naming a recording. Its preview shows
+both halves, text first, because the statement is what the block claims *about* the bytes and is the only part a
+query can reach; the bytes are drawn beneath it. `o` and `e` act on those bytes exactly as they do on a canonical
+block's, and content this brain does not hold — a selective install — is reported under the text rather than
+replacing it.
+
 **Which brain am I looking at?** Several layers select one and only `--brain` is visible in the command you typed,
 so the header names the brain and the layer that chose it (`facultad/analisis-numerico by flag`, `demo/brain by
 state`), and `i` prints the whole path, the snapshot, which modules are installed and who writes are attributed
