@@ -82,6 +82,87 @@ class TestBlocks:
         assert titles == {"registration"}
 
 
+@pytest.fixture
+def named_content(service: BrainService, source_file: Path) -> dict[str, Any]:
+    """A semantic block whose datum sits in the store rather than in its payload, plus the reference it names."""
+    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    diagram = source_file.parent / "diagrama.png"
+    diagram.write_bytes(b"\x89PNG\r\n\x1a\n not really a png")
+    reference = service.put_content(diagram, media_type="image/png")
+    task = service.define_task(source, allowed=["semantic"])
+    service.commit_candidates(
+        {
+            "candidates": [
+                {
+                    "memory_type": "semantic",
+                    "payload": {
+                        "kind": "concept",
+                        "label": "retrato de fases",
+                        "statement": "El pendulo sin amortiguar traza orbitas cerradas.",
+                        "content": reference,
+                    },
+                    "evidence": [source],
+                    "locator": "lines:1-3",
+                    "confidence": "0.9",
+                }
+            ]
+        },
+        task,
+    )
+    return {"reference": reference, "bytes": diagram.read_bytes()}
+
+
+class TestRowsNameTheContentDerivedBlocksCarryOutOfLine:
+    """A canonical block is the only one whose bytes are flat in the payload; a v2 derived block names its own
+    datum under ``content``. A row builder that read only the flat field made those bytes unreachable from every
+    list -- present in the store, provable, and invisible."""
+
+    def test_a_derived_row_surfaces_the_reference_nested_rather_than_flattened(
+        self, service: BrainService, named_content: dict[str, Any]
+    ) -> None:
+        """Nested because a reader has to be able to tell "is bytes" from "names bytes": flattening `content.blob`
+        into `blob` would present a semantic block as if it were canonical."""
+        (row,) = service.blocks("semantic")["rows"]
+        assert row["content"] == named_content["reference"]
+        assert "blob" not in row, "the flat field belongs to canonical blocks alone"
+
+    def test_the_named_bytes_are_fetchable_through_the_same_content_read(
+        self, service: BrainService, named_content: dict[str, Any]
+    ) -> None:
+        """The point of surfacing the reference: `content(blob)` is one call away from any row that carries it."""
+        (row,) = service.blocks("semantic")["rows"]
+        assert service.content(row["content"]["blob"]) == named_content["bytes"]
+
+    def test_a_block_that_inlines_everything_has_no_content_key(self, service: BrainService, source_file: Path) -> None:
+        """Omitted rather than nulled, like every per-type field: a `content` of None would suggest the block
+        named bytes and lost them."""
+        source = service.register(source_file, media_type="text/markdown")["block_id"]
+        task = service.define_task(source, allowed=["semantic"])
+        service.commit_candidates(
+            {
+                "candidates": [
+                    {
+                        "memory_type": "semantic",
+                        "payload": {"kind": "fact", "label": "L", "statement": "S"},
+                        "evidence": [source],
+                        "confidence": "0.9",
+                    }
+                ]
+            },
+            task,
+        )
+        (row,) = service.blocks("semantic")["rows"]
+        assert "content" not in row
+
+    def test_the_filter_finds_a_block_by_the_type_of_the_content_it_names(
+        self, service: BrainService, named_content: dict[str, Any]
+    ) -> None:
+        """ "png" should find the semantic block whose datum is a diagram the same way it finds the canonical
+        block whose bytes are one."""
+        page = service.blocks("semantic", contains="image/png")
+        assert [row["title"] for row in page["rows"]] == ["retrato de fases"]
+
+
 class TestContent:
     def test_content_returns_the_bytes_the_block_names(self, service: BrainService, source_file: Path) -> None:
         registration = service.register(source_file, media_type="text/markdown")

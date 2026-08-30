@@ -779,6 +779,115 @@ class TestTheInterface:
         assert handed[0].read_bytes().startswith(b"%PDF")
 
 
+DRAWING = b"trayectoria dibujada: una elipse alrededor del equilibrio"
+"""What the derived block's named bytes say, distinctive enough to be asserted on in a rendered pane."""
+
+
+@pytest.fixture
+def derived_brain(tmp_path: Path) -> Path:
+    """A brain whose semantic module holds one v2 block naming bytes as its own datum."""
+    root = tmp_path / "derivado"
+    assert main(["--brain", str(root), "--actor", "t@e.st", "brain", "init"]) == ExitCode.OK
+
+    notes = tmp_path / "pendulo.md"
+    notes.write_text("# Pendulo\n\nEl pendulo simple.\n", encoding="utf-8")
+    figure = tmp_path / "retrato.txt"
+    figure.write_bytes(DRAWING)
+
+    service = service_for(root)
+    source = service.register(notes, media_type="text/markdown")["block_id"]
+    reference = service.put_content(figure, media_type="text/plain")
+    task = service.define_task(source, allowed=["semantic"])
+    service.commit_candidates(
+        {
+            "candidates": [
+                {
+                    "memory_type": "semantic",
+                    "payload": {
+                        "kind": "concept",
+                        "label": "retrato de fases",
+                        "statement": "Orbitas cerradas alrededor del equilibrio estable.",
+                        "content": reference,
+                    },
+                    "evidence": [source],
+                    "locator": "lines:1-3",
+                    "confidence": "0.9",
+                }
+            ]
+        },
+        task,
+    )
+    return root
+
+
+class TestDerivedBlocksThatNameBytes:
+    """A v2 semantic, episodic or procedural block may carry its datum as bytes under ``content``. The interface
+    used to know only the canonical block's flat ``blob``, which made those bytes invisible in the preview and
+    made ``o`` claim the block "names no content" while it was naming some."""
+
+    async def test_the_preview_shows_the_text_and_the_named_bytes_together(self, derived_brain: Path) -> None:
+        """Text first: the statement is what the block claims *about* the bytes and is what a query can reach,
+        so the preview reads in the same order retrieval sees the block in."""
+        app = BrainBrowser(service_for(derived_brain), brain=str(derived_brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            app.kind = "semantic"
+            app.load_rows()
+            await _settle(pilot)
+            shown = _pane(app, "preview")
+            assert "Orbitas" in shown, "the block's own text is not replaced by its bytes"
+            assert "trayectoria" in shown, "the named bytes are drawn, not just described"
+            assert "text/plain" in shown, "the reader can tell what the bytes are before fetching more of them"
+            assert shown.index("Orbitas") < shown.index("trayectoria")
+
+    async def test_o_hands_over_the_bytes_a_derived_block_names(
+        self, derived_brain: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The desktop handler dispatches on suffix, and the derived block has no origin -- so the name comes
+        from its title and the suffix from the content's media type."""
+        from vitruvio.cli.render import desktop
+
+        handed: list[Path] = []
+
+        def record(path: Path) -> str:
+            handed.append(path)
+            return "open"
+
+        monkeypatch.setattr(desktop, "open_path", record)
+
+        app = BrainBrowser(service_for(derived_brain), brain=str(derived_brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            app.kind = "semantic"
+            app.load_rows()
+            await _settle(pilot)
+            await pilot.press("o")
+            await _settle(pilot)
+
+        assert handed, "the block names bytes, so there is something to open"
+        assert handed[0].suffix == ".txt", f"{handed[0].name} carries no suffix a handler can dispatch on"
+        assert handed[0].read_bytes() == DRAWING
+
+    async def test_content_the_store_does_not_hold_reports_under_the_text_rather_than_replacing_it(
+        self, derived_brain: Path
+    ) -> None:
+        """Naming bytes this brain has not received is legitimate -- a selective install -- and the block is
+        still fully readable without them. An error page instead of the statement would hide the readable half."""
+        app = BrainBrowser(service_for(derived_brain), brain=str(derived_brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            app.kind = "semantic"
+            app.load_rows()
+            await _settle(pilot)
+            assert app.selected is not None
+            app.selected["content"]["blob"] = "sha256:" + "0" * 64
+            app.load_detail(app.selected)
+            await _settle(pilot)
+            shown = _pane(app, "preview")
+            assert "Orbitas" in shown
+            assert "trayectoria" not in shown
+
+
 class TestChoosingWhatToLookAt:
     """The picker: projects on the left, their brains on the right, and retargeting without restarting.
 
