@@ -124,8 +124,7 @@ class TestEmbedders:
         from vitruvio.indices.projection import PROJECTION_ID
 
         assert HashingEmbedder().tag.projection == "none"
-        model_tag = an_index().model_tag
-        assert model_tag is not None
+        model_tag = an_index()._tag().render()
         assert PROJECTION_ID.replace("/", "-") in model_tag
 
     def test_fake_vectors_are_bit_identical_across_instances(self) -> None:
@@ -310,8 +309,13 @@ class TestVectorIndex:
         index.build(semantic_blocks, content)
         assert index.population == len(semantic_blocks)
 
-    def test_the_tag_folds_in_the_chunker(self) -> None:
-        assert CHUNKER_ID.replace("/", "-") in (an_index().model_tag or "")
+    def test_an_empty_index_has_no_travelling_model_tag(self) -> None:
+        assert an_index().model_tag is None
+
+    def test_the_tag_folds_in_the_chunker(self, semantic_blocks: list[SemanticBlock], content: MemoryContent) -> None:
+        index = an_index()
+        index.build(semantic_blocks, content)
+        assert CHUNKER_ID.replace("/", "-") in (index.model_tag or "")
 
     def test_a_mask_is_honoured(self, semantic_blocks: list[SemanticBlock], content: MemoryContent) -> None:
         index = an_index()

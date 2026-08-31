@@ -26,7 +26,7 @@ dependencies = [
     # read-modify-write transaction so two terminals cannot discard one another's registrations.
     "filelock>=3.13.0",
     "pydantic>=2.0.0,<3.0.0",
-    "pyboltzmann==0.6.0",
+    "pyboltzmann==0.9.0",
     # Reading TOML is stdlib (tomllib); writing it is not, and `config set`, `brain use` and the
     # model-tag write-back all need to write. Pure Python, no transitive dependencies.
     "tomli-w>=1.0.0",
