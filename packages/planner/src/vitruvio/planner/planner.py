@@ -432,7 +432,9 @@ class CostBasedPlanner:
     def _has_filters(query: Query) -> bool:
         """Whether any filter narrows the query."""
         filters = query.filters
-        return bool(filters.subject or filters.since or filters.until or filters.tags or filters.evidence)
+        return bool(
+            filters.subject or filters.since or filters.until or filters.tags or filters.classes or filters.evidence
+        )
 
     def _predicates(
         self,
@@ -504,6 +506,16 @@ class CostBasedPlanner:
                     operator="intersects",
                     disposition="residual",
                     note="read from the block's own evidence field, not from the provenance ledger, which can diverge",
+                )
+            )
+
+        if filters.classes:
+            explained.append(
+                PredicateExplain(
+                    field="classes",
+                    operator="all",
+                    disposition="residual",
+                    note="resolved from the portable catalog; descendant placements count for every facet",
                 )
             )
 

@@ -31,6 +31,7 @@ def search(
     since: str | None = None,
     until: str | None = None,
     tag: Annotated[list[str] | None, Parameter(name=["--tag"], negative=())] = None,
+    classes: Annotated[list[str] | None, Parameter(name=["--class"], negative=())] = None,
     evidence: Annotated[list[str] | None, Parameter(name=["--evidence"], negative=())] = None,
     include_superseded: bool = False,
     mode: str | None = None,
@@ -60,6 +61,8 @@ def search(
         RFC3339 upper bound.
     tag
         Require these tags. Repeatable.
+    classes
+        Require evidence placed in every case-sensitive `scheme/label` class. Descendants count.
     evidence
         Require citation of these canonical blocks. Repeatable.
     include_superseded
@@ -85,6 +88,7 @@ def search(
             since=since,
             until=until,
             tags=tag,
+            classes=classes,
             evidence=evidence,
             include_superseded=include_superseded,
             mode=mode,
@@ -154,6 +158,7 @@ def explain(
     since: str | None = None,
     until: str | None = None,
     tag: Annotated[list[str] | None, Parameter(name=["--tag"], negative=())] = None,
+    classes: Annotated[list[str] | None, Parameter(name=["--class"], negative=())] = None,
     include_superseded: bool = False,
     mode: str | None = None,
     limit: int = 10,
@@ -180,6 +185,8 @@ def explain(
         RFC3339 upper bound.
     tag
         Require these tags. Repeatable.
+    classes
+        Require evidence placed in every case-sensitive `scheme/label` class.
     include_superseded
         Include superseded blocks.
     mode
@@ -204,6 +211,7 @@ def explain(
             since=since,
             until=until,
             tags=tag,
+            classes=classes,
             include_superseded=include_superseded,
             mode=mode,
             limit=limit,

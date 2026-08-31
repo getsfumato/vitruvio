@@ -42,8 +42,8 @@ HEADER = """# CLI reference
 Generated from the command declarations by `python -m vitruvio.cli.reference`. Do not edit by hand: a reference that
 disagrees with the parser is worse than none, because it costs a turn to discover.
 
-Every command accepts the global options `--brain`, `--config`, `--actor`, `--actor-kind`, `--json`, `--quiet`,
-`--no-color` and `--verbose`. Pass `--json` whenever something other than a person is reading.
+Every command accepts the global options `--brain`, `--config`, `--actor`, `--actor-kind`, `--assisted-by`, `--json`,
+`--quiet`, `--no-color` and `--verbose`. Pass `--json` whenever something other than a person is reading.
 """
 
 

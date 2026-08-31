@@ -594,7 +594,7 @@ class TestWhatAPullReplaces:
         local = consumer.register(mine, media_type="text/markdown", origin="local://mine")
 
         plan = consumer.plan_pull(reference, tag="v1", modules=["semantic"], local=registry_root)
-        result = consumer.pull(reference, tag="v1", modules=["semantic"], local=registry_root)
+        result = consumer.pull(reference, tag="v1", modules=["semantic"], local=registry_root, allow_rollback=True)
 
         assert plan["local_work"]["diverged"] is True
         assert plan["impact"]["certainty"] == "approximate"
@@ -612,7 +612,7 @@ class TestWhatAPullReplaces:
         registry_root, reference = published
         registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
 
-        result = consumer.pull(reference, tag="v1", local=registry_root)
+        result = consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
         assert result["discarded"] > 0
         assert registered["block_id"] in result["discarded_blocks"]
         assert result["impact"]["certainty"] == "exact"
@@ -624,7 +624,7 @@ class TestWhatAPullReplaces:
         module rather than against the report."""
         registry_root, reference = published
         registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
-        consumer.pull(reference, tag="v1", local=registry_root)
+        consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
 
         held = consumer.module("canonical", limit=100)["block_ids"]
         assert registered["block_id"] not in held
@@ -639,7 +639,7 @@ class TestWhatAPullReplaces:
         consumer.register(mine, media_type="text/markdown", origin="local://mine")
         before = str(consumer.state()["snapshot"]["digest"])
 
-        consumer.pull(reference, tag="v1", local=registry_root)
+        consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
         assert before in [entry["digest"] for entry in consumer.history()["snapshots"]]
 
     def test_a_pull_that_changes_nothing_discards_nothing(

@@ -145,6 +145,7 @@ class InstallOps:
         tag: str | None = None,
         modules: Iterable[str] | None = None,
         ignore_vector_indices: bool = False,
+        allow_rollback: bool = False,
         username: str | None = None,
         token: str | None = None,
         anonymous: bool = False,
@@ -158,6 +159,7 @@ class InstallOps:
                 tag=tag,
                 modules=modules,
                 ignore_vector_indices=ignore_vector_indices,
+                allow_rollback=allow_rollback,
                 username=username,
                 token=token,
                 anonymous=anonymous,
@@ -173,6 +175,7 @@ class InstallOps:
         tag: str | None = None,
         modules: Iterable[str] | None = None,
         ignore_vector_indices: bool = False,
+        allow_rollback: bool = False,
         username: str | None = None,
         token: str | None = None,
         anonymous: bool = False,
@@ -213,11 +216,18 @@ class InstallOps:
                         remote.tag,
                         modules=chosen,
                         ignore_vector_indices=True,
+                        allow_rollback=allow_rollback,
                     )
                 )
             else:
                 snapshot = await self.remote._request(
-                    brain.pull(remote.client, remote.effective, remote.tag, modules=chosen)
+                    brain.pull(
+                        remote.client,
+                        remote.effective,
+                        remote.tag,
+                        modules=chosen,
+                        allow_rollback=allow_rollback,
+                    )
                 )
             after = composition_members(brain, brain.snapshot())
             impact = compare_members(before, after, planned=False)

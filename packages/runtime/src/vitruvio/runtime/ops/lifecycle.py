@@ -9,6 +9,7 @@ an embedder.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from vitruvio.kernel import ResolvedConfig, VitruvioError
@@ -33,7 +34,17 @@ class LifecycleOps:
         """The resolved configuration, read through the session that owns it."""
         return self.session.config
 
-    def init(self, *, force: bool = False) -> dict[str, Any]:
+    def init(
+        self,
+        *,
+        force: bool = False,
+        governed: bool = False,
+        trust_root: Mapping[str, Any] | None = None,
+        sign_with: Sequence[str] = (),
+        govern_quorum: int = 1,
+        labels: Mapping[str, str] | None = None,
+        write_config: bool = True,
+    ) -> dict[str, Any]:
         """
         Create a brain, and a ``vitruvio.toml`` beside it.
 
@@ -43,6 +54,12 @@ class LifecycleOps:
         Args:
             force (bool): Overwrite an existing ``vitruvio.toml``. The layout itself is never overwritten --
                 ``Brain`` opening an existing layout is a normal open, not a clobber.
+            governed (bool): Create a genesis carrying a trust root.
+            trust_root (Mapping[str, Any] | None): Explicit trust-root document. Implies ``governed``.
+            sign_with (Sequence[str]): SSH-agent fingerprints that explicitly sign the genesis.
+            govern_quorum (int): Quorum for a trust root synthesized from ``sign_with``.
+            labels (Mapping[str, str] | None): Optional genesis annotations used by migration.
+            write_config (bool): Whether to write the neighbouring project file.
 
         Returns:
             dict[str, Any]: The brain path, the configuration written, and the empty snapshot's digest.
@@ -62,12 +79,59 @@ class LifecycleOps:
                 hint="choose an empty directory, or an existing brain",
             )
 
-        with translated():
-            brain = open_brain(self.config, Capability.INSPECT, create=True)
+        if existed and (governed or trust_root is not None):
+            raise VitruvioError(
+                f"{path} already has a genesis, so governance cannot be asserted retroactively",
+                hint="create a new governed brain and run `vitruvio brain migrate`",
+            )
+
+        if governed or trust_root is not None:
+            from boltzmann.authenticity import AgentSigner, Scope, TrustedKey, TrustRoot
+            from boltzmann.brain import Brain
+
+            from vitruvio.runtime.assembly import _planner, build_indices
+
+            with translated():
+                signers = [AgentSigner(key) for key in sign_with]
+                if trust_root is not None:
+                    root = TrustRoot.model_validate(trust_root)
+                else:
+                    if not signers:
+                        raise VitruvioError(
+                            "a governed genesis needs a trust-root document or at least one --sign-with key",
+                            hint="run `vitruvio auth keys`, then repeat brain init with --sign-with SHA256:...",
+                        )
+                    root = TrustRoot(
+                        revision=1,
+                        govern_quorum=govern_quorum,
+                        keys=tuple(
+                            TrustedKey(
+                                key=signer.public_key,
+                                subject=self.config.actor().id,
+                                scopes=tuple(Scope),
+                                since=1,
+                            )
+                            for signer in signers
+                        ),
+                    )
+                brain = Brain.init(
+                    path,
+                    actor=self.config.actor(),
+                    assisted_by=self.config.collaborators(),
+                    trust_root=root,
+                    signers=signers,
+                    labels=dict(labels or {}),
+                    policy=self.config.policy(),
+                    planner=_planner(self.config, Capability.INSPECT),
+                    indices=build_indices(self.config, Capability.INSPECT),
+                )
+        else:
+            with translated():
+                brain = open_brain(self.config, Capability.INSPECT, create=True)
 
         config_path = (self.config.config_file or path.parent / CONFIG_FILE).resolve()
         wrote_config = False
-        if force or not config_path.exists():
+        if write_config and (force or not config_path.exists()):
             try:
                 relative = path.resolve().relative_to(config_path.parent)
                 declared = f"./{relative}"
@@ -82,11 +146,16 @@ class LifecycleOps:
             update_config(config_path, "policy.profile", self.config.project.policy.profile.value)
             wrote_config = True
 
+        snapshot = brain.snapshot()
+        snapshot_root = snapshot.trust_root
         return {
             "brain": str(path),
             "created": not existed,
             "config_file": str(config_path) if wrote_config else None,
-            "snapshot": wire.snapshot(brain.snapshot()),
+            "snapshot": wire.snapshot(snapshot),
+            "governed": snapshot_root is not None,
+            "trust_root": str(snapshot_root.digest) if snapshot_root is not None else None,
+            "signatures": len(brain.signatures()),
         }
 
     def state(self) -> dict[str, Any]:

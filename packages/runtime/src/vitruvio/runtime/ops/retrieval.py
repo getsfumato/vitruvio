@@ -47,6 +47,7 @@ class RetrievalOps:
         since: str | None,
         until: str | None,
         tags: Iterable[str] | None,
+        classes: Iterable[str] | None,
         evidence: Iterable[str] | None,
         include_superseded: bool,
         mode: str | None,
@@ -62,7 +63,21 @@ class RetrievalOps:
         Returns:
             Query: The query. It names no index, by protocol: which to consult is the planner's decision.
         """
+        from boltzmann.catalog import Catalog
         from boltzmann.query.request import Query, QueryFilters, QueryHints, RetrievalMode
+
+        brain = self.session.brain(Capability.RETRIEVE)
+        catalog = Catalog(brain.modules()) if classes else None
+        class_ids = []
+        for reference in classes or ():
+            scheme, separator, label = reference.partition("/")
+            if not separator or not scheme or not label:
+                raise VitruvioError(
+                    f"catalog class {reference!r} is not a scheme/label reference",
+                    hint="use the exact case-sensitive scheme and label",
+                )
+            assert catalog is not None
+            class_ids.append(catalog.class_id(scheme, label))
 
         with translated():
             return Query(
@@ -73,6 +88,7 @@ class RetrievalOps:
                     since=since,
                     until=until,
                     tags=list(tags) if tags else None,
+                    classes=class_ids or None,
                     evidence=[block_id(item) for item in evidence] if evidence else None,
                     include_superseded=include_superseded,
                 ),
@@ -92,6 +108,7 @@ class RetrievalOps:
         since: str | None = None,
         until: str | None = None,
         tags: Iterable[str] | None = None,
+        classes: Iterable[str] | None = None,
         evidence: Iterable[str] | None = None,
         include_superseded: bool = False,
         mode: str | None = None,
@@ -113,6 +130,7 @@ class RetrievalOps:
             since (str | None): RFC3339 lower bound on ``occurred_at``.
             until (str | None): RFC3339 upper bound.
             tags (Iterable[str] | None): Require these tags.
+            classes (Iterable[str] | None): Require canonical evidence in every ``scheme/label`` class.
             evidence (Iterable[str] | None): Require citation of these canonical blocks.
             include_superseded (bool): Include blocks a newer one has superseded.
             mode (str | None): A retrieval hint. It restricts the plans considered; it does not choose one.
@@ -131,6 +149,7 @@ class RetrievalOps:
             since=since,
             until=until,
             tags=tags,
+            classes=classes,
             evidence=evidence,
             include_superseded=include_superseded,
             mode=mode,
@@ -178,6 +197,7 @@ class RetrievalOps:
         since: str | None = None,
         until: str | None = None,
         tags: Iterable[str] | None = None,
+        classes: Iterable[str] | None = None,
         evidence: Iterable[str] | None = None,
         include_superseded: bool = False,
         mode: str | None = None,
@@ -203,6 +223,7 @@ class RetrievalOps:
             since=since,
             until=until,
             tags=tags,
+            classes=classes,
             evidence=evidence,
             include_superseded=include_superseded,
             mode=mode,
