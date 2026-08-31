@@ -24,3 +24,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0013](0013-decomposing-the-service-layer.md) | Decomposing the service layer, and what stayed on the facade |
 | [0014](0014-reconciliation.md) | Reconciliation, and the four choices vitruvio had to make itself |
 | [0015](0015-compound-retrieval.md) | Compound retrieval across a project's brains, and why it fuses by rank |
+| [0016](0016-pyboltzmann-0.9-integration.md) | Catalog, SSH authenticity, actor identities and one-way legacy migration |

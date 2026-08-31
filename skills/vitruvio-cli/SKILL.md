@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Sixteen groups, ninety-three commands. This skill is the map: which group owns a task, which command inside it, and
+Eighteen groups, one hundred and ten commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -41,6 +41,7 @@ vitruvio query search "..." --json                     # also accepted, but --br
 | `--config FILE` | use this `vitruvio.toml` verbatim, instead of discovering one |
 | `--actor ID` | who to attribute writes to |
 | `--actor-kind` | `human`, `agent`, `service`, `pipeline`. **Set `agent` when a model drives** |
+| `--assisted-by ID` | assisting actor for this invocation; repeatable, recorded as an agent in provenance v2 |
 | `--quiet` / `-q` | suppress notes on stderr |
 | `--no-color` | plain output |
 | `-v`, `-vv` | more detail on stderr |
@@ -84,6 +85,7 @@ better than passing flags every time.
 | `brain verify` | every block against every module root |
 | `brain info` | per-module shape: roots, counts, registered indices |
 | `brain history` | the snapshot chain, newest first |
+| `brain migrate --to PATH` | temporary one-way recreation of a legacy brain. Dry-run first; destination must not exist |
 
 ### `source` — evidence in, by hand or declared
 | command | for |
@@ -125,12 +127,36 @@ better than passing flags every time.
 ### `query` — retrieval
 | command | for |
 |---|---|
-| `query search TEXT` | the bundle. `--memory-type`, `--subject`, `--tag`, `--since`, `--limit`, `--mode` |
-| `query explain TEXT` | the chosen plan, the rejected ones, and why. `--analyze` adds actuals |
+| `query search TEXT` | the bundle. `--memory-type`, `--subject`, `--tag`, `--class`, `--since`, `--limit`, `--mode` |
+| `query explain TEXT` | the chosen plan, the rejected ones, and why. `--class` filters canonicals; `--analyze` adds actuals |
 | `query resolve BLOCK` | one block, in full |
 | `query prove BLOCK` | a Merkle inclusion proof. `--memory-type` |
 
 `vitruvio search TEXT` is a top-level alias for `query search`.
+
+### `catalog` — canonical metadata
+| command | for |
+|---|---|
+| `catalog show` | schemes, classes, hierarchy and effective source membership |
+| `catalog apply FILE` | atomically validate and apply a `vitruvio.catalog/v1` TOML/JSON manifest; dry-run first |
+| `catalog scheme NAME` | declare one scheme; `--exclusive` permits one direct placement per source |
+| `catalog class SCHEME LABEL` | declare a class; repeat `--broader scheme/label` for parents |
+| `catalog place SOURCE --class SCHEME/LABEL` | classify a canonical block; `--class` is repeatable |
+| `catalog browse --class SCHEME/LABEL` | sources in the class or descendants; repeated classes intersect |
+| `catalog path --scheme SCHEME` | a virtual navigation path over an ordered set of schemes |
+
+### `auth` — SSH authenticity and governance
+| command | for |
+|---|---|
+| `auth keys` | Ed25519 public keys currently offered by `ssh-agent` |
+| `auth status` | integrity and authenticity as separate verdicts |
+| `auth sign KEY` | explicitly sign a snapshot through the agent; private keys never enter Vitruvio |
+| `auth pin` | pin the current or out-of-band trust-root digest in consumer state |
+| `auth attribution` | compare provenance actors with subjects vouched by accepted signatures |
+| `auth plan-rotate ROOT` | serialize the exact new-root document a distributed quorum will sign |
+| `auth countersign PLAN KEY` | countersign those exact bytes and write a detached record |
+| `auth rotate` | commit a local or quorum-approved trust-root revision |
+| `auth revoke KEY` | retire a key prospectively or mark it compromised from a snapshot |
 
 ### `compound` — the same question, several brains of one project
 | command | for |
@@ -159,7 +185,7 @@ skill that walks a user through choosing them.
 | `dist pack` | build the artifact locally. **Read the warnings** |
 | `dist push [REF]` | publish. `--tag`, `--all`, `--module`, `--local`, never `--force` |
 | `dist plan-pull [REF]` | what a pull would transfer **and what it would discard**; `--ignore-vector-indices` plans without derived vector layers |
-| `dist pull [REF]` | install. Adopts the published composition; read `discarded`; `--ignore-vector-indices` keeps modules and omits vector layers |
+| `dist pull [REF]` | install. Adopts the published composition; read `discarded`; ancestor heads require explicit `--allow-rollback` |
 | `dist fetch [REF]` | bring another history **without adopting it**, and reconcile it when the plan is clean. The answer to exit 8 |
 | `dist tags [REF]` | what is published |
 
@@ -283,9 +309,9 @@ Do not offer these; they are not implemented, and a plausible-looking command th
 
 - **No `calibrate`.** `query explain --analyze` reports actuals beside estimates and persists nothing. Correcting
   the cost model means editing `[planner]` in `vitruvio.toml` by hand.
-- **No rollback.** `dist pull` adopts the remote composition; the snapshot it replaced stays in `brain history`
-  but nothing restores it. There *is* a merge now — `dist fetch` plus `reconcile` — and it is what to reach for
-  instead of a pull whenever the point is to keep both sides' work.
+- **No history-rewriting rollback command.** `dist pull --allow-rollback` may deliberately adopt a served ancestor;
+  the snapshot it replaces stays in `brain history`, but nothing rewrites or deletes history. Use `dist fetch` plus
+  `reconcile` whenever the point is to keep both sides' work.
 - **No `answer` field**, on any command. The brain returns evidence and the prose is yours.
 
 ## Every command and every flag

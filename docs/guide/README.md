@@ -19,5 +19,8 @@ In order. Each page assumes the ones before it.
 15. [Browsing](15-browsing.md) — reading and querying in the terminal interface, and what its views can show.
 16. [Reconciling](16-reconciling.md) — joining a history somebody else advanced: why the three strategies land the same blocks, and what each one costs in attribution.
 17. [Compound](17-compound.md) — one question across several brains of one project: why the result is grouped by default, what `--fuse` does, and what a block two brains hold means.
+18. [Catalog](18-catalog.md) — portable metadata over canonical evidence: schemes, classes, hierarchy, placements and filtered retrieval.
+19. [Authenticity](19-authenticity.md) — SSH-agent signatures, consumer pins, trust roots, rotation and the difference between integrity and authorship.
+20. [Migrating legacy brains](20-migrating-legacy-brains.md) — the temporary compatibility command, dry runs, backups, identity preservation and the boundaries of a one-way migration.
 
 For the reasoning behind the design, read the [ADRs](../adr/README.md).

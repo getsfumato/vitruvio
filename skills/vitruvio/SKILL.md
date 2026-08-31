@@ -75,6 +75,15 @@ actually returned.
 5. **Never invent a `block_id`.** Not in a citation, not in an `evidence` list, not to fill a gap. If you need
    one and do not have it, search for it or say you cannot cite.
 
+6. **Use canonical actor identities for writes.** They are lowercase addresses (`alex@example.org`) or namespaced
+   names (`openai/codex`), and are refused rather than normalized because they enter block identities. When another
+   model or service assisted the configured actor, pass `--assisted-by` explicitly; assistance is provenance, not
+   authorship inferred after the fact.
+
+7. **Keep integrity and authenticity separate.** `brain verify` checks hashes and roots. `auth status` additionally
+   evaluates SSH signatures, trust-root authority and the consumer's pin. Intact unsigned data is not corrupt, and it
+   is not authenticated either.
+
 ## The five memory modules
 
 | module | holds | may be dropped? |
@@ -120,6 +129,8 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 - `vitruvio-dist` — publishing a brain and installing one.
 - `vitruvio-reconcile` — joining a history somebody else advanced, when a push comes back diverged.
 - `vitruvio-sync` — local and remote disagree: which of behind, ahead or diverged it is, and the safe way back for each.
+- The catalog, authenticity and legacy-migration operator guides live in the repository documentation; consult the
+  generated CLI reference for their complete flags.
 
 ## References
 

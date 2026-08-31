@@ -62,6 +62,9 @@ classDiagram
     BrainService ..> BenchmarkOps
     BrainService ..> EmbedderOps
     BrainService ..> RetrievalOps
+    BrainService ..> CatalogOps
+    BrainService ..> AuthenticityOps
+    BrainService ..> MigrationOps
     SourceOps o-- FetchOps : one item at a time
     PublishOps o-- RemoteOps : shared endpoint
     InstallOps o-- RemoteOps
@@ -95,6 +98,9 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/embedders.py` | embedders, test_embedder | — |
 | `ops/retrieval.py` | search, explain | RETRIEVE |
 | `ops/compound.py` | compound_search, compound_explain | RETRIEVE, once per member brain |
+| `ops/catalog.py` | catalog_show, catalog_apply, catalog_browse, catalog_path | INSPECT, WRITE |
+| `ops/authenticity.py` | keys, status, sign, pin, attribution, rotation, revocation | INSPECT, WRITE for governance changes |
+| `ops/migration.py` | plan_migration, migrate | INSPECT source; creates a new destination |
 
 `ops/*.py` are the operations, which open brains. `runtime/*.py` beside them — `wire`, `mapping`, `assembly`,
 `browse`, `registry`, `distribution`, `indexset`, `vouch`, `query_diagnostics`, `cross_brain` — are stateless helpers,

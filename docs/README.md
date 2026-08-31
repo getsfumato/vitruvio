@@ -4,6 +4,7 @@
 - [Decisions](adr/README.md) — why it is like this. One ADR per decision, numbered, never renumbered.
 - [Architecture](architecture.md) — the workspace, the layering, and the two contracts that carry weight.
 - [Contributing](contributing.md) — the dev loop, and the gate every change passes.
+- [Migrating legacy brains](guide/20-migrating-legacy-brains.md) — the operational runbook for recreating a pre-0.9 brain safely.
 
 For how an *agent* drives vitruvio, see [`skills/`](../skills/README.md) — those are installable contracts rather
 than prose, and they ship inside the wheel.

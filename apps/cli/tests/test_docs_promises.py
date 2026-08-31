@@ -151,7 +151,7 @@ def test_the_cli_skill_covers_every_group() -> None:
 
 
 def test_the_counts_in_the_skill_are_the_real_ones() -> None:
-    """The skill opens with "sixteen groups, ninety-three commands". Pinned so that adding a command forces the prose to
+    """The skill states the exact group and command counts. Pinned so that adding a command forces the prose to
     be updated rather than quietly becoming wrong -- the same bargain `reference --check` makes.
 
     `browse` is a top-level command rather than a group, which is why adding it and its three reading commands moved
@@ -165,8 +165,8 @@ def test_the_counts_in_the_skill_are_the_real_ones() -> None:
     leaves = [command for command in commands if not any(other.startswith(f"{command} ") for other in commands)]
     groups = {command.split()[0] for command in commands if " " in command}
 
-    words = {16: "Sixteen", 93: "ninety-three"}
-    assert words[16] in text or str(len(groups)) in text, f"there are {len(groups)} groups"
-    assert words[93] in text, f"the skill does not state the command count; there are {len(leaves)}"
-    assert len(groups) == 16, f"the skill says sixteen groups; there are now {len(groups)}"
-    assert len(leaves) == 93, f"the skill says ninety-three commands; there are now {len(leaves)}"
+    words = {18: "Eighteen", 110: "one hundred and ten"}
+    assert words[18] in text or str(len(groups)) in text, f"there are {len(groups)} groups"
+    assert words[110] in text, f"the skill does not state the command count; there are {len(leaves)}"
+    assert len(groups) == 18, f"the skill says eighteen groups; there are now {len(groups)}"
+    assert len(leaves) == 110, f"the skill says one hundred and ten commands; there are now {len(leaves)}"
