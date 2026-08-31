@@ -129,7 +129,7 @@ def generate(
     from boltzmann.brain import Brain
 
     rng = random.Random(seed)
-    actor = Actor(id="bench@vitruvio", kind=ActorKind.SERVICE, name="corpus generator")
+    actor = Actor(id="vitruvio/bench", kind=ActorKind.SERVICE, name="corpus generator")
     brain = Brain.open(path, actor, policy=PERMISSIVE_POLICY)
 
     source = brain.register(

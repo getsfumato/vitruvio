@@ -109,6 +109,7 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
     return Brain(
         OciLayoutStore(path, create=create),
         actor=actor,
+        assisted_by=config.collaborators(),
         policy=config.policy(),
         planner=_planner(config, capability),
         indices=build_indices(config, capability),
@@ -126,11 +127,12 @@ def _reader_actor(config: ResolvedConfig) -> Actor:
         Actor: The configured actor, or a ``reader`` placeholder whose kind says what it is.
     """
     from boltzmann.blocks.provenance import Actor, ActorKind
+    from boltzmann.identity.principal import is_actor_id
 
     spec = config.project.actor
-    if spec.id:
+    if spec.id and is_actor_id(spec.id):
         return Actor(id=spec.id, kind=spec.kind, name=spec.name)
-    return Actor(id="vitruvio:reader", kind=ActorKind.SERVICE, name="read-only session")
+    return Actor(id="vitruvio/reader", kind=ActorKind.SERVICE, name="read-only session")
 
 
 def _planner(config: ResolvedConfig, capability: Capability) -> QueryPlanner | None:

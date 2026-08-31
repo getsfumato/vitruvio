@@ -39,6 +39,26 @@ def write_config(root: Path, body: str) -> Path:
 
 
 class TestConfigDiscovery:
+    def test_assisting_parties_resolve_from_json_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        brain = make_brain(tmp_path)
+        monkeypatch.setenv(
+            "VITRUVIO_ASSISTED_BY",
+            '[{"id":"anthropic/claude-code","kind":"agent","model":"openai/gpt-5"}]',
+        )
+        resolved = resolve(brain=brain)
+        assert resolved.collaborators()[0].model == "openai/gpt-5"
+
+    def test_assisting_party_flags_override_the_file(self, tmp_path: Path) -> None:
+        brain = make_brain(tmp_path)
+        config = write_config(
+            tmp_path,
+            f'brain.path = "{brain}"\n[[assisted_by]]\nid = "old/assistant"\nkind = "agent"\n',
+        )
+        resolved = resolve(config=config, assisted_by=["new/assistant"])
+        assert [item.id for item in resolved.collaborators()] == ["new/assistant"]
+
     def test_walks_up_to_the_nearest_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         write_config(tmp_path, "")
         deep = tmp_path / "a" / "b" / "c"

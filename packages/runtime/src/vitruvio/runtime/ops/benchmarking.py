@@ -75,7 +75,7 @@ class BenchmarkOps:
             # switching to Ollama and re-running is how you find out whether it helped.
             from vitruvio.kernel import resolve as resolve_config
 
-            config = resolve_config(brain=root, config=self.config.config_file, actor_id="bench@vitruvio")
+            config = resolve_config(brain=root, config=self.config.config_file, actor_id="vitruvio/bench")
             corpus_session = BrainSession(config)
 
             index_report = IndexOps(corpus_session).index_build()

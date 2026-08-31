@@ -44,6 +44,7 @@ of an actor that was configured all along. The working directory still wins when
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import tomllib
@@ -55,7 +56,7 @@ import tomli_w
 from boltzmann.blocks.provenance import ActorKind
 from pydantic import ValidationError
 
-from vitruvio.kernel.config import ActorSpec, Origin, ProjectConfig, ResolvedConfig
+from vitruvio.kernel.config import ActorSpec, CollaboratorSpec, Origin, ProjectConfig, ResolvedConfig
 from vitruvio.kernel.errors import BrainNotSelectedError, ConfigError, ProjectNotKnownError
 from vitruvio.kernel.paths import CONFIG_FILE, is_layout, state_file
 
@@ -64,6 +65,7 @@ ENV_CONFIG = "VITRUVIO_CONFIG"
 ENV_PROJECT = "VITRUVIO_PROJECT"
 ENV_ACTOR_ID = "VITRUVIO_ACTOR_ID"
 ENV_ACTOR_KIND = "VITRUVIO_ACTOR_KIND"
+ENV_ASSISTED_BY = "VITRUVIO_ASSISTED_BY"
 
 PROJECTS_KEY = "projects"
 """The state-file table mapping a project's name to its configuration file.
@@ -669,6 +671,34 @@ def _actor_from_layers(
     return spec, origin
 
 
+def _collaborators_from_layers(project: ProjectConfig, assisted_by: list[str] | None) -> list[CollaboratorSpec]:
+    """Resolve assisting parties from flags, environment, then the project file.
+
+    The environment accepts a JSON array of collaborator objects (or actor-id strings).
+    Repeating ``--assisted-by`` is intentionally the concise form: each named party is an
+    agent unless the committed configuration supplies richer metadata.
+    """
+    selected = list(project.assisted_by)
+    encoded = os.environ.get(ENV_ASSISTED_BY, "").strip()
+    if encoded:
+        try:
+            values = json.loads(encoded)
+        except ValueError as error:
+            raise ConfigError(f"{ENV_ASSISTED_BY} must be a JSON array of actor ids or collaborator objects") from error
+        if not isinstance(values, list):
+            raise ConfigError(f"{ENV_ASSISTED_BY} must be a JSON array of actor ids or collaborator objects")
+        try:
+            selected = [
+                CollaboratorSpec(id=value) if isinstance(value, str) else CollaboratorSpec.model_validate(value)
+                for value in values
+            ]
+        except (TypeError, ValueError) as error:
+            raise ConfigError(f"{ENV_ASSISTED_BY} must be a JSON array of actor ids or collaborator objects") from error
+    if assisted_by is not None:
+        selected = [CollaboratorSpec(id=value) for value in assisted_by]
+    return selected
+
+
 def select_config_file(
     *,
     project: str | None = None,
@@ -725,6 +755,7 @@ def resolve(
     project: str | None = None,
     actor_id: str | None = None,
     actor_kind: str | ActorKind | None = None,
+    assisted_by: list[str] | None = None,
     start: Path | None = None,
     require_layout: bool = True,
     require_brain: bool = True,
@@ -782,6 +813,7 @@ def resolve(
         selected, origin, brain_name = Path.cwd(), Origin.DEFAULT, None
         require_layout = False
     actor, actor_origin = _actor_from_layers(document, actor_id, actor_kind)
+    collaborators = _collaborators_from_layers(document, assisted_by)
 
     if require_layout and not is_layout(selected):
         detail = "does not exist" if not selected.exists() else "is not an OCI layout"
@@ -794,7 +826,7 @@ def resolve(
         brain=selected,
         brain_origin=origin,
         brain_name=brain_name,
-        project=document.model_copy(update={"actor": actor}),
+        project=document.model_copy(update={"actor": actor, "assisted_by": collaborators}),
         project_origin=project_origin,
         actor_origin=actor_origin,
         config_file=config_path,
