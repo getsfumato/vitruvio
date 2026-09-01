@@ -8,14 +8,17 @@ import torch.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Annotated, Any
 
-from cyclopts import App
+from cyclopts import App, Parameter
 from rich.console import RenderableType
 from rich.text import Text
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
+from vitruvio.cli.documents import load_document
 from vitruvio.kernel import (
     BrainNotFoundError,
     ConfigError,
@@ -27,6 +30,13 @@ from vitruvio.kernel import (
 )
 
 app = App(name="brain", help="Select a brain and inspect its state.", result_action="return_value", exit_on_error=False)
+
+
+def _auth_document(path: Path | None) -> dict[str, Any] | None:
+    """Read a TOML or JSON trust-root document for init and migration."""
+    if path is None:
+        return None
+    return load_document(path, label="trust-root document", error_type=ConfigError)
 
 
 @app.command(name="use")
@@ -167,6 +177,10 @@ def init(
     *,
     policy: str | None = None,
     force: bool = False,
+    governed: bool = False,
+    trust_root: Path | None = None,
+    sign_with: Annotated[list[str] | None, Parameter(name=["--sign-with"], negative=())] = None,
+    govern_quorum: int = 1,
 ) -> ExitCode:
     """Create a brain, and a vitruvio.toml beside it.
 
@@ -185,6 +199,14 @@ def init(
         A retention profile: conservative (the default), permissive, or archival.
     force
         Rewrite an existing vitruvio.toml.
+    governed
+        Create a governed genesis. Requires --trust-root or at least one --sign-with key.
+    trust_root
+        TOML or JSON trust-root document. Implies --governed.
+    sign_with
+        SSH-agent fingerprint that signs the genesis. Repeatable; signing is never automatic.
+    govern_quorum
+        Quorum when the trust root is synthesized from --sign-with keys.
     """
     from vitruvio.kernel import PolicyProfile, resolve
 
@@ -194,8 +216,10 @@ def init(
     config = resolve(
         brain=path or context.brain,
         config=context.config,
+        project=context.project,
         actor_id=context.actor_id,
         actor_kind=context.actor_kind,
+        assisted_by=context.assisted_by,
         require_layout=False,
     )
     if policy:
@@ -214,7 +238,14 @@ def init(
 
     from vitruvio.runtime import BrainService
 
-    result = BrainService(config).init(force=force)
+    root = _auth_document(trust_root)
+    result = BrainService(config).init(
+        force=force,
+        governed=governed,
+        trust_root=root,
+        sign_with=sign_with or (),
+        govern_quorum=govern_quorum,
+    )
     # Scoped when the brain belongs to a named project, machine-wide when it belongs to none. A fresh brain in a
     # project must not become every *other* project's answer to "which brain", which is what an unscoped write did.
     from vitruvio.kernel import selection_key
@@ -250,6 +281,86 @@ def init(
             "Pass --actor, or set [actor] id in vitruvio.toml"
         )
     return console.emit("brain.init", result, view=render.fields(head))
+
+
+@app.command(name="migrate")
+def migrate(
+    *,
+    to: Path,
+    governed: bool = True,
+    trust_root: Path | None = None,
+    sign_with: Annotated[list[str] | None, Parameter(name=["--sign-with"], negative=())] = None,
+    govern_quorum: int = 1,
+    allow_partial: bool = False,
+    dry_run: bool = False,
+    report: Path | None = None,
+    force_report: bool = False,
+) -> ExitCode:
+    """Recreate a legacy brain's current accessible state under the current protocol.
+
+    This temporary compatibility command never migrates in place and never changes the source.
+    Snapshot history and old provenance identities cannot carry across: the destination records a
+    new genesis and new provenance while preserving knowledge block identities where reproducible.
+
+    Parameters
+    ----------
+    to
+        New destination path. It must not exist.
+    governed
+        Create a governed destination (the default). Use --no-governed only deliberately.
+    trust_root
+        Explicit TOML or JSON trust root for the new genesis.
+    sign_with
+        SSH-agent key that signs both genesis and final migrated snapshot. Repeatable.
+    govern_quorum
+        Quorum when synthesizing the trust root from --sign-with keys.
+    allow_partial
+        Skip non-reproducible blocks and record each omission in the report.
+    dry_run
+        Inspect and report without creating the destination.
+    report
+        Optional JSON report file in addition to normal command output.
+    force_report
+        Replace an existing report file; never affects either brain.
+    """
+    console = current().console
+    console.warn("brain migrate is a temporary compatibility command; keep the source brain as the immutable archive")
+    if report is not None and report.exists():
+        if report.is_dir():
+            raise ConfigError(f"migration report {report} is a directory", hint="choose a JSON report file path")
+        if not force_report:
+            raise ConfigError(f"migration report {report} already exists", hint="pass --force-report to replace it")
+    result = (
+        current()
+        .service()
+        .migrate(
+            to,
+            governed=governed,
+            trust_root=_auth_document(trust_root),
+            sign_with=sign_with or (),
+            govern_quorum=govern_quorum,
+            allow_partial=allow_partial,
+            dry_run=dry_run,
+        )
+    )
+    if report is not None:
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
+    return console.emit(
+        "brain.migrate",
+        result,
+        view=render.fields(
+            [
+                ("source", result["source"]),
+                ("destination", result["destination"]),
+                ("verified", render.verdict(result["verified"], no="FAILED")),
+                ("completed", render.verdict(result["completed"])),
+                ("preserved ids", result.get("preserved_id_count", "dry run")),
+                ("skipped", len(result.get("skipped", result.get("problems", [])))),
+                ("report", str(report) if report else "stdout"),
+            ]
+        ),
+    )
 
 
 @app.command(name="state")

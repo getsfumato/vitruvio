@@ -391,7 +391,7 @@ def _residual_for(query: Query, scope: str, capabilities: Capabilities) -> dict[
     is why the pushdown rules are worth having.
     """
     filters = query.filters
-    needs_decode = bool(filters.evidence)
+    needs_decode = bool(filters.evidence or filters.classes)
     if filters.subject and not capabilities.has(scope, IndexKind.BITMAP):
         needs_decode = True
     if (filters.since or filters.until) and not capabilities.has(scope, IndexKind.BTREE):

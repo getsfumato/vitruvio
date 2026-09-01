@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.catalog import Catalog, evidence_sources
 from boltzmann.identity.digest import BlockId
 from boltzmann.indices.base import IndexKind
 from boltzmann.module.module import Module
@@ -60,6 +61,7 @@ class Executor:
     capabilities: Capabilities
     analyze: bool = False
     degradations: list[Degradation] = field(default_factory=list)
+    _eligible_catalog_sources: frozenset[BlockId] | None = field(default=None, init=False, repr=False)
 
     def run(self, plan: Plan) -> tuple[EvidenceBundle, Metrics, float, list[Degradation]]:
         """
@@ -74,6 +76,7 @@ class Executor:
         """
         metrics = Metrics.over(plan)
         ledger, prelude = self.planner.ledger_for(self.modules)
+        self._eligible_catalog_sources = self._catalog_sources()
 
         candidates: dict[str, fusion.Candidate] = {}
         exhausted = True
@@ -208,9 +211,9 @@ class Executor:
         if self.query.filters.tags:
             clauses.append(FacetClause(Facet.TAG, tuple(self.query.filters.tags), combine=Combine.ALL))
         if clauses and isinstance(index, BitmapIndex):
-            matching = index.matching(FacetQuery(clauses=tuple(clauses)))
-            if matching is not None:
-                selected = set(matching)
+            bitmap_matching = index.matching(FacetQuery(clauses=tuple(clauses)))
+            if bitmap_matching is not None:
+                selected = set(bitmap_matching)
 
         filters = self.query.filters
         ordered = self._index(module, IndexKind.BTREE) if self.capabilities.has(scope, IndexKind.BTREE) else None
@@ -223,6 +226,13 @@ class Executor:
                 )
             }
             selected = ranged if selected is None else selected & ranged
+        if filters.classes:
+            catalog_matching = {
+                str(identity)
+                for identity in module.block_ids
+                if module.store.is_resolvable(identity) and self._matches_catalog(identity, module.get(identity))
+            }
+            selected = catalog_matching if selected is None else selected & catalog_matching
         return None if selected is None else tuple(sorted(selected))
 
     def _filter_federated_hits(
@@ -516,7 +526,9 @@ class Executor:
             content: dict[str, Any] = {}
             sources: list[SourceRef] = []
             filters = self.query.filters
-            if not resolvable and any((filters.subject, filters.tags, filters.since, filters.until, filters.evidence)):
+            if not resolvable and any(
+                (filters.subject, filters.tags, filters.since, filters.until, filters.classes, filters.evidence)
+            ):
                 return None
             if resolvable:
                 try:
@@ -527,7 +539,7 @@ class Executor:
                     )
                     return None
                 content = block.payload()
-                if not self._matches_filters(content):
+                if not self._matches_filters(content) or not self._matches_catalog(identity, block):
                     return None
                 sources = [
                     SourceRef(block_id=BlockId.parse(cited), locator=ledger.locators.get(identity))
@@ -576,7 +588,8 @@ class Executor:
             if identity not in module.composition.block_ids or not module.store.is_resolvable(identity):
                 continue
             try:
-                return self._matches_filters(module.get(identity).payload())
+                block = module.get(identity)
+                return self._matches_filters(block.payload()) and self._matches_catalog(identity, block)
             except Exception:
                 return False
         return False
@@ -584,7 +597,24 @@ class Executor:
     def _has_block_filters(self) -> bool:
         """Whether candidate payloads need predicate checks before the result limit."""
         filters = self.query.filters
-        return bool(filters.subject or filters.tags or filters.since or filters.until or filters.evidence)
+        return bool(
+            filters.subject or filters.tags or filters.since or filters.until or filters.classes or filters.evidence
+        )
+
+    def _catalog_sources(self) -> frozenset[BlockId] | None:
+        """Compute the AND intersection of requested catalog facets once per query."""
+        classes = self.query.filters.classes
+        if not classes:
+            return None
+        catalog = Catalog(self.modules)
+        sets = [catalog.sources_for(class_id) for class_id in classes]
+        return frozenset(set.intersection(*sets) if sets else set())
+
+    def _matches_catalog(self, block_id: BlockId, block: Any) -> bool:
+        """Apply catalog semantics to a candidate's canonical evidence."""
+        if not self.query.filters.classes:
+            return True
+        return bool(evidence_sources(block_id, block) & (self._eligible_catalog_sources or frozenset()))
 
     @staticmethod
     def _admissible_unresolvable(candidate: fusion.Candidate) -> bool:

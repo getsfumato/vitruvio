@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from boltzmann.blocks.memory_type import MemoryType
+from boltzmann.blocks.provenance import ActorKind
 from boltzmann.indices.base import IndexKind
 from boltzmann.retention.policy import RemovalMechanism
 from pydantic import ValidationError
 
 from vitruvio.kernel import (
     DEFAULT_TEXT_EMBEDDER,
+    ActorSpec,
+    CollaboratorSpec,
     EmbedderSpec,
     IndexSpec,
     PolicyProfile,
@@ -90,6 +95,27 @@ class TestIndexDefaults:
 
 
 class TestSchema:
+    def test_actor_ids_are_tolerant_on_read_and_strict_on_write(self, tmp_path: Path) -> None:
+        project = ProjectConfig(actor=ActorSpec(id="Legacy Actor"))
+        from vitruvio.kernel import Origin, ResolvedConfig
+
+        resolved = ResolvedConfig(
+            brain=tmp_path,
+            brain_origin=Origin.FLAG,
+            project=project,
+        )
+        with pytest.raises(Exception, match="not usable"):
+            resolved.actor()
+
+    def test_collaborators_use_the_provenance_v2_shape(self) -> None:
+        collaborator = CollaboratorSpec(
+            id="anthropic/claude-code",
+            kind=ActorKind.AGENT,
+            model="openai/gpt-5",
+        ).build()
+        assert collaborator.id == "anthropic/claude-code"
+        assert collaborator.model == "openai/gpt-5"
+
     def test_a_bare_config_needs_no_extras_to_embed(self) -> None:
         """A default install must still be able to build a vector index, tagged so nobody is fooled."""
         assert ProjectConfig().text_embedder == DEFAULT_TEXT_EMBEDDER

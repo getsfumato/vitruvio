@@ -31,6 +31,18 @@ EXPECTED = {
     "vitruvio-compound",
 }
 
+CREATION_SKILLS = (
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-cli" / "SKILL.md",
+)
+
+PULL_SKILLS = (
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-cli" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-dist" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-sync" / "SKILL.md",
+)
+
 
 def envelope(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[str, Any]]:
     """Invoke the CLI in JSON mode and parse the single object it printed."""
@@ -67,6 +79,40 @@ class TestSkillsArePresent:
             for document in [skill / "SKILL.md", *(skill / "references").glob("*.md")]:
                 text = document.read_text(encoding="utf-8")
                 assert '"answer"' not in text, document
+
+    @pytest.mark.parametrize("skill", CREATION_SKILLS)
+    def test_brain_creation_requires_an_explicit_governance_choice(self, skill: Path) -> None:
+        """Neither init's nor migration's opposite default may silently choose the new brain's trust posture."""
+        text = skill.read_text(encoding="utf-8")
+        normalized = " ".join(text.split())
+        assert "governed" in normalized
+        assert "ungoverned" in normalized
+        assert "Offer exactly those two" in normalized
+        assert "do not recommend or select a default" in normalized
+        assert "do not create anything until the user answers" in normalized
+        assert "personal, shared, public" in normalized
+        assert "defaults to ungoverned" in normalized
+        assert "migration defaults to governed" in normalized
+        assert "public key" in normalized
+        assert "private key" in normalized
+        assert "quorum" in normalized
+        for scope in ("ingest", "commit", "drop:canonical", "redact", "govern", "propose"):
+            assert f"`{scope}`" in normalized
+
+    @pytest.mark.parametrize("skill", PULL_SKILLS)
+    def test_governed_pull_runs_the_authorship_audit(self, skill: Path) -> None:
+        """An authorized pull can still introduce an unvouched actor, so the report must never end at signatures."""
+        normalized = " ".join(skill.read_text(encoding="utf-8").split()).lower()
+        assert "every successful `dist pull`" in normalized
+        assert "`data.trust_root`" in normalized
+        assert "`auth attribution`" in normalized
+        assert "possible authorship breach" in normalized
+        assert "`authorized`" in normalized
+        assert "`complete" in normalized
+        assert "`fully_vouched" in normalized
+        for field in ("asserted", "legacy", "evidence_gaps", "detail"):
+            assert f"`{field}`" in normalized
+        assert "not proof of corruption" in normalized or "do not call the brain corrupt" in normalized
 
 
 class TestInstall:
@@ -127,6 +173,19 @@ class TestReference:
         assert "vitruvio retain plan-drop" in document
         assert "--error-formatter" not in document
         assert "--console" not in document
+
+    def test_parameter_name_overrides_match_the_actual_parser(self) -> None:
+        document = reference.render()
+        assert "`--class`" in document
+        assert "`--classes`" not in document
+        assert "`--scheme`" in document
+        assert "`--schemes`" not in document
+
+    def test_true_boolean_defaults_document_the_effective_negative_flag(self) -> None:
+        document = reference.render()
+        migrate = next(line for line in document.splitlines() if "`vitruvio brain migrate`" in line)
+        assert "`--no-governed`" in migrate
+        assert "`--governed`" not in migrate
 
 
 class TestCompletion:

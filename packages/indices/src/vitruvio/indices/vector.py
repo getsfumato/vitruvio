@@ -182,8 +182,15 @@ class VectorIndex(VitruvioIndex):
 
     @property
     def model_tag(self) -> str | None:
-        """The tag every vector here was produced under, including the chunker."""
-        return self._tag().render()
+        """The tag every vector here was produced under, including the chunker.
+
+        An empty index has no travelling representation.  pyboltzmann 0.9 asks for the
+        binding while composing each module reference, before Vitruvio's publication
+        guard gets a chance to omit empty sidecars.  Returning ``None`` is the protocol
+        signal for "there is no layer" and prevents an empty index from being vouched or
+        serialized.
+        """
+        return self._tag().render() if self._rows else None
 
     def _tag(self) -> ModelTag:
         """The embedder's tag, with this index's dtype, projection and chunker folded in.

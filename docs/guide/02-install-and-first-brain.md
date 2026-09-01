@@ -81,6 +81,23 @@ of the provenance module is that it does not.
 
 Reads never need one: inspecting someone else's brain is legitimate and attributes nothing.
 
+New writes accept exactly two stable actor-id forms: a lowercase address (`alex@example.org`) or a lowercase
+namespaced name (`openai/codex`). Vitruvio refuses uppercase, whitespace and free-form display names rather than
+normalizing them, because the bytes enter provenance block identities. `name` remains the display label.
+
+When another agent helped the primary actor, record it instead of replacing the author:
+
+```toml
+[[assisted_by]]
+id = "openai/codex"
+kind = "agent"
+name = "Codex"
+model = "openai/gpt-5"
+```
+
+The committed list can be overridden with repeatable global `--assisted-by` flags, or with a JSON array in
+`VITRUVIO_ASSISTED_BY`. Assistance is written into provenance v2 on every new operation.
+
 ## Next
 
 [3. Registering evidence](03-registering-evidence.md)

@@ -11,12 +11,14 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from boltzmann.authenticity import AuthorshipState, SnapshotStance
 from boltzmann.brain import Brain
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
+from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.ops.remote import RemoteOps, require_vector_index_ignore
 from vitruvio.runtime.pull_impact import (
     CompositionMembers,
@@ -145,6 +147,7 @@ class InstallOps:
         tag: str | None = None,
         modules: Iterable[str] | None = None,
         ignore_vector_indices: bool = False,
+        allow_rollback: bool = False,
         username: str | None = None,
         token: str | None = None,
         anonymous: bool = False,
@@ -158,6 +161,7 @@ class InstallOps:
                 tag=tag,
                 modules=modules,
                 ignore_vector_indices=ignore_vector_indices,
+                allow_rollback=allow_rollback,
                 username=username,
                 token=token,
                 anonymous=anonymous,
@@ -173,6 +177,7 @@ class InstallOps:
         tag: str | None = None,
         modules: Iterable[str] | None = None,
         ignore_vector_indices: bool = False,
+        allow_rollback: bool = False,
         username: str | None = None,
         token: str | None = None,
         anonymous: bool = False,
@@ -199,6 +204,18 @@ class InstallOps:
         with self.session.write() as brain:
             before = composition_members(brain, brain.snapshot())
             ignored: list[str] = []
+            policy = self.config.project.authenticity.build()
+            fetched = await self.remote._request(
+                brain.fetch(remote.client, remote.effective, remote.tag, modules=chosen)
+            )
+            with translated():
+                authenticity = brain.authenticate(
+                    fetched.digest,
+                    policy=policy,
+                    stance=SnapshotStance.HEAD,
+                )
+                if authenticity.state is AuthorshipState.UNAUTHORIZED:
+                    authenticity.require_authorized()
             if ignore_vector_indices:
                 require_vector_index_ignore(brain.pull)
                 manifest = await self.remote._request(remote.client.resolve(remote.effective, remote.tag))
@@ -213,11 +230,20 @@ class InstallOps:
                         remote.tag,
                         modules=chosen,
                         ignore_vector_indices=True,
+                        allow_rollback=allow_rollback,
+                        verification=policy,
                     )
                 )
             else:
                 snapshot = await self.remote._request(
-                    brain.pull(remote.client, remote.effective, remote.tag, modules=chosen)
+                    brain.pull(
+                        remote.client,
+                        remote.effective,
+                        remote.tag,
+                        modules=chosen,
+                        allow_rollback=allow_rollback,
+                        verification=policy,
+                    )
                 )
             after = composition_members(brain, brain.snapshot())
             impact = compare_members(before, after, planned=False)
@@ -243,6 +269,7 @@ class InstallOps:
             "discarded_blocks": list(impact.block_ids[:20]),
             "impact": impact.as_dict(),
             "ignored_vector_indices": ignored,
+            "authenticity": authenticity.state.value,
             "warnings": remote.warnings,
         }
 

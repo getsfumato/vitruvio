@@ -74,6 +74,13 @@ def launcher(
         str | None,
         Parameter(name=["--actor-kind"], help="human, agent, service or pipeline. Set agent when a model drives."),
     ] = None,
+    assisted_by: Annotated[
+        list[str] | None,
+        Parameter(
+            name=["--assisted-by"],
+            help="Actor id that assisted this invocation. Repeat for several; each flag denotes an agent.",
+        ),
+    ] = None,
     json: Annotated[
         bool, Parameter(name=["--json"], help="Emit one JSON envelope on stdout. Implies --quiet.")
     ] = False,
@@ -89,6 +96,7 @@ def launcher(
             config=config,
             actor_id=actor,
             actor_kind=actor_kind,
+            assisted_by=assisted_by,
             console=Console(json_mode=json, quiet=quiet, color=not no_color),
             verbosity=verbose,
         )

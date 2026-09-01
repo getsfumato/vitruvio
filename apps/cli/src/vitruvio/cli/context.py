@@ -35,6 +35,7 @@ class Context:
         config (Path | None): ``--config``.
         actor_id (str | None): ``--actor``.
         actor_kind (str | None): ``--actor-kind``, coerced by the kernel.
+        assisted_by (list[str] | None): Repeated assisting actor identifiers.
         console (Console): Where to write, already carrying the ``--json`` decision.
         verbosity (int): How many times ``-v`` was given.
     """
@@ -44,6 +45,7 @@ class Context:
     config: Path | None = None
     actor_id: str | None = None
     actor_kind: str | None = None
+    assisted_by: list[str] | None = None
     console: Console = field(default_factory=Console)
     verbosity: int = 0
 
@@ -87,6 +89,7 @@ class Context:
             project=self.project,
             actor_id=self.actor_id,
             actor_kind=self.actor_kind,
+            assisted_by=self.assisted_by,
             require_layout=require_layout,
             require_brain=require_brain,
         )

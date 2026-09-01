@@ -75,6 +75,78 @@ actually returned.
 5. **Never invent a `block_id`.** Not in a citation, not in an `evidence` list, not to fill a gap. If you need
    one and do not have it, search for it or say you cannot cite.
 
+6. **Use canonical actor identities for writes.** They are lowercase addresses (`alex@example.org`) or namespaced
+   names (`openai/codex`), and are refused rather than normalized because they enter block identities. When another
+   model or service assisted the configured actor, pass `--assisted-by` explicitly; assistance is provenance, not
+   authorship inferred after the fact.
+
+7. **Keep integrity and authenticity separate.** `brain verify` checks hashes and roots. `auth status` additionally
+   evaluates SSH signatures, trust-root authority and the consumer's pin. Intact unsigned data is not corrupt, and it
+   is not authenticated either.
+
+## Choose governance before creating a brain
+
+Treat both `brain init` and the destination of `brain migrate` as an irreversible trust choice. Governance belongs
+in genesis and cannot be added to that same brain later. If the user has not chosen, stop before either command and
+ask, in the user's language, whether the new brain should be **governed** or **ungoverned**. Offer exactly those two
+protocol choices, keeping the words `governed` and `ungoverned` visible. Do not rename them as personal, shared,
+public, or similar categories; do not recommend or select a default; and do not create anything until the user
+answers.
+
+Explain the choices as:
+
+- **ungoverned** — integrity, provenance and retention still apply, but the head has no trust root and remains
+  unsigned; or
+- **governed** — a trust root names the public keys whose signatures consumers may accept.
+
+Never let the CLI defaults make this decision silently: `brain init` defaults to ungoverned, while migration
+defaults to governed.
+
+For an ungoverned brain, confirm that unsigned distribution is acceptable, then initialize without `--governed` or
+migrate with the explicit `--no-governed`:
+
+```bash
+vitruvio --json --actor ACTOR brain init PATH
+vitruvio --json --brain OLD --actor ACTOR brain migrate --to NEW --no-governed
+```
+
+For a governed brain, do not choose authorities on the user's behalf. Ask for all of these before creating it:
+
+1. Each authority's canonical two-field Ed25519 public key (`ssh-ed25519 BASE64`), never a private key.
+2. The canonical actor `subject` that key represents.
+3. The scopes that key receives: `ingest`, `commit`, `drop:canonical`, `redact`, `govern`, or `propose`.
+4. `govern_quorum`, and which authorized fingerprints currently loaded in `ssh-agent` will sign the genesis.
+
+Explain the permission boundary while asking: scopes authorize a signature in the eyes of a verifier; they do not
+grant filesystem access or stop somebody modifying a local copy. OS permissions control local writes, retention
+policy controls allowed removal operations, registry credentials control publication, and the trust root controls
+which resulting snapshots consumers call authorized.
+
+Use `--governed --sign-with FINGERPRINT` only when the user explicitly wants every supplied key associated with the
+configured actor and granted every scope. For distinct subjects or least-privilege scopes, author a reviewed
+`TrustRoot` TOML/JSON document from the answers and pass `--trust-root`; do not take the all-scope shortcut merely
+because it is shorter. A trust root must include at least one active `govern` holder, and its quorum must be reachable.
+
+After creation, report the independent results of both checks:
+
+```bash
+vitruvio --json --brain PATH brain verify
+vitruvio --json --brain PATH auth status
+```
+
+## Audit authorship after pulling a brain
+
+After every successful `dist pull`, run `brain verify` and `auth status` against that exact brain. If
+`data.trust_root` from `auth status` is non-null, the installed brain is governed: always run `auth attribution` before
+reporting the pull complete. Do this even when the pull itself reports `data.authenticity: authorized`, because that
+verdict authorizes the snapshot signature while attribution checks whether its newly introduced provenance actors
+match the signing keys' vouched `subject`s.
+
+For a governed brain, raise an explicit **possible authorship breach** warning if `data.state` from `auth status` is not
+`authorized`, or if attribution reports `complete: false` or `fully_vouched: false`. Surface `asserted`, `legacy`,
+`evidence_gaps`, and `detail`. The attribution audit reports rather than refuses: an unvouched actor can be legitimate
+after a merge, so do not call the brain corrupt from this warning alone, but never call it fully authenticated either.
+
 ## The five memory modules
 
 | module | holds | may be dropped? |
@@ -120,6 +192,8 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 - `vitruvio-dist` — publishing a brain and installing one.
 - `vitruvio-reconcile` — joining a history somebody else advanced, when a push comes back diverged.
 - `vitruvio-sync` — local and remote disagree: which of behind, ahead or diverged it is, and the safe way back for each.
+- The catalog, authenticity and legacy-migration operator guides live in the repository documentation; consult the
+  generated CLI reference for their complete flags.
 
 ## References
 

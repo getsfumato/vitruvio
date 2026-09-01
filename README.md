@@ -12,7 +12,7 @@ interprets it. **The brain returns evidence, never prose** — there is no `answ
 [`pyboltzmann`](https://github.com/gaussia-labs/pyboltzmann) implements the protocol and ships no engine. Vitruvio
 is the engine: six index kinds, text and vision embeddings, a cost-based planner that chooses indices from the
 shape of the query and can explain why, an ingestion gate that validates what a model proposes before it is
-committed, and distribution over any OCI registry.
+committed, canonical metadata catalogs, SSH authenticity and distribution over any OCI registry.
 
 ## Install
 
@@ -56,7 +56,7 @@ person has no envelope, so it refuses the flag rather than printing something a 
 
 | | |
 |---|---|
-| [Guide](docs/guide/README.md) | in order, from [what a brain is](docs/guide/01-what-a-brain-is.md) through [install](docs/guide/02-install-and-first-brain.md), [searching](docs/guide/05-searching.md), [ingest](docs/guide/08-ingest.md), [publishing](docs/guide/10-publishing.md) and [reconciling](docs/guide/16-reconciling.md) |
+| [Guide](docs/guide/README.md) | in order, from [what a brain is](docs/guide/01-what-a-brain-is.md) through [searching](docs/guide/05-searching.md), [catalogs](docs/guide/18-catalog.md), [authenticity](docs/guide/19-authenticity.md) and [legacy migration](docs/guide/20-migrating-legacy-brains.md) |
 | [Decisions](docs/adr/README.md) | one ADR per decision: what was chosen, what it cost, what was rejected |
 | [Architecture](docs/architecture.md) | the workspace, the layering, and why an app may not import the SDK |
 | [Skills](skills/README.md) | the agent-facing contracts, and the one place they are authored |

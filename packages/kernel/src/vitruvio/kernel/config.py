@@ -23,8 +23,10 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
+from boltzmann.authenticity.policy import UnsignedPolicy, VerificationPolicy
 from boltzmann.blocks.memory_type import MemoryType
-from boltzmann.blocks.provenance import Actor, ActorKind
+from boltzmann.blocks.provenance import Actor, ActorKind, Collaborator
+from boltzmann.identity.principal import parse_actor_id
 from boltzmann.indices.base import IndexKind
 from boltzmann.query.request import RetrievalMode
 from boltzmann.retention.policy import RetentionPolicy
@@ -114,6 +116,49 @@ class ActorSpec(BaseModel):
     id: str | None = None
     kind: ActorKind = ActorKind.HUMAN
     name: str | None = None
+
+
+class CollaboratorSpec(BaseModel):
+    """A party that assisted the configured actor in producing a write."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    kind: ActorKind = ActorKind.AGENT
+    name: str | None = None
+    model: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, value: str) -> str:
+        return parse_actor_id(value, field="collaborator id")
+
+    @field_validator("model")
+    @classmethod
+    def _validate_model(cls, value: str | None) -> str | None:
+        return parse_actor_id(value, field="collaborator model") if value is not None else None
+
+    def build(self) -> Collaborator:
+        """Build the SDK value recorded in provenance schema v2."""
+        return Collaborator(id=self.id, kind=self.kind, name=self.name, model=self.model)
+
+
+class AuthenticitySpec(BaseModel):
+    """Consumer-side policy for evaluating detached SSH signatures."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    unsigned: UnsignedPolicy = UnsignedPolicy.WARN
+    required_signatures: int = Field(default=1, ge=1)
+    allow_propose_head: bool = False
+
+    def build(self) -> VerificationPolicy:
+        """Build the SDK policy used by every authenticity report."""
+        return VerificationPolicy(
+            unsigned=self.unsigned,
+            required_signatures=self.required_signatures,
+            allow_propose_head=self.allow_propose_head,
+        )
 
 
 class PolicySpec(BaseModel):
@@ -585,6 +630,8 @@ class ProjectConfig(BaseModel):
     brain: BrainSpec = BrainSpec()
     brains: dict[str, NamedBrainSpec] = Field(default_factory=dict)
     actor: ActorSpec = ActorSpec()
+    assisted_by: list[CollaboratorSpec] = Field(default_factory=list)
+    authenticity: AuthenticitySpec = AuthenticitySpec()
     policy: PolicySpec = PolicySpec()
     embedding: dict[str, EmbedderSpec] = Field(default_factory=dict)
     index: list[IndexSpec] = Field(default_factory=list)
@@ -825,7 +872,11 @@ class ResolvedConfig(BaseModel):
                     f"{self.config_file or 'vitruvio.toml'}"
                 ),
             )
-        return Actor(id=spec.id, kind=spec.kind, name=spec.name)
+        return Actor(id=parse_actor_id(spec.id, field="actor id"), kind=spec.kind, name=spec.name)
+
+    def collaborators(self) -> list[Collaborator]:
+        """The resolved assisting parties to record beside each new write."""
+        return [spec.build() for spec in self.project.assisted_by]
 
     def policy(self) -> RetentionPolicy:
         """The retention policy this brain enforces."""

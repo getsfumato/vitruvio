@@ -17,10 +17,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from boltzmann.exceptions import (
+    ActorIdError,
+    AuthenticityError,
     BlockIntegrityError,
     BlockNotFoundError,
     BlockTombstonedError,
     BoltzmannError,
+    CatalogError,
     CommitError,
     DistributionError,
     DivergenceError,
@@ -36,9 +39,11 @@ from boltzmann.exceptions import (
     ReferenceNotFoundError,
     ResolutionRefusedError,
     RetentionPolicyError,
+    RollbackError,
     SnapshotError,
     ValidationError,
 )
+from pydantic import ValidationError as PydanticValidationError
 
 from vitruvio.kernel import ExitCode, VitruvioError
 
@@ -67,6 +72,26 @@ class Report:
 # Ordered most specific first: the lookup walks it and takes the first match, so a subclass must precede its
 # base. `BoltzmannError` is last, as the catch-all that guarantees no SDK exception escapes unmapped.
 _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
+    (
+        PydanticValidationError,
+        Report(
+            "USAGE",
+            ExitCode.USAGE,
+            400,
+            retryable=False,
+            hint="repair the malformed fields in the supplied document and try again",
+        ),
+    ),
+    (
+        ActorIdError,
+        Report(
+            "ACTOR_ID_INVALID",
+            ExitCode.CONFIG,
+            400,
+            retryable=False,
+            hint="use a lowercase address such as alex@example.org or a namespaced name such as openai/codex",
+        ),
+    ),
     (
         RetentionPolicyError,
         Report(
@@ -136,6 +161,19 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
         ),
     ),
     (
+        RollbackError,
+        Report(
+            "ROLLBACK_REFUSED",
+            ExitCode.DIVERGED,
+            409,
+            retryable=False,
+            hint=(
+                "the served head is an ancestor of the held head; keep the newer history, or pass "
+                "`vitruvio dist pull --allow-rollback` only when discarding it is deliberate"
+            ),
+        ),
+    ),
+    (
         # Before `DistributionError`, which it subclasses -- and the reason it needs its own row at all. Falling
         # through to the base reported a diverged push as `REGISTRY_FAILED`, exit 9, *retryable*: an agent told to
         # retry a transport hiccup, against a refusal that will be identical every time. It is the one distribution
@@ -162,7 +200,18 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
             hint="run `vitruvio registry check <reference>` to test reachability, credentials and media-type support",
         ),
     ),
+    (CatalogError, Report("CATALOG_INVALID", ExitCode.USAGE, 400, retryable=False)),
     (QueryError, Report("QUERY_FAILED", ExitCode.USAGE, 400, retryable=False)),
+    (
+        AuthenticityError,
+        Report(
+            "AUTHENTICITY_FAILED",
+            ExitCode.PROTOCOL,
+            422,
+            retryable=False,
+            hint="inspect `vitruvio auth status`; integrity and signature authority are independent verdicts",
+        ),
+    ),
     (
         # The three reconciliation rows precede `ProtocolError`, which they subclass.
         #

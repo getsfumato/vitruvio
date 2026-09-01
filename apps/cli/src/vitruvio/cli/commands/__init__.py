@@ -10,9 +10,11 @@ from __future__ import annotations
 from cyclopts import App
 
 from vitruvio.cli.commands import (
+    auth,
     bench,
     brain,
     browse,
+    catalog,
     completion,
     compound,
     config,
@@ -41,6 +43,8 @@ GROUPS = (
     query,
     compound,
     browse,
+    catalog,
+    auth,
     retain,
     dist,
     reconcile,

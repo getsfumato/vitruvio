@@ -48,7 +48,7 @@ vitruvio reconcile tree <THEIRS> --json                    # THEIRS is data.dige
 | what you observed | situation | the safe answer |
 |---|---|---|
 | `plan-pull` says `is_noop: true`; a push would find its own digest | in step | nothing |
-| registry moved, `impact.blocks` is `0` with `exact` certainty | **behind** — nothing committed here since the pull | `dist pull`; then `brain verify` |
+| registry moved, `impact.blocks` is `0` with `exact` certainty | **behind** — nothing committed here since the pull | `dist pull`; then the post-pull checks below |
 | registry unchanged since the pull, blocks committed here | **ahead** | `dist push`; it is a fast-forward and exits 0 |
 | both moved: push exits **8**, `tree` shows blocks on both sides | **diverged** | `dist fetch`, then reconcile — see below |
 
@@ -57,6 +57,13 @@ Two of these deserve a word.
 **Behind is the only case where `pull` is right**, and it is right because `impact` says there is nothing to
 lose. If `impact.blocks` is greater than zero, or `certainty` is `unknown`, you are not behind — you are diverged
 and have not fetched yet. Say so and go down the fourth row.
+
+After every successful `dist pull`, run `brain verify` and `auth status` on that same brain. If `data.trust_root`
+from `auth status` is non-null, the installed brain is governed: always run `auth attribution`. Raise a **possible
+authorship breach** warning when the governed head is not `authorized`, or the audit reports `complete: false` or
+`fully_vouched: false`; include `asserted`, `legacy`, `evidence_gaps`, and `detail`. This is not proof of corruption —
+a merge may legitimately introduce an actor the head's signer does not vouch for — but never call the result fully
+authenticated until the warning has been reviewed.
 
 **Ahead needs no ceremony.** A push that is a fast-forward is refused by nothing. If it comes back 8, the registry
 moved between your `plan-pull` and your `push`; that is the fourth row now, not a retry.

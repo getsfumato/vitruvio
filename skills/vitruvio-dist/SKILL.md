@@ -22,7 +22,26 @@ A canonical layer can be gigabytes. "How much is this going to cost" should be a
 ```bash
 vitruvio dist pull <REF> --tag v1 --json
 vitruvio brain verify --json          # do this after every pull
+vitruvio auth status --json           # determines whether the installed head is governed
 ```
+
+After every successful `dist pull`, run those two checks against the exact brain that was pulled. Read
+`data.trust_root` from `auth status`: a non-null value means the installed head is governed. For a governed brain,
+always run the `auth attribution` authorship audit too, even when the pull reports `data.authenticity: authorized`:
+
+```bash
+vitruvio auth attribution --json
+```
+
+The pull's authenticity gate and this audit answer different questions. Pull refuses a signed unauthorized head
+before adoption, but configured policy may still permit an unsigned governed head; attribution is report-only and
+compares newly introduced provenance actors with the `subject`s vouched for by the accepted signing keys.
+
+Raise an explicit **possible authorship breach** warning when the governed head is not `authorized`, or when
+attribution returns `complete: false` or `fully_vouched: false`. Include `asserted`, `legacy`, `evidence_gaps`, and
+`detail` in the warning so the user can distinguish an unvouched actor, a legacy identifier, and unreadable evidence.
+Do not call the brain corrupt solely because this audit warns: merges can legitimately introduce an actor not vouched
+for by the head's signer. Never hide or downgrade the warning, and do not describe that head as fully authenticated.
 
 If a published vector index is incompatible with the configured embedder, keep the strict refusal by default. When
 the user explicitly chooses to install the verified modules without those derived layers, plan and pull with
@@ -33,6 +52,9 @@ vitruvio dist plan-pull <REF> --tag v1 --ignore-vector-indices --json
 vitruvio dist pull <REF> --tag v1 --ignore-vector-indices --json
 vitruvio index build --force --json
 vitruvio brain verify --json
+vitruvio auth status --json
+# If data.trust_root is non-null:
+vitruvio auth attribution --json
 ```
 
 This omits only vector-index layers, not memory modules. Read `ignored_vector_indices` in both results and surface the

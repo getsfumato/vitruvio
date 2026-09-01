@@ -476,6 +476,7 @@ def pull(
     tag: str | None = None,
     module: Annotated[list[str] | None, Parameter(name=["--module", "-m"], negative=())] = None,
     ignore_vector_indices: bool = False,
+    allow_rollback: bool = False,
     anonymous: bool = False,
     insecure: bool | None = None,
     local: Annotated[
@@ -502,6 +503,8 @@ def pull(
     ignore_vector_indices
         Do not download or load published vector indices. The modules and their Merkle roots are still
         installed and verified; run `vitruvio index build --force` afterwards for local vector search.
+    allow_rollback
+        Explicitly install a served head that is an ancestor of the held head. Off by default.
     anonymous
         Pull without credentials.
     insecure
@@ -516,6 +519,7 @@ def pull(
             tag=tag,
             modules=module,
             ignore_vector_indices=ignore_vector_indices,
+            allow_rollback=allow_rollback,
             anonymous=anonymous,
             insecure=insecure,
             local=local,

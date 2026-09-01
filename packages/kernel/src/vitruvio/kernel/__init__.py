@@ -15,7 +15,9 @@ from vitruvio.kernel import updates
 from vitruvio.kernel.config import (
     DEFAULT_TEXT_EMBEDDER,
     ActorSpec,
+    AuthenticitySpec,
     BrainSpec,
+    CollaboratorSpec,
     EmbedderSpec,
     IndexSpec,
     IngestSpec,
@@ -35,6 +37,7 @@ from vitruvio.kernel.config import (
 from vitruvio.kernel.discovery import (
     ENV_ACTOR_ID,
     ENV_ACTOR_KIND,
+    ENV_ASSISTED_BY,
     ENV_BRAIN,
     ENV_CONFIG,
     ENV_PROJECT,
@@ -57,6 +60,7 @@ from vitruvio.kernel.discovery import (
     write_state,
 )
 from vitruvio.kernel.errors import (
+    ActorIdInvalidError,
     ActorUnknownError,
     BrainNotFoundError,
     BrainNotSelectedError,
@@ -102,12 +106,16 @@ __all__ = [
     "DERIVED_DIR",
     "ENV_ACTOR_ID",
     "ENV_ACTOR_KIND",
+    "ENV_ASSISTED_BY",
     "ENV_BRAIN",
     "ENV_CONFIG",
     "ENV_PROJECT",
     "REDACTED",
     "TOKEN_URL",
     "ActorSpec",
+    "ActorIdInvalidError",
+    "CollaboratorSpec",
+    "AuthenticitySpec",
     "ActorUnknownError",
     "CandidatesRejectedError",
     "BrainNotFoundError",

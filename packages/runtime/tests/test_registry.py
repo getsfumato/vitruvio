@@ -9,8 +9,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from boltzmann.authenticity import AuthorshipState, UnsignedPolicy, VerificationPolicy
+from boltzmann.exceptions import AuthenticityError
 
-from vitruvio.kernel import CredentialError, resolve
+from vitruvio.kernel import AuthenticitySpec, CredentialError, VitruvioError, resolve
 from vitruvio.runtime import BrainService, Capability
 from vitruvio.runtime.registry import (
     HUB_INDEX_HOSTS,
@@ -304,6 +306,75 @@ class TestLocalRoundTrip:
         assert consumer.verify()["verified"] is True
         assert "canonical" in consumer.state()["installed"]
 
+    def test_pull_enforces_the_projects_authenticity_policy(self, published: tuple[Path, str], tmp_path: Path) -> None:
+        registry_root, reference = published
+        config = resolve(brain=tmp_path / "strict", actor_id="consumer@example.com", require_layout=False)
+        config = config.model_copy(
+            update={
+                "project": config.project.model_copy(
+                    update={"authenticity": AuthenticitySpec(unsigned=UnsignedPolicy.REFUSE)}
+                )
+            }
+        )
+        consumer = BrainService(config)
+        consumer.init()
+
+        with pytest.raises(VitruvioError) as caught:
+            consumer.pull(reference, tag="v1", local=registry_root)
+        assert caught.value.code == "AUTHENTICITY_FAILED"
+        assert consumer.state()["installed"] == []
+
+    def test_pull_refuses_a_signed_unauthorized_head_before_adoption(
+        self,
+        published: tuple[Path, str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from boltzmann.brain import Brain
+
+        registry_root, reference = published
+        config = resolve(brain=tmp_path / "consumer", actor_id="consumer@example.com", require_layout=False)
+        config = config.model_copy(
+            update={
+                "project": config.project.model_copy(update={"authenticity": AuthenticitySpec(required_signatures=2)})
+            }
+        )
+        consumer = BrainService(config)
+        consumer.init()
+        observed_policy: VerificationPolicy | None = None
+        pull_called = False
+
+        class Unauthorized:
+            state = AuthorshipState.UNAUTHORIZED
+
+            @staticmethod
+            def require_authorized() -> None:
+                raise AuthenticityError("the signed remote head does not meet the consumer policy")
+
+        def authenticate(
+            _brain: Brain, _snapshot: object, *, policy: VerificationPolicy, stance: object
+        ) -> Unauthorized:
+            nonlocal observed_policy
+            observed_policy = policy
+            return Unauthorized()
+
+        async def pull(*args: object, **kwargs: object) -> object:
+            nonlocal pull_called
+            pull_called = True
+            raise AssertionError("brain.pull must not run after authenticity preflight refuses the head")
+
+        monkeypatch.setattr(Brain, "authenticate", authenticate)
+        monkeypatch.setattr(Brain, "pull", pull)
+
+        with pytest.raises(VitruvioError) as caught:
+            consumer.pull(reference, tag="v1", local=registry_root)
+
+        assert caught.value.code == "AUTHENTICITY_FAILED"
+        assert pull_called is False
+        assert observed_policy is not None
+        assert observed_policy.required_signatures == 2
+        assert consumer.state()["installed"] == []
+
     async def test_async_runtime_round_trips_without_owning_the_callers_loop(
         self, tmp_path: Path, source_file: Path
     ) -> None:
@@ -594,7 +665,7 @@ class TestWhatAPullReplaces:
         local = consumer.register(mine, media_type="text/markdown", origin="local://mine")
 
         plan = consumer.plan_pull(reference, tag="v1", modules=["semantic"], local=registry_root)
-        result = consumer.pull(reference, tag="v1", modules=["semantic"], local=registry_root)
+        result = consumer.pull(reference, tag="v1", modules=["semantic"], local=registry_root, allow_rollback=True)
 
         assert plan["local_work"]["diverged"] is True
         assert plan["impact"]["certainty"] == "approximate"
@@ -612,10 +683,23 @@ class TestWhatAPullReplaces:
         registry_root, reference = published
         registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
 
-        result = consumer.pull(reference, tag="v1", local=registry_root)
+        result = consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
         assert result["discarded"] > 0
         assert registered["block_id"] in result["discarded_blocks"]
         assert result["impact"]["certainty"] == "exact"
+
+    def test_pull_refuses_to_discard_local_work_without_allow_rollback(
+        self, consumer: BrainService, published: tuple[Path, str], mine: Path
+    ) -> None:
+        registry_root, reference = published
+        registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        before = consumer.state()["snapshot"]["digest"]
+
+        with pytest.raises(VitruvioError) as caught:
+            consumer.pull(reference, tag="v1", local=registry_root)
+        assert caught.value.code == "ROLLBACK_REFUSED"
+        assert consumer.state()["snapshot"]["digest"] == before
+        assert registered["block_id"] in consumer.module("canonical", limit=100)["block_ids"]
 
     def test_the_discarded_block_really_is_out_of_the_composition(
         self, consumer: BrainService, published: tuple[Path, str], mine: Path
@@ -624,7 +708,7 @@ class TestWhatAPullReplaces:
         module rather than against the report."""
         registry_root, reference = published
         registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
-        consumer.pull(reference, tag="v1", local=registry_root)
+        consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
 
         held = consumer.module("canonical", limit=100)["block_ids"]
         assert registered["block_id"] not in held
@@ -639,7 +723,7 @@ class TestWhatAPullReplaces:
         consumer.register(mine, media_type="text/markdown", origin="local://mine")
         before = str(consumer.state()["snapshot"]["digest"])
 
-        consumer.pull(reference, tag="v1", local=registry_root)
+        consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
         assert before in [entry["digest"] for entry in consumer.history()["snapshots"]]
 
     def test_a_pull_that_changes_nothing_discards_nothing(

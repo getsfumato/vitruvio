@@ -3,8 +3,8 @@
 Generated from the command declarations by `python -m vitruvio.cli.reference`. Do not edit by hand: a reference that
 disagrees with the parser is worse than none, because it costs a turn to discover.
 
-Every command accepts the global options `--brain`, `--config`, `--actor`, `--actor-kind`, `--json`, `--quiet`,
-`--no-color` and `--verbose`. Pass `--json` whenever something other than a person is reading.
+Every command accepts the global options `--brain`, `--config`, `--actor`, `--actor-kind`, `--assisted-by`, `--json`,
+`--quiet`, `--no-color` and `--verbose`. Pass `--json` whenever something other than a person is reading.
 
 ## `vitruvio project`
 
@@ -50,9 +50,13 @@ Record a brain as this project's default, for a shell.
 
 List this project's brains, then the ones this machine remembers.
 
-### `vitruvio brain init` `[path]` `--policy` `--force`
+### `vitruvio brain init` `[path]` `--policy` `--force` `--governed` `--trust-root` `--sign-with` `--govern-quorum`
 
 Create a brain, and a vitruvio.toml beside it.
+
+### `vitruvio brain migrate` `--to` *(required)* `--no-governed` `--trust-root` `--sign-with` `--govern-quorum` `--allow-partial` `--dry-run` `--report` `--force-report`
+
+Recreate a legacy brain's current accessible state under the current protocol.
 
 ### `vitruvio brain state`
 
@@ -74,11 +78,11 @@ Print the per-module anatomy: roots, block counts, and which indices are registe
 
 Register canonical evidence.
 
-### `vitruvio source register` `path` `--media-type` `--origin` `--license-id` `--retention-policy` `--normalize-with`
+### `vitruvio source register` `path` `--media-type` `--origin` `--license` `--retention-policy` `--normalize-with`
 
 Register a source as canonical evidence.
 
-### `vitruvio source replace` `path` `--supersedes` *(required)* `--media-type` `--origin` `--license-id` `--normalize-with`
+### `vitruvio source replace` `path` `--supersedes` *(required)* `--media-type` `--origin` `--license` `--normalize-with`
 
 Register a newer edition and record that it supersedes an older block.
 
@@ -86,7 +90,7 @@ Register a newer edition and record that it supersedes an older block.
 
 Store bytes addressably without registering a canonical block.
 
-### `vitruvio source pull` `[name]` `--all-sources` `--dry-run` `--limit` `--refetch` `--option`
+### `vitruvio source pull` `[name]` `--all` `--dry-run` `--limit` `--refetch` `--option`
 
 Acquire from a declared source and register what is new as canonical evidence.
 
@@ -102,7 +106,7 @@ Every source kind this installation can construct, and where each came from.
 
 Write a starter plugin for a source kind vitruvio does not ship.
 
-### `vitruvio source add` `name` `--kind` *(required)* `--path` `--media-type` `--normalize-with` `--license-id` `--option`
+### `vitruvio source add` `name` `--kind` *(required)* `--path` `--media-type` `--normalize-with` `--license` `--option`
 
 Declare a source in vitruvio.toml.
 
@@ -174,7 +178,7 @@ Delete index files that no longer belong to a declared index.
 
 Retrieve evidence from the brain.
 
-### `vitruvio query search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
+### `vitruvio query search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
 
@@ -186,7 +190,7 @@ Read one block by identity.
 
 Produce a verified Merkle inclusion proof for one block.
 
-### `vitruvio query explain` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--include-superseded` `--mode` `--limit` `--expand-depth` `--analyze`
+### `vitruvio query explain` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--include-superseded` `--mode` `--limit` `--expand-depth` `--analyze`
 
 Show how a query would be answered, and what the alternatives cost.
 
@@ -205,6 +209,78 @@ Show how each brain of a compound would answer the query, side by side.
 ## `vitruvio browse` `--memory-type`
 
 Read and query the brain in a terminal workspace that also shows the executed plan and selected indices.
+
+## `vitruvio catalog`
+
+Classify canonical evidence with portable schemes and classes.
+
+### `vitruvio catalog show`
+
+List declared schemes, classes, hierarchy and effective sources.
+
+### `vitruvio catalog apply` `path` `--dry-run`
+
+Validate and atomically apply a TOML or JSON ``vitruvio.catalog/v1`` manifest.
+
+### `vitruvio catalog scheme` `name` `--exclusive` `--dry-run`
+
+Declare a classification scheme.
+
+### `vitruvio catalog class` `scheme` `label` `--broader` `--dry-run`
+
+Declare a class, optionally below existing ``scheme/label`` classes.
+
+### `vitruvio catalog place` `source` `--class` *(required)* `--dry-run`
+
+Place one canonical block in one or more ``scheme/label`` classes.
+
+### `vitruvio catalog browse` `--class` *(required)*
+
+Browse the intersection of one or more classes, descendants included.
+
+### `vitruvio catalog path` `--scheme` *(required)* `[path]`
+
+List a virtual path using the requested scheme order.
+
+## `vitruvio auth`
+
+Authenticate and govern a brain with detached SSH signatures.
+
+### `vitruvio auth keys`
+
+List public Ed25519 keys available through the current SSH agent.
+
+### `vitruvio auth status` `--snapshot` `--offered`
+
+Verify integrity and report the independent authenticity state.
+
+### `vitruvio auth sign` `key` `--snapshot` `--scope`
+
+Explicitly sign a snapshot through ssh-agent; no private key enters Vitruvio.
+
+### `vitruvio auth pin` `--trust-root` `--source`
+
+Pin the current trust root (TOFU) or an out-of-band digest.
+
+### `vitruvio auth attribution`
+
+Show which declared actors are vouched by valid signature subjects.
+
+### `vitruvio auth plan-rotate` `trust-root` `--output` *(required)* `--force`
+
+Build once the exact revision document a distributed quorum will countersign.
+
+### `vitruvio auth countersign` `plan` `key` `--output` *(required)* `--force`
+
+Countersign the exact revision document in a rotation plan.
+
+### `vitruvio auth rotate` `--trust-root` `--plan` `--sign-with` `--record`
+
+Commit a local trust-root change or a planned distributed rotation.
+
+### `vitruvio auth revoke` `key` `--sign-with` `--record` `--retired-from` `--compromised-from`
+
+Retire a key or withdraw its signatures from a compromised snapshot onward.
 
 ## `vitruvio retain`
 
@@ -254,7 +330,7 @@ Build the OCI artifact locally, without pushing.
 
 Publish the brain to a registry.
 
-### `vitruvio dist fetch` `[reference]` `--tag` `--module` `--reconcile` `--reason` `--anonymous` `--insecure` `--local`
+### `vitruvio dist fetch` `[reference]` `--tag` `--module` `--no-reconcile` `--reason` `--anonymous` `--insecure` `--local`
 
 Bring another history here without adopting it, and reconcile it when that decides nothing for you.
 
@@ -262,7 +338,7 @@ Bring another history here without adopting it, and reconcile it when that decid
 
 Report what a pull would transfer, before transferring it.
 
-### `vitruvio dist pull` `[reference]` `--tag` `--module` `--ignore-vector-indices` `--anonymous` `--insecure` `--local`
+### `vitruvio dist pull` `[reference]` `--tag` `--module` `--ignore-vector-indices` `--allow-rollback` `--anonymous` `--insecure` `--local`
 
 Install a published brain.
 
@@ -434,7 +510,7 @@ Print a completion script for bash, zsh or fish.
 
 Measure recall and latency against a corpus with known answers.
 
-### `vitruvio bench corpus` `path` `--tier` `--seed` `--queries`
+### `vitruvio bench corpus` `--into` *(required)* `--tier` `--seed` `--queries`
 
 Write a generated corpus to disk and keep it.
 
@@ -442,6 +518,6 @@ Write a generated corpus to disk and keep it.
 
 Check for a newer vitruvio, and install it.
 
-## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
+## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
