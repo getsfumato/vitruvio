@@ -51,14 +51,17 @@ class MigrationOps:
         """The source brain's resolved configuration."""
         return self.session.config
 
-    def _inventory(self) -> dict[str, Any]:
+    def _inventory(self) -> dict[str, Any]:  # noqa: PLR0912, PLR0915
         source = self.session.brain(Capability.INSPECT)
         modules = source.modules()
         ledger = Ledger.of(modules)
         problems: list[dict[str, str]] = []
+        excluded: list[dict[str, str]] = []
         counts: dict[str, int] = {}
         catalog = 0
         legacy_actors: set[str] = set()
+        reproducible: set[BlockId] = set()
+        derived: dict[BlockId, tuple[MemoryType, list[BlockId]]] = {}
 
         provenance = modules.get(MemoryType.PROVENANCE)
         if provenance is not None:
@@ -74,28 +77,56 @@ class MigrationOps:
         for memory_type, module in modules.items():
             if memory_type is MemoryType.PROVENANCE:
                 continue
-            selected = 0
+            counts[memory_type.value] = 0
             for identity in module.block_ids:
                 if not ledger.is_accessible(identity):
+                    excluded.append({"block": str(identity), "reason": "not accessible in the source head"})
                     continue
                 if not module.store.is_resolvable(identity):
                     problems.append({"block": str(identity), "reason": "content is not resolvable"})
                     continue
                 block = module.get(identity)
+                if any(not source.store.is_resolvable(digest) for digest in block.content_digests):
+                    problems.append({"block": str(identity), "reason": "one or more content blobs are not resolvable"})
+                    continue
                 if memory_type is MemoryType.SEMANTIC and declaration_from_block(block) is not None:
                     catalog += 1
                     continue
-                if (
-                    memory_type in DERIVED_TYPES
-                    and not ledger.evidence.get(identity)
-                    and not getattr(block, "evidence", None)
-                ):
+                if memory_type is MemoryType.CANONICAL:
+                    if not isinstance(block, CanonicalBlock):
+                        problems.append({"block": str(identity), "reason": "canonical block has an unknown schema"})
+                        continue
+                    reproducible.add(identity)
+                    counts[memory_type.value] += 1
+                    continue
+                if memory_type not in DERIVED_TYPES:
+                    problems.append({"block": str(identity), "reason": f"unsupported memory type {memory_type.value}"})
+                    continue
+                evidence = list(ledger.evidence.get(identity) or getattr(block, "evidence", None) or ())
+                if not evidence:
                     problems.append(
                         {"block": str(identity), "reason": "derived block has no reproducible evidence edge"}
                     )
                     continue
-                selected += 1
-            counts[memory_type.value] = selected
+                derived[identity] = (memory_type, evidence)
+
+        pending = dict(derived)
+        while pending:
+            ready = [identity for identity, (_, evidence) in pending.items() if set(evidence).issubset(reproducible)]
+            if not ready:
+                break
+            for identity in ready:
+                memory_type, _evidence = pending.pop(identity)
+                reproducible.add(identity)
+                counts[memory_type.value] += 1
+        for identity, (_memory_type, evidence) in pending.items():
+            missing = ", ".join(str(item) for item in evidence if item not in reproducible)
+            problems.append(
+                {
+                    "block": str(identity),
+                    "reason": f"evidence dependencies are not reproducible: {missing}",
+                }
+            )
         return {
             "source_snapshot": str(source.snapshot().digest),
             "verified": source.verify(),
@@ -103,6 +134,7 @@ class MigrationOps:
             "catalog_declarations": catalog,
             "legacy_actors": sorted(legacy_actors),
             "problems": problems,
+            "excluded": excluded,
         }
 
     def plan_migration(self, destination: Path) -> dict[str, Any]:
@@ -166,21 +198,21 @@ class MigrationOps:
         plan = self.plan_migration(destination)
         if not plan["verified"]:
             raise VitruvioError("the source brain fails integrity verification; migration is refused")
+        if dry_run:
+            return {**plan, "dry_run": True, "completed": False}
         if plan["problems"] and not allow_partial:
             raise UsageError(
                 f"migration found {len(plan['problems'])} non-reproducible block(s)",
                 hint="inspect the dry-run report; repair the source or pass --allow-partial deliberately",
             )
-        if dry_run:
-            return {**plan, "dry_run": True, "completed": False}
-
         destination = destination.expanduser().resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
         source = self.session.brain(Capability.INSPECT)
         source_modules = source.modules()
         ledger = Ledger.of(source_modules)
         registrations, normalizations = self._provenance_metadata(source)
-        skipped = list(plan["problems"])
+        skipped = [*plan["problems"], *plan["excluded"]]
+        problem_ids = {item["block"] for item in plan["problems"]}
         preserved: list[str] = []
         migrated: set[BlockId] = set()
 
@@ -207,6 +239,8 @@ class MigrationOps:
             if canonical is not None:
                 for identity in canonical.block_ids:
                     if not ledger.is_accessible(identity) or not canonical.store.is_resolvable(identity):
+                        continue
+                    if str(identity) in problem_ids:
                         continue
                     block = canonical.get(identity)
                     if not isinstance(block, CanonicalBlock):
@@ -250,6 +284,8 @@ class MigrationOps:
                     continue
                 for identity in module.block_ids:
                     if not ledger.is_accessible(identity) or not module.store.is_resolvable(identity):
+                        continue
+                    if str(identity) in problem_ids:
                         continue
                     block = module.get(identity)
                     declaration = declaration_from_block(block) if memory_type is MemoryType.SEMANTIC else None
@@ -295,25 +331,47 @@ class MigrationOps:
                     checks=["vitruvio:migration/current-state"],
                 )
                 committed = target.commit(report)
-                for identity in committed.committed:
+                expected = {identity for identity, _detail in ready}
+                actual = set(committed.committed)
+                if actual != expected:
+                    missing = ", ".join(str(item) for item in sorted(expected - actual, key=str)) or "none"
+                    unexpected = ", ".join(str(item) for item in sorted(actual - expected, key=str)) or "none"
+                    raise VitruvioError(
+                        f"derived recreation changed protocol identities (missing: {missing}; unexpected: {unexpected})"
+                    )
+                for identity in actual:
                     migrated.add(identity)
                     preserved.append(str(identity))
 
+            eligible_catalog: list[Any] = []
+            for declaration in catalog_declarations:
+                if isinstance(declaration, PlacementDeclaration) and declaration.source not in migrated:
+                    skipped.append(
+                        {
+                            "block": str(declaration.block_id),
+                            "reason": f"catalog placement source {declaration.source} was not migrated",
+                        }
+                    )
+                    continue
+                eligible_catalog.append(declaration)
             ordered_catalog = [
                 declaration
                 for kind in (SchemeDeclaration, ClassDeclaration, HierarchyDeclaration, PlacementDeclaration)
-                for declaration in catalog_declarations
+                for declaration in eligible_catalog
                 if isinstance(declaration, kind)
-                and (not isinstance(declaration, PlacementDeclaration) or declaration.source in migrated)
             ]
             if ordered_catalog:
                 classified = target.classify(ordered_catalog)
                 rejected = [item for item in classified.verdicts if item.status is not ValidationStatus.VALIDATED]
                 if rejected and not allow_partial:
                     raise UsageError(f"{len(rejected)} catalog declaration(s) could not be recreated")
-                migrated.update(
-                    item.block_id for item in classified.verdicts if item.status is ValidationStatus.VALIDATED
-                )
+                for verdict in classified.verdicts:
+                    if verdict.status is ValidationStatus.VALIDATED:
+                        migrated.add(verdict.block_id)
+                        preserved.append(str(verdict.block_id))
+                    else:
+                        detail = "; ".join(issue.detail for issue in verdict.issues) or verdict.status.value
+                        skipped.append({"block": str(verdict.block_id), "reason": f"catalog rejected: {detail}"})
 
             final_signatures = []
             if sign_with:

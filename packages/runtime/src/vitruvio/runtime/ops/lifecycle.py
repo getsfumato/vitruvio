@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from vitruvio.kernel import ResolvedConfig, VitruvioError
+from vitruvio.kernel import ResolvedConfig, UsageError, VitruvioError
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability, open_brain
 from vitruvio.runtime.mapping import translated
@@ -34,7 +34,7 @@ class LifecycleOps:
         """The resolved configuration, read through the session that owns it."""
         return self.session.config
 
-    def init(
+    def init(  # noqa: PLR0912
         self,
         *,
         force: bool = False,
@@ -85,6 +85,12 @@ class LifecycleOps:
                 hint="create a new governed brain and run `vitruvio brain migrate`",
             )
 
+        if sign_with and not (governed or trust_root is not None):
+            raise UsageError(
+                "--sign-with cannot sign an ungoverned genesis",
+                hint="pass --governed (or --trust-root), or omit --sign-with",
+            )
+
         if governed or trust_root is not None:
             from boltzmann.authenticity import AgentSigner, Scope, TrustedKey, TrustRoot
             from boltzmann.brain import Brain
@@ -128,6 +134,13 @@ class LifecycleOps:
         else:
             with translated():
                 brain = open_brain(self.config, Capability.INSPECT, create=True)
+                if labels and not existed:
+                    from boltzmann.module.snapshot import Snapshot
+
+                    # pyboltzmann 0.9 only exposes genesis labels on governed Brain.init.
+                    # Preserve migration attribution for an ungoverned genesis through the
+                    # same snapshot-advance primitive that Brain.init itself uses.
+                    brain._advance(Snapshot(labels=dict(labels)))
 
         config_path = (self.config.config_file or path.parent / CONFIG_FILE).resolve()
         wrote_config = False

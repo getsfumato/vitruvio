@@ -335,6 +335,11 @@ def migrate(
     """
     console = current().console
     console.warn("brain migrate is a temporary compatibility command; keep the source brain as the immutable archive")
+    if report is not None and report.exists():
+        if report.is_dir():
+            raise ConfigError(f"migration report {report} is a directory", hint="choose a JSON report file path")
+        if not force_report:
+            raise ConfigError(f"migration report {report} already exists", hint="pass --force-report to replace it")
     result = (
         current()
         .service()
@@ -349,8 +354,6 @@ def migrate(
         )
     )
     if report is not None:
-        if report.exists() and not force_report:
-            raise ConfigError(f"migration report {report} already exists", hint="pass --force-report to replace it")
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(json.dumps(result, indent=2, default=str) + "\n", encoding="utf-8")
     return console.emit(
