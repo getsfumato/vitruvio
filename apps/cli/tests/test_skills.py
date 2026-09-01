@@ -36,6 +36,13 @@ CREATION_SKILLS = (
     Path(__file__).resolve().parents[3] / "skills" / "vitruvio-cli" / "SKILL.md",
 )
 
+PULL_SKILLS = (
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-cli" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-dist" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-sync" / "SKILL.md",
+)
+
 
 def envelope(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[str, Any]]:
     """Invoke the CLI in JSON mode and parse the single object it printed."""
@@ -91,6 +98,21 @@ class TestSkillsArePresent:
         assert "quorum" in normalized
         for scope in ("ingest", "commit", "drop:canonical", "redact", "govern", "propose"):
             assert f"`{scope}`" in normalized
+
+    @pytest.mark.parametrize("skill", PULL_SKILLS)
+    def test_governed_pull_runs_the_authorship_audit(self, skill: Path) -> None:
+        """An authorized pull can still introduce an unvouched actor, so the report must never end at signatures."""
+        normalized = " ".join(skill.read_text(encoding="utf-8").split()).lower()
+        assert "every successful `dist pull`" in normalized
+        assert "`data.trust_root`" in normalized
+        assert "`auth attribution`" in normalized
+        assert "possible authorship breach" in normalized
+        assert "`authorized`" in normalized
+        assert "`complete" in normalized
+        assert "`fully_vouched" in normalized
+        for field in ("asserted", "legacy", "evidence_gaps", "detail"):
+            assert f"`{field}`" in normalized
+        assert "not proof of corruption" in normalized or "do not call the brain corrupt" in normalized
 
 
 class TestInstall:

@@ -174,6 +174,12 @@ policy controls permitted removals, and registry credentials control who can pub
 | `auth rotate` | commit a local or quorum-approved trust-root revision |
 | `auth revoke KEY` | retire a key prospectively or mark it compromised from a snapshot |
 
+After every successful `dist pull`, run `brain verify` and `auth status` on the selected brain. When
+`data.trust_root` from `auth status` is non-null, it is governed, so also run `auth attribution`. Warn of a **possible
+authorship breach** when the governed head is not `authorized`, or when attribution is not `complete` or not
+`fully_vouched`; include `asserted`, `legacy`, `evidence_gaps`, and `detail`. This is a report-only authorship alert,
+not proof of corruption: a merge may legitimately introduce an actor the head's signer does not vouch for.
+
 ### `compound` — the same question, several brains of one project
 | command | for |
 |---|---|

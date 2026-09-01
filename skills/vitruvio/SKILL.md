@@ -134,6 +134,19 @@ vitruvio --json --brain PATH brain verify
 vitruvio --json --brain PATH auth status
 ```
 
+## Audit authorship after pulling a brain
+
+After every successful `dist pull`, run `brain verify` and `auth status` against that exact brain. If
+`data.trust_root` from `auth status` is non-null, the installed brain is governed: always run `auth attribution` before
+reporting the pull complete. Do this even when the pull itself reports `data.authenticity: authorized`, because that
+verdict authorizes the snapshot signature while attribution checks whether its newly introduced provenance actors
+match the signing keys' vouched `subject`s.
+
+For a governed brain, raise an explicit **possible authorship breach** warning if `data.state` from `auth status` is not
+`authorized`, or if attribution reports `complete: false` or `fully_vouched: false`. Surface `asserted`, `legacy`,
+`evidence_gaps`, and `detail`. The attribution audit reports rather than refuses: an unvouched actor can be legitimate
+after a merge, so do not call the brain corrupt from this warning alone, but never call it fully authenticated either.
+
 ## The five memory modules
 
 | module | holds | may be dropped? |
