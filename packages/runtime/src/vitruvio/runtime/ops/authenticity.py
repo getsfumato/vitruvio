@@ -70,14 +70,28 @@ class AuthenticityOps:
         """Report integrity and authenticity separately for one snapshot."""
         brain = self.session.brain(Capability.INSPECT)
         with translated():
+            requested = OciDigest.parse(snapshot) if snapshot else None
             report = brain.authenticate(
-                OciDigest.parse(snapshot) if snapshot else None,
+                requested,
                 policy=self.config.project.authenticity.build(),
                 stance=SnapshotStance.OFFERED if offered else SnapshotStance.HEAD,
             )
             payload = report.model_dump(mode="json")
             payload["state"] = report.state.value
-            payload["integrity"] = brain.verify()
+            if requested is None or requested == brain.snapshot().digest:
+                payload["integrity"] = brain.verify()
+            else:
+                from boltzmann.brain import Brain
+                from boltzmann.module.snapshot import Snapshot
+
+                historical = Snapshot.from_document(brain.store.get_bytes(requested))
+                payload["integrity"] = Brain(
+                    brain.store,
+                    actor=brain.actor,
+                    snapshot=historical,
+                    assisted_by=brain.assisted_by,
+                    policy=brain.policy,
+                ).verify()
         return payload
 
     def auth_sign(
@@ -89,21 +103,31 @@ class AuthenticityOps:
     ) -> dict[str, Any]:
         """Explicitly sign a snapshot with an Ed25519 key held by the SSH agent."""
         brain = self.session.brain(Capability.INSPECT)
+        try:
+            selected_scopes = [Scope(item) for item in scopes] if scopes else None
+        except ValueError as error:
+            permitted = ", ".join(item.value for item in Scope)
+            raise UsageError(f"unknown signing scope {error.args[0]!r}; expected one of: {permitted}") from error
         with translated():
             record = brain.sign(
                 AgentSigner(key),
                 snapshot=OciDigest.parse(snapshot) if snapshot else None,
-                scopes=[Scope(item) for item in scopes] if scopes else None,
+                scopes=selected_scopes,
             )
         return record.model_dump(mode="json")
 
     def auth_pin(self, *, trust_root: str | None = None, source: str | None = None) -> dict[str, Any]:
         """Anchor a trust-root digest in consumer-side state."""
         brain = self.session.brain(Capability.INSPECT)
+        try:
+            selected_source = PinSource(source) if source else None
+        except ValueError as error:
+            permitted = ", ".join(item.value for item in PinSource)
+            raise UsageError(f"unknown pin source {source!r}; expected one of: {permitted}") from error
         with translated():
             pin = brain.pin(
                 OciDigest.parse(trust_root) if trust_root else None,
-                PinSource(source) if source else None,
+                selected_source,
             )
         return pin.model_dump(mode="json")
 

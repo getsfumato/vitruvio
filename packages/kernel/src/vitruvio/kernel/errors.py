@@ -131,6 +131,12 @@ class ActorUnknownError(ConfigError):
     code = "ACTOR_UNKNOWN"
 
 
+class ActorIdInvalidError(ConfigError):
+    """An actor or collaborator identifier is not in a canonical protocol form."""
+
+    code = "ACTOR_ID_INVALID"
+
+
 class UsageError(VitruvioError):
     """The invocation contradicts itself, or names something that does not exist.
 

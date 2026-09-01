@@ -217,6 +217,7 @@ class InstallOps:
                         modules=chosen,
                         ignore_vector_indices=True,
                         allow_rollback=allow_rollback,
+                        verification=self.config.project.authenticity.build(),
                     )
                 )
             else:
@@ -227,6 +228,7 @@ class InstallOps:
                         remote.tag,
                         modules=chosen,
                         allow_rollback=allow_rollback,
+                        verification=self.config.project.authenticity.build(),
                     )
                 )
             after = composition_members(brain, brain.snapshot())

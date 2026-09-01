@@ -60,6 +60,7 @@ from vitruvio.kernel.discovery import (
     write_state,
 )
 from vitruvio.kernel.errors import (
+    ActorIdInvalidError,
     ActorUnknownError,
     BrainNotFoundError,
     BrainNotSelectedError,
@@ -112,6 +113,7 @@ __all__ = [
     "REDACTED",
     "TOKEN_URL",
     "ActorSpec",
+    "ActorIdInvalidError",
     "CollaboratorSpec",
     "AuthenticitySpec",
     "ActorUnknownError",

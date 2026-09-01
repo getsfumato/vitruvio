@@ -56,7 +56,7 @@ force its readers to trust a replacement root.
 
 ```toml
 [authenticity]
-unsigned = "reject"
+unsigned = "refuse"
 required_signatures = 2
 allow_propose_head = false
 ```

@@ -54,10 +54,11 @@ from typing import Any, TypeVar
 
 import tomli_w
 from boltzmann.blocks.provenance import ActorKind
+from boltzmann.exceptions import ActorIdError
 from pydantic import ValidationError
 
 from vitruvio.kernel.config import ActorSpec, CollaboratorSpec, Origin, ProjectConfig, ResolvedConfig
-from vitruvio.kernel.errors import BrainNotSelectedError, ConfigError, ProjectNotKnownError
+from vitruvio.kernel.errors import ActorIdInvalidError, BrainNotSelectedError, ConfigError, ProjectNotKnownError
 from vitruvio.kernel.paths import CONFIG_FILE, is_layout, state_file
 
 ENV_BRAIN = "VITRUVIO_BRAIN"
@@ -262,6 +263,8 @@ def load_project(path: Path | None) -> ProjectConfig:
 
     try:
         return ProjectConfig(**document, source=path)
+    except ActorIdError as error:
+        raise ActorIdInvalidError(f"{path} contains an invalid actor identifier: {error}") from error
     except ValidationError as error:
         details = "; ".join(
             f"{'.'.join(str(part) for part in issue['loc'])}: {issue['msg']}" for issue in error.errors()
@@ -500,6 +503,8 @@ def update_config(path: Path, key: str, value: Any) -> Path:
     # a rejected `config set`.
     try:
         ProjectConfig(**document)
+    except ActorIdError as error:
+        raise ActorIdInvalidError(f"setting {key} would make {path} invalid -- {error}") from error
     except ValidationError as error:
         details = "; ".join(
             f"{'.'.join(str(part) for part in issue['loc'])}: {issue['msg']}" for issue in error.errors()
@@ -692,10 +697,13 @@ def _collaborators_from_layers(project: ProjectConfig, assisted_by: list[str] | 
                 CollaboratorSpec(id=value) if isinstance(value, str) else CollaboratorSpec.model_validate(value)
                 for value in values
             ]
-        except (TypeError, ValueError) as error:
-            raise ConfigError(f"{ENV_ASSISTED_BY} must be a JSON array of actor ids or collaborator objects") from error
+        except (ActorIdError, TypeError, ValueError, ValidationError) as error:
+            raise ActorIdInvalidError(f"{ENV_ASSISTED_BY} contains an invalid collaborator: {error}") from error
     if assisted_by is not None:
-        selected = [CollaboratorSpec(id=value) for value in assisted_by]
+        try:
+            selected = [CollaboratorSpec(id=value) for value in assisted_by]
+        except (ActorIdError, TypeError, ValueError, ValidationError) as error:
+            raise ActorIdInvalidError(f"--assisted-by contains an invalid collaborator: {error}") from error
     return selected
 
 

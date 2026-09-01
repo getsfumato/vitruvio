@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from boltzmann.authenticity import SshPublicKey, rfc4253_signature
 
+from vitruvio.kernel import UsageError
 from vitruvio.runtime import BrainService
 
 ed25519 = pytest.importorskip("cryptography.hazmat.primitives.asymmetric.ed25519")
@@ -59,3 +60,31 @@ def test_an_ungoverned_brain_reports_integrity_separately(service: BrainService)
     assert status["integrity"] is True
     assert status["state"] == "unsigned"
     assert status["trust_root"] is None
+
+
+def test_invalid_auth_enums_are_usage_errors(service: BrainService) -> None:
+    with pytest.raises(UsageError, match="signing scope"):
+        service.auth_sign("SHA256:not-needed", scopes=["not-a-scope"])
+    with pytest.raises(UsageError, match="pin source"):
+        service.auth_pin(source="not-a-source")
+
+
+def test_sign_with_is_refused_for_an_ungoverned_genesis(config: object) -> None:
+    with pytest.raises(UsageError, match="ungoverned"):
+        BrainService(config).init(sign_with=["SHA256:not-needed"])  # type: ignore[arg-type]
+
+
+def test_historical_auth_status_verifies_the_requested_snapshot(
+    config: object, source_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    party = Party()
+    monkeypatch.setattr("boltzmann.authenticity.AgentSigner", lambda _key: party)
+    service = BrainService(config)  # type: ignore[arg-type]
+    genesis = service.init(governed=True, sign_with=[party.public_key.fingerprint])["snapshot"]["digest"]
+    service.register(source_file, media_type="text/markdown")
+
+    from boltzmann.brain import Brain
+
+    monkeypatch.setattr(Brain, "verify", lambda brain: str(brain.snapshot().digest) == genesis)
+    assert service.auth_status(snapshot=genesis)["integrity"] is True
+    assert service.auth_status()["integrity"] is False

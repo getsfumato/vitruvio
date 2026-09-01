@@ -9,8 +9,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from boltzmann.authenticity import UnsignedPolicy
 
-from vitruvio.kernel import CredentialError, resolve
+from vitruvio.kernel import AuthenticitySpec, CredentialError, VitruvioError, resolve
 from vitruvio.runtime import BrainService, Capability
 from vitruvio.runtime.registry import (
     HUB_INDEX_HOSTS,
@@ -303,6 +304,24 @@ class TestLocalRoundTrip:
         consumer.pull(reference, tag="v1", local=registry_root)
         assert consumer.verify()["verified"] is True
         assert "canonical" in consumer.state()["installed"]
+
+    def test_pull_enforces_the_projects_authenticity_policy(self, published: tuple[Path, str], tmp_path: Path) -> None:
+        registry_root, reference = published
+        config = resolve(brain=tmp_path / "strict", actor_id="consumer@example.com", require_layout=False)
+        config = config.model_copy(
+            update={
+                "project": config.project.model_copy(
+                    update={"authenticity": AuthenticitySpec(unsigned=UnsignedPolicy.REFUSE)}
+                )
+            }
+        )
+        consumer = BrainService(config)
+        consumer.init()
+
+        with pytest.raises(VitruvioError) as caught:
+            consumer.pull(reference, tag="v1", local=registry_root)
+        assert caught.value.code == "AUTHENTICITY_FAILED"
+        assert consumer.state()["installed"] == []
 
     async def test_async_runtime_round_trips_without_owning_the_callers_loop(
         self, tmp_path: Path, source_file: Path
@@ -616,6 +635,19 @@ class TestWhatAPullReplaces:
         assert result["discarded"] > 0
         assert registered["block_id"] in result["discarded_blocks"]
         assert result["impact"]["certainty"] == "exact"
+
+    def test_pull_refuses_to_discard_local_work_without_allow_rollback(
+        self, consumer: BrainService, published: tuple[Path, str], mine: Path
+    ) -> None:
+        registry_root, reference = published
+        registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        before = consumer.state()["snapshot"]["digest"]
+
+        with pytest.raises(VitruvioError) as caught:
+            consumer.pull(reference, tag="v1", local=registry_root)
+        assert caught.value.code == "ROLLBACK_REFUSED"
+        assert consumer.state()["snapshot"]["digest"] == before
+        assert registered["block_id"] in consumer.module("canonical", limit=100)["block_ids"]
 
     def test_the_discarded_block_really_is_out_of_the_composition(
         self, consumer: BrainService, published: tuple[Path, str], mine: Path
