@@ -78,11 +78,11 @@ Print the per-module anatomy: roots, block counts, and which indices are registe
 
 Register canonical evidence.
 
-### `vitruvio source register` `path` `--media-type` `--origin` `--license-id` `--retention-policy` `--normalize-with`
+### `vitruvio source register` `path` `--media-type` `--origin` `--license` `--retention-policy` `--normalize-with`
 
 Register a source as canonical evidence.
 
-### `vitruvio source replace` `path` `--supersedes` *(required)* `--media-type` `--origin` `--license-id` `--normalize-with`
+### `vitruvio source replace` `path` `--supersedes` *(required)* `--media-type` `--origin` `--license` `--normalize-with`
 
 Register a newer edition and record that it supersedes an older block.
 
@@ -90,7 +90,7 @@ Register a newer edition and record that it supersedes an older block.
 
 Store bytes addressably without registering a canonical block.
 
-### `vitruvio source pull` `[name]` `--all-sources` `--dry-run` `--limit` `--refetch` `--option`
+### `vitruvio source pull` `[name]` `--all` `--dry-run` `--limit` `--refetch` `--option`
 
 Acquire from a declared source and register what is new as canonical evidence.
 
@@ -106,7 +106,7 @@ Every source kind this installation can construct, and where each came from.
 
 Write a starter plugin for a source kind vitruvio does not ship.
 
-### `vitruvio source add` `name` `--kind` *(required)* `--path` `--media-type` `--normalize-with` `--license-id` `--option`
+### `vitruvio source add` `name` `--kind` *(required)* `--path` `--media-type` `--normalize-with` `--license` `--option`
 
 Declare a source in vitruvio.toml.
 
@@ -178,7 +178,7 @@ Delete index files that no longer belong to a declared index.
 
 Retrieve evidence from the brain.
 
-### `vitruvio query search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--classes` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
+### `vitruvio query search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
 
@@ -190,7 +190,7 @@ Read one block by identity.
 
 Produce a verified Merkle inclusion proof for one block.
 
-### `vitruvio query explain` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--classes` `--include-superseded` `--mode` `--limit` `--expand-depth` `--analyze`
+### `vitruvio query explain` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--include-superseded` `--mode` `--limit` `--expand-depth` `--analyze`
 
 Show how a query would be answered, and what the alternatives cost.
 
@@ -230,15 +230,15 @@ Declare a classification scheme.
 
 Declare a class, optionally below existing ``scheme/label`` classes.
 
-### `vitruvio catalog place` `source` `classes` `--dry-run`
+### `vitruvio catalog place` `source` `--class` *(required)* `--dry-run`
 
 Place one canonical block in one or more ``scheme/label`` classes.
 
-### `vitruvio catalog browse` `classes`
+### `vitruvio catalog browse` `--class` *(required)*
 
 Browse the intersection of one or more classes, descendants included.
 
-### `vitruvio catalog path` `schemes` `[path]`
+### `vitruvio catalog path` `--scheme` *(required)* `[path]`
 
 List a virtual path using the requested scheme order.
 
@@ -510,7 +510,7 @@ Print a completion script for bash, zsh or fish.
 
 Measure recall and latency against a corpus with known answers.
 
-### `vitruvio bench corpus` `path` `--tier` `--seed` `--queries`
+### `vitruvio bench corpus` `--into` *(required)* `--tier` `--seed` `--queries`
 
 Write a generated corpus to disk and keep it.
 
@@ -518,6 +518,6 @@ Write a generated corpus to disk and keep it.
 
 Check for a newer vitruvio, and install it.
 
-## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--classes` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
+## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.

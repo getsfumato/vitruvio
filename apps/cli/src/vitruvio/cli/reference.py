@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, get_args, get_origin, get_type_hints
 
-from cyclopts import App
+from cyclopts import App, Parameter
 
 from vitruvio.cli.main import app
 
@@ -79,17 +79,29 @@ def _parameters(function: Any) -> list[str]:
     """
     try:
         signature = inspect.signature(function)
+        hints = get_type_hints(function, include_extras=True)
     except (TypeError, ValueError):  # pragma: no cover - a builtin would not reach here
         return []
 
     entries: list[str] = []
     for name, parameter in signature.parameters.items():
         flag = name.rstrip("_").replace("_", "-")
+        explicit_option: str | None = None
+        annotation = hints.get(name, parameter.annotation)
+        if get_origin(annotation) is Annotated:
+            for metadata in get_args(annotation)[1:]:
+                if isinstance(metadata, Parameter) and metadata.name:
+                    names = tuple(metadata.name)
+                    explicit_option = next(
+                        (item for item in names if item.startswith("--")),
+                        names[0],
+                    )
+                    break
         if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
             entries.append(f"`{flag}...`")
-        elif parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+        elif parameter.kind is inspect.Parameter.KEYWORD_ONLY or explicit_option is not None:
             required = "" if parameter.default is not inspect.Parameter.empty else " *(required)*"
-            entries.append(f"`--{flag}`{required}")
+            entries.append(f"`{explicit_option or f'--{flag}'}`{required}")
         elif parameter.default is inspect.Parameter.empty:
             entries.append(f"`{flag}`")
         else:

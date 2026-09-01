@@ -606,11 +606,8 @@ class Executor:
         classes = self.query.filters.classes
         if not classes:
             return None
-        try:
-            catalog = Catalog(self.modules)
-            sets = [catalog.sources_for(class_id) for class_id in classes]
-        except Exception:
-            return frozenset()
+        catalog = Catalog(self.modules)
+        sets = [catalog.sources_for(class_id) for class_id in classes]
         return frozenset(set.intersection(*sets) if sets else set())
 
     def _matches_catalog(self, block_id: BlockId, block: Any) -> bool:

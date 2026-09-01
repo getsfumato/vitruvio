@@ -124,7 +124,8 @@ class CatalogOps:
         with translated():
             typed = CatalogManifest.model_validate(manifest)
         brain = self.session.brain(Capability.INSPECT)
-        catalog = Catalog(brain.modules())
+        with translated():
+            catalog = Catalog(brain.modules())
         declarations: list[Any] = []
         declared: dict[str, BlockId] = {}
 
@@ -137,23 +138,24 @@ class CatalogOps:
                 raise UsageError(f"catalog manifest declares {reference!r} more than once")
             declared[reference] = declaration.block_id
             declarations.append(declaration)
-        for item in typed.classes:
-            narrower = declared[self._reference(item.scheme, item.label)]
-            declarations.extend(
-                HierarchyDeclaration(
-                    broader=self._class_id(catalog, broader, declared),
-                    narrower=narrower,
+        with translated():
+            for item in typed.classes:
+                narrower = declared[self._reference(item.scheme, item.label)]
+                declarations.extend(
+                    HierarchyDeclaration(
+                        broader=self._class_id(catalog, broader, declared),
+                        narrower=narrower,
+                    )
+                    for broader in item.broader
                 )
-                for broader in item.broader
-            )
-        for placement in typed.placements:
-            declarations.extend(
-                PlacementDeclaration(
-                    source=placement.source,
-                    class_id=self._class_id(catalog, reference, declared),
+            for placement in typed.placements:
+                declarations.extend(
+                    PlacementDeclaration(
+                        source=placement.source,
+                        class_id=self._class_id(catalog, reference, declared),
+                    )
+                    for reference in placement.classes
                 )
-                for reference in placement.classes
-            )
         if not declarations:
             raise UsageError("catalog manifest contains no declarations")
 

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from vitruvio.kernel import VitruvioError
 from vitruvio.runtime import BrainService
 
 
@@ -58,3 +61,20 @@ def test_query_class_references_filter_through_descendants(service: BrainService
 
     found = service.search("", classes=["topic/Science"], memory_types=["canonical"], limit=10)
     assert [match["block_id"] for match in found["matches"]] == [source]
+
+
+def test_unknown_manifest_class_references_are_translated(service: BrainService) -> None:
+    with pytest.raises(VitruvioError) as caught:
+        service.catalog_apply(
+            {
+                "schema": "vitruvio.catalog/v1",
+                "classes": [{"scheme": "topic", "label": "Child", "broader": ["missing/Parent"]}],
+            }
+        )
+    assert caught.value.code == "CATALOG_INVALID"
+
+
+def test_unknown_query_class_references_are_translated(service: BrainService) -> None:
+    with pytest.raises(VitruvioError) as caught:
+        service.search("", classes=["missing/Parent"])
+    assert caught.value.code == "CATALOG_INVALID"

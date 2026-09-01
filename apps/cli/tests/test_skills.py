@@ -128,6 +128,13 @@ class TestReference:
         assert "--error-formatter" not in document
         assert "--console" not in document
 
+    def test_parameter_name_overrides_match_the_actual_parser(self) -> None:
+        document = reference.render()
+        assert "`--class`" in document
+        assert "`--classes`" not in document
+        assert "`--scheme`" in document
+        assert "`--schemes`" not in document
+
 
 class TestCompletion:
     @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])

@@ -205,6 +205,64 @@ class TestFailures:
         assert code == ExitCode.CONFIG
         assert payload["error"]["code"] == "CONFIG_INVALID"
 
+    def test_catalog_rejection_exits_with_validation_status(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        brain = tmp_path / "brain"
+        envelope(capsys, "--brain", str(brain), "--actor", "tester@example.com", "brain", "init")
+        manifest = tmp_path / "catalog.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "schema": "vitruvio.catalog/v1",
+                    "classes": [{"scheme": "missing", "label": "Class"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        code, payload = envelope(
+            capsys,
+            "--brain",
+            str(brain),
+            "--actor",
+            "tester@example.com",
+            "catalog",
+            "apply",
+            str(manifest),
+        )
+        assert code == ExitCode.VALIDATION
+        assert payload["error"]["code"] == "CANDIDATES_REJECTED"
+        assert payload["data"]["clean"] is False
+
+    def test_existing_migration_report_is_refused_before_destination_is_created(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        brain = tmp_path / "source"
+        destination = tmp_path / "destination"
+        report = tmp_path / "report.json"
+        report.write_text("keep me", encoding="utf-8")
+        envelope(capsys, "--brain", str(brain), "--actor", "tester@example.com", "brain", "init")
+
+        code, payload = envelope(
+            capsys,
+            "--brain",
+            str(brain),
+            "--actor",
+            "tester@example.com",
+            "brain",
+            "migrate",
+            "--to",
+            str(destination),
+            "--no-governed",
+            "--report",
+            str(report),
+        )
+        assert code == ExitCode.CONFIG
+        assert payload["error"]["code"] == "CONFIG_INVALID"
+        assert report.read_text(encoding="utf-8") == "keep me"
+        assert not destination.exists()
+
     def test_an_unknown_flag_is_a_usage_error_not_a_crash(self, capsys: pytest.CaptureFixture[str]) -> None:
         code = main(["config", "show", "--nonsense"])
         assert code == ExitCode.USAGE

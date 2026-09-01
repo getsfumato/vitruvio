@@ -67,19 +67,19 @@ class RetrievalOps:
         from boltzmann.query.request import Query, QueryFilters, QueryHints, RetrievalMode
 
         brain = self.session.brain(Capability.RETRIEVE)
-        catalog = Catalog(brain.modules()) if classes else None
-        class_ids = []
-        for reference in classes or ():
-            scheme, separator, label = reference.partition("/")
-            if not separator or not scheme or not label:
-                raise VitruvioError(
-                    f"catalog class {reference!r} is not a scheme/label reference",
-                    hint="use the exact case-sensitive scheme and label",
-                )
-            assert catalog is not None
-            class_ids.append(catalog.class_id(scheme, label))
-
         with translated():
+            catalog = Catalog(brain.modules()) if classes else None
+            class_ids = []
+            for reference in classes or ():
+                scheme, separator, label = reference.partition("/")
+                if not separator or not scheme or not label:
+                    raise VitruvioError(
+                        f"catalog class {reference!r} is not a scheme/label reference",
+                        hint="use the exact case-sensitive scheme and label",
+                    )
+                assert catalog is not None
+                class_ids.append(catalog.class_id(scheme, label))
+
             return Query(
                 text=text,
                 filters=QueryFilters(

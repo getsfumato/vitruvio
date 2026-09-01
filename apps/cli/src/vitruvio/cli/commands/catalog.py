@@ -11,7 +11,7 @@ from cyclopts import App, Parameter
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
-from vitruvio.kernel import ExitCode, UsageError
+from vitruvio.kernel import CandidatesRejectedError, ExitCode, UsageError
 
 app = App(
     name="catalog",
@@ -49,6 +49,13 @@ def _emit_apply(document: dict[str, Any], *, dry_run: bool) -> ExitCode:
             ("not applied", len(rejected)),
         ]
     )
+    if not result["clean"]:
+        return console.fail(
+            "catalog.apply",
+            CandidatesRejectedError("one or more catalog declarations were rejected"),
+            data=result,
+            view=view,
+        )
     return console.emit("catalog.apply", result, view=view)
 
 
