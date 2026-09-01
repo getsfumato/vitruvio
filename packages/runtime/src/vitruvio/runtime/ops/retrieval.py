@@ -14,7 +14,7 @@ from typing import Any
 
 from boltzmann.query.request import Query
 
-from vitruvio.kernel import ResolvedConfig, VitruvioError
+from vitruvio.kernel import ResolvedConfig, UsageError, VitruvioError
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import block_id
@@ -73,7 +73,7 @@ class RetrievalOps:
             for reference in classes or ():
                 scheme, separator, label = reference.partition("/")
                 if not separator or not scheme or not label:
-                    raise VitruvioError(
+                    raise UsageError(
                         f"catalog class {reference!r} is not a scheme/label reference",
                         hint="use the exact case-sensitive scheme and label",
                     )

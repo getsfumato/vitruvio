@@ -101,7 +101,10 @@ def _parameters(function: Any) -> list[str]:
             entries.append(f"`{flag}...`")
         elif parameter.kind is inspect.Parameter.KEYWORD_ONLY or explicit_option is not None:
             required = "" if parameter.default is not inspect.Parameter.empty else " *(required)*"
-            entries.append(f"`{explicit_option or f'--{flag}'}`{required}")
+            option = explicit_option or f"--{flag}"
+            if annotation is bool and parameter.default is True and explicit_option is None:
+                option = f"--no-{flag}"
+            entries.append(f"`{option}`{required}")
         elif parameter.default is inspect.Parameter.empty:
             entries.append(f"`{flag}`")
         else:

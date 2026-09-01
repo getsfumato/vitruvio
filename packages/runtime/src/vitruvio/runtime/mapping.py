@@ -43,6 +43,7 @@ from boltzmann.exceptions import (
     SnapshotError,
     ValidationError,
 )
+from pydantic import ValidationError as PydanticValidationError
 
 from vitruvio.kernel import ExitCode, VitruvioError
 
@@ -71,6 +72,16 @@ class Report:
 # Ordered most specific first: the lookup walks it and takes the first match, so a subclass must precede its
 # base. `BoltzmannError` is last, as the catch-all that guarantees no SDK exception escapes unmapped.
 _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
+    (
+        PydanticValidationError,
+        Report(
+            "USAGE",
+            ExitCode.USAGE,
+            400,
+            retryable=False,
+            hint="repair the malformed fields in the supplied document and try again",
+        ),
+    ),
     (
         ActorIdError,
         Report(

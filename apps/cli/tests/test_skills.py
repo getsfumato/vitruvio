@@ -135,6 +135,12 @@ class TestReference:
         assert "`--scheme`" in document
         assert "`--schemes`" not in document
 
+    def test_true_boolean_defaults_document_the_effective_negative_flag(self) -> None:
+        document = reference.render()
+        migrate = next(line for line in document.splitlines() if "`vitruvio brain migrate`" in line)
+        assert "`--no-governed`" in migrate
+        assert "`--governed`" not in migrate
+
 
 class TestCompletion:
     @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])

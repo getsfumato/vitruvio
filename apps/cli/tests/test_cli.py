@@ -329,6 +329,36 @@ class TestConfigCommands:
 
 
 class TestBrainCommands:
+    def test_init_passes_global_assisted_by_to_the_service_config(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        class Service:
+            def __init__(self, config: object) -> None:
+                captured["config"] = config
+
+            def init(self, **_options: object) -> dict[str, object]:
+                return {"created": True, "brain": str(tmp_path / "brain"), "config_file": None}
+
+        monkeypatch.setattr("vitruvio.runtime.BrainService", Service)
+        brain = tmp_path / "brain"
+        code, _payload = envelope(
+            capsys,
+            "--brain",
+            str(brain),
+            "--actor",
+            "tester@example.com",
+            "--assisted-by",
+            "openai/codex",
+            "brain",
+            "init",
+        )
+
+        assert code == ExitCode.OK
+        config = captured["config"]
+        assert [item.id for item in config.project.assisted_by] == ["openai/codex"]
+
     def test_use_records_the_brain_and_later_commands_find_it(
         self, capsys: pytest.CaptureFixture[str], tmp_path: Path
     ) -> None:

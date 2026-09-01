@@ -54,7 +54,7 @@ List this project's brains, then the ones this machine remembers.
 
 Create a brain, and a vitruvio.toml beside it.
 
-### `vitruvio brain migrate` `--to` *(required)* `--governed` `--trust-root` `--sign-with` `--govern-quorum` `--allow-partial` `--dry-run` `--report` `--force-report`
+### `vitruvio brain migrate` `--to` *(required)* `--no-governed` `--trust-root` `--sign-with` `--govern-quorum` `--allow-partial` `--dry-run` `--report` `--force-report`
 
 Recreate a legacy brain's current accessible state under the current protocol.
 
@@ -330,7 +330,7 @@ Build the OCI artifact locally, without pushing.
 
 Publish the brain to a registry.
 
-### `vitruvio dist fetch` `[reference]` `--tag` `--module` `--reconcile` `--reason` `--anonymous` `--insecure` `--local`
+### `vitruvio dist fetch` `[reference]` `--tag` `--module` `--no-reconcile` `--reason` `--anonymous` `--insecure` `--local`
 
 Bring another history here without adopting it, and reconcile it when that decides nothing for you.
 

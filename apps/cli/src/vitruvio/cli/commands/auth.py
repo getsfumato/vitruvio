@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tomllib
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -11,6 +10,7 @@ from cyclopts import App, Parameter
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
+from vitruvio.cli.documents import load_document
 from vitruvio.kernel import ExitCode, UsageError
 
 app = App(
@@ -22,19 +22,7 @@ app = App(
 
 
 def _load(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise UsageError(f"auth document {path} is not a file")
-    try:
-        value = (
-            json.loads(path.read_text(encoding="utf-8"))
-            if path.suffix.lower() == ".json"
-            else tomllib.loads(path.read_text(encoding="utf-8"))
-        )
-    except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-        raise UsageError(f"auth document {path} could not be read: {error}") from error
-    if not isinstance(value, dict):
-        raise UsageError(f"auth document {path} must contain an object/table")
-    return value
+    return load_document(path, label="auth document")
 
 
 def _write(path: Path, value: dict[str, Any], *, force: bool) -> None:

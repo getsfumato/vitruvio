@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import tomllib
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -11,7 +9,8 @@ from cyclopts import App, Parameter
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
-from vitruvio.kernel import CandidatesRejectedError, ExitCode, UsageError
+from vitruvio.cli.documents import load_document
+from vitruvio.kernel import CandidatesRejectedError, ExitCode
 
 app = App(
     name="catalog",
@@ -22,18 +21,7 @@ app = App(
 
 
 def _load(path: Path) -> dict[str, Any]:
-    if not path.is_file():
-        raise UsageError(f"catalog manifest {path} is not a file")
-    try:
-        if path.suffix.lower() == ".json":
-            value = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            value = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-        raise UsageError(f"catalog manifest {path} could not be read: {error}") from error
-    if not isinstance(value, dict):
-        raise UsageError(f"catalog manifest {path} must contain an object/table")
-    return value
+    return load_document(path, label="catalog manifest")
 
 
 def _emit_apply(document: dict[str, Any], *, dry_run: bool) -> ExitCode:

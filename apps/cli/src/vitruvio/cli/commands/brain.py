@@ -9,7 +9,6 @@ import torch.
 from __future__ import annotations
 
 import json
-import tomllib
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -19,6 +18,7 @@ from rich.text import Text
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
+from vitruvio.cli.documents import load_document
 from vitruvio.kernel import (
     BrainNotFoundError,
     ConfigError,
@@ -36,19 +36,7 @@ def _auth_document(path: Path | None) -> dict[str, Any] | None:
     """Read a TOML or JSON trust-root document for init and migration."""
     if path is None:
         return None
-    if not path.is_file():
-        raise ConfigError(f"trust-root document {path} is not a file")
-    try:
-        value = (
-            json.loads(path.read_text(encoding="utf-8"))
-            if path.suffix.lower() == ".json"
-            else tomllib.loads(path.read_text(encoding="utf-8"))
-        )
-    except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
-        raise ConfigError(f"trust-root document {path} could not be read: {error}") from error
-    if not isinstance(value, dict):
-        raise ConfigError(f"trust-root document {path} must contain an object/table")
-    return value
+    return load_document(path, label="trust-root document", error_type=ConfigError)
 
 
 @app.command(name="use")
@@ -228,8 +216,10 @@ def init(
     config = resolve(
         brain=path or context.brain,
         config=context.config,
+        project=context.project,
         actor_id=context.actor_id,
         actor_kind=context.actor_kind,
+        assisted_by=context.assisted_by,
         require_layout=False,
     )
     if policy:

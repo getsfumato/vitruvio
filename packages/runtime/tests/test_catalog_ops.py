@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from vitruvio.kernel import VitruvioError
+from vitruvio.kernel import UsageError, VitruvioError
 from vitruvio.runtime import BrainService
 
 
@@ -78,3 +78,14 @@ def test_unknown_query_class_references_are_translated(service: BrainService) ->
     with pytest.raises(VitruvioError) as caught:
         service.search("", classes=["missing/Parent"])
     assert caught.value.code == "CATALOG_INVALID"
+
+
+def test_malformed_query_class_references_are_usage_errors(service: BrainService) -> None:
+    with pytest.raises(UsageError, match="scheme/label"):
+        service.search("", classes=["missing-slash"])
+
+
+def test_malformed_manifest_schema_is_a_stable_usage_error(service: BrainService) -> None:
+    with pytest.raises(VitruvioError) as caught:
+        service.catalog_apply({"schema": "vitruvio.catalog/v1", "schemes": [{"exclusive": True}]})
+    assert caught.value.code == "USAGE"
