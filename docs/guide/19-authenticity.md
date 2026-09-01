@@ -45,7 +45,7 @@ keys. It does not infer that a machine key belongs to a person.
 On first trusted contact, review the trust-root digest out of band and pin it:
 
 ```console
-vitruvio auth pin --source verified-out-of-band
+vitruvio auth pin --source out_of_band
 vitruvio auth status
 ```
 
@@ -62,6 +62,15 @@ allow_propose_head = false
 ```
 
 The default warns on unsigned brains so legacy data remains readable. It does not silently call it authentic.
+
+## Installation is gated before adoption
+
+`dist pull` retrieves the remote history into the content-addressed store, evaluates its detached records and only
+then decides whether to move the local head. An unsigned head follows the configured `unsigned` policy: `warn` and
+`permit` may install it as explicitly unauthenticated, while `refuse` rejects it. Once a signature is present, a
+head evaluated as `unauthorized` is refused before adoption. That makes `required_signatures`, trust-root authority
+and signing scope hard installation gates rather than warning-only diagnostics. The successful pull result includes
+the evaluated `authenticity` state; it never folds that state into integrity verification.
 
 ## Rotation and revocation
 

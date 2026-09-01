@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from boltzmann.authenticity import PinSource
+
 from vitruvio.cli.main import app
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -91,6 +93,19 @@ def test_the_documentation_offers_only_commands_that_exist() -> None:
                 broken.append(f"{document.relative_to(ROOT)}: vitruvio {' '.join(words)}")
 
     assert not broken, "documentation offers commands that do not exist:\n  " + "\n  ".join(sorted(set(broken)))
+
+
+def test_documented_pin_sources_are_protocol_values() -> None:
+    """Auth examples must use values accepted by the SDK enum rather than prose labels."""
+    broken: list[str] = []
+    pattern = re.compile(r"auth pin\b[^\n]*--source\s+([^\s`\\]+)")
+    for document in documents():
+        for source in pattern.findall(document.read_text(encoding="utf-8")):
+            try:
+                PinSource(source)
+            except ValueError:
+                broken.append(f"{document.relative_to(ROOT)}: {source}")
+    assert not broken, "documentation names invalid pin sources:\n  " + "\n  ".join(broken)
 
 
 def test_the_check_would_catch_a_broken_promise(tmp_path: Path) -> None:

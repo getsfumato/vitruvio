@@ -21,7 +21,8 @@ database.
 
 Authenticity uses `ssh-agent` exclusively. Private key paths and key bytes have no runtime or configuration field.
 Integrity and authenticity are reported independently. Trust-root pinning remains consumer-local, while rotation and
-revocation commit governed protocol revisions.
+revocation commit governed protocol revisions. Pull evaluates the remote head before adoption: unsigned heads follow
+the configured unsigned policy, while a signed `unauthorized` head is a hard refusal.
 
 Actors use the protocol's two canonical forms — lowercase address or namespaced name — for all new writes.
 `assisted_by` is a repeatable structured list and records the assisting actor, kind, display name and model in

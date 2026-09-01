@@ -76,7 +76,7 @@ Open the new path explicitly and perform all checks before changing any deployme
 vitruvio --brain ./brain-v09 brain verify
 vitruvio --brain ./brain-v09 auth status
 vitruvio --brain ./brain-v09 auth attribution
-vitruvio --brain ./brain-v09 auth pin --source migration-reviewed
+vitruvio --brain ./brain-v09 auth pin --source out_of_band
 vitruvio --brain ./brain-v09 index build
 ```
 

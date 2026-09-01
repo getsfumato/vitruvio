@@ -9,7 +9,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from boltzmann.authenticity import UnsignedPolicy
+from boltzmann.authenticity import AuthorshipState, UnsignedPolicy, VerificationPolicy
+from boltzmann.exceptions import AuthenticityError
 
 from vitruvio.kernel import AuthenticitySpec, CredentialError, VitruvioError, resolve
 from vitruvio.runtime import BrainService, Capability
@@ -321,6 +322,57 @@ class TestLocalRoundTrip:
         with pytest.raises(VitruvioError) as caught:
             consumer.pull(reference, tag="v1", local=registry_root)
         assert caught.value.code == "AUTHENTICITY_FAILED"
+        assert consumer.state()["installed"] == []
+
+    def test_pull_refuses_a_signed_unauthorized_head_before_adoption(
+        self,
+        published: tuple[Path, str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from boltzmann.brain import Brain
+
+        registry_root, reference = published
+        config = resolve(brain=tmp_path / "consumer", actor_id="consumer@example.com", require_layout=False)
+        config = config.model_copy(
+            update={
+                "project": config.project.model_copy(update={"authenticity": AuthenticitySpec(required_signatures=2)})
+            }
+        )
+        consumer = BrainService(config)
+        consumer.init()
+        observed_policy: VerificationPolicy | None = None
+        pull_called = False
+
+        class Unauthorized:
+            state = AuthorshipState.UNAUTHORIZED
+
+            @staticmethod
+            def require_authorized() -> None:
+                raise AuthenticityError("the signed remote head does not meet the consumer policy")
+
+        def authenticate(
+            _brain: Brain, _snapshot: object, *, policy: VerificationPolicy, stance: object
+        ) -> Unauthorized:
+            nonlocal observed_policy
+            observed_policy = policy
+            return Unauthorized()
+
+        async def pull(*args: object, **kwargs: object) -> object:
+            nonlocal pull_called
+            pull_called = True
+            raise AssertionError("brain.pull must not run after authenticity preflight refuses the head")
+
+        monkeypatch.setattr(Brain, "authenticate", authenticate)
+        monkeypatch.setattr(Brain, "pull", pull)
+
+        with pytest.raises(VitruvioError) as caught:
+            consumer.pull(reference, tag="v1", local=registry_root)
+
+        assert caught.value.code == "AUTHENTICITY_FAILED"
+        assert pull_called is False
+        assert observed_policy is not None
+        assert observed_policy.required_signatures == 2
         assert consumer.state()["installed"] == []
 
     async def test_async_runtime_round_trips_without_owning_the_callers_loop(
