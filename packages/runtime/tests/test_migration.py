@@ -107,7 +107,45 @@ def test_catalog_placements_whose_source_is_not_migrated_are_reported(
     replacement.write_text("# Replacement\n", encoding="utf-8")
     service.replace(replacement, supersedes=source, media_type="text/markdown")
 
-    result = service.migrate(tmp_path / "catalog-migration", governed=False)
+    destination = tmp_path / "catalog-migration"
+    plan = service.migrate(destination, governed=False, dry_run=True)
+
+    assert any("catalog placement source" in item["reason"] for item in plan["problems"])
+    with pytest.raises(UsageError, match="non-reproducible"):
+        service.migrate(destination, governed=False)
+
+    result = service.migrate(destination, governed=False, allow_partial=True)
 
     assert any("catalog placement source" in item["reason"] for item in result["skipped"])
     assert result["partial"] is True
+
+
+def test_partial_migration_preflights_canonical_identity_before_installing(
+    service: BrainService,
+    source_file: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = service.register(source_file, media_type="text/markdown")["block_id"]
+
+    from boltzmann.brain import Brain
+    from boltzmann.identity.digest import BlockId
+    from boltzmann.ingest.register import RegistrationResult
+
+    recreated = BlockId.parse(f"sha256:{'0' * 64}")
+    calls = 0
+
+    def drifted_register(_brain: Brain, _data: bytes, _request: object) -> RegistrationResult:
+        nonlocal calls
+        calls += 1
+        return RegistrationResult(block_id=recreated)
+
+    monkeypatch.setattr(Brain, "register", drifted_register)
+    destination = tmp_path / "identity-drift"
+
+    result = service.migrate(destination, governed=False, allow_partial=True)
+
+    assert calls == 1, "identity drift must be detected in the disposable preview before target.register"
+    assert any(item["block"] == source and "would be recreated" in item["reason"] for item in result["skipped"])
+    migrated = BrainService(resolve(brain=destination, actor_id="tester@example.com"))
+    assert "canonical" not in migrated.state()["installed"]

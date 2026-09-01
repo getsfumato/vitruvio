@@ -59,6 +59,7 @@ class MigrationOps:
         excluded: list[dict[str, str]] = []
         counts: dict[str, int] = {}
         catalog = 0
+        catalog_declarations: list[Any] = []
         legacy_actors: set[str] = set()
         reproducible: set[BlockId] = set()
         derived: dict[BlockId, tuple[MemoryType, list[BlockId]]] = {}
@@ -89,8 +90,10 @@ class MigrationOps:
                 if any(not source.store.is_resolvable(digest) for digest in block.content_digests):
                     problems.append({"block": str(identity), "reason": "one or more content blobs are not resolvable"})
                     continue
-                if memory_type is MemoryType.SEMANTIC and declaration_from_block(block) is not None:
+                declaration = declaration_from_block(block) if memory_type is MemoryType.SEMANTIC else None
+                if declaration is not None:
                     catalog += 1
+                    catalog_declarations.append(declaration)
                     continue
                 if memory_type is MemoryType.CANONICAL:
                     if not isinstance(block, CanonicalBlock):
@@ -127,6 +130,14 @@ class MigrationOps:
                     "reason": f"evidence dependencies are not reproducible: {missing}",
                 }
             )
+        for declaration in catalog_declarations:
+            if isinstance(declaration, PlacementDeclaration) and declaration.source not in reproducible:
+                problems.append(
+                    {
+                        "block": str(declaration.block_id),
+                        "reason": f"catalog placement source {declaration.source} is not reproducible",
+                    }
+                )
         return {
             "source_snapshot": str(source.snapshot().digest),
             "verified": source.verify(),
@@ -234,6 +245,10 @@ class MigrationOps:
                 write_config=False,
             )
             target = writes.enter_context(destination_session.write())
+            preview_config = destination_config.model_copy(update={"brain": Path(temporary) / "preview"})
+            preview_session = BrainSession(preview_config)
+            LifecycleOps(preview_session).init(governed=False, write_config=False)
+            preview = writes.enter_context(preview_session.write())
 
             canonical = source_modules.get(MemoryType.CANONICAL)
             if canonical is not None:
@@ -248,31 +263,42 @@ class MigrationOps:
                         continue
                     metadata = registrations.get(identity)
                     normalization = normalizations.get(identity)
+                    request = RegistrationRequest(
+                        media_type=block.media_type,
+                        actor=destination_config.actor(),
+                        origin=metadata.origin if metadata else f"migration:{plan['source_snapshot']}",
+                        license=metadata.license if metadata else None,
+                        retention_policy=metadata.retention_policy if metadata else None,
+                        normalize_with=normalization.pipeline if normalization else None,
+                    )
                     try:
-                        result = target.register(
-                            source.store.get_bytes(block.blob),
-                            RegistrationRequest(
-                                media_type=block.media_type,
-                                actor=destination_config.actor(),
-                                origin=metadata.origin if metadata else f"migration:{plan['source_snapshot']}",
-                                license=metadata.license if metadata else None,
-                                retention_policy=metadata.retention_policy if metadata else None,
-                                normalize_with=normalization.pipeline if normalization else None,
-                            ),
+                        data = source.store.get_bytes(block.blob)
+                        preview_result = preview.register(data, request)
+                    except Exception as error:
+                        skipped.append({"block": str(identity), "reason": f"registration preflight failed: {error}"})
+                        if not allow_partial:
+                            raise UsageError(f"canonical block {identity} could not be recreated: {error}") from error
+                        continue
+                    if preview_result.block_id != identity:
+                        reason = (
+                            f"would be recreated as {preview_result.block_id}; normalization no longer reproduces "
+                            "the original identity"
                         )
+                        skipped.append({"block": str(identity), "reason": reason})
+                        if not allow_partial:
+                            raise UsageError(f"canonical block {identity} {reason}")
+                        continue
+                    try:
+                        result = target.register(data, request)
                     except Exception as error:
                         skipped.append({"block": str(identity), "reason": f"registration failed: {error}"})
                         if not allow_partial:
                             raise UsageError(f"canonical block {identity} could not be recreated: {error}") from error
                         continue
                     if result.block_id != identity:
-                        reason = (
-                            f"recreated as {result.block_id}; normalization no longer reproduces the original identity"
+                        raise VitruvioError(
+                            f"canonical block {identity} passed preflight but was recreated as {result.block_id}"
                         )
-                        skipped.append({"block": str(identity), "reason": reason})
-                        if not allow_partial:
-                            raise UsageError(f"canonical block {identity} {reason}")
-                        continue
                     migrated.add(identity)
                     preserved.append(str(identity))
 
