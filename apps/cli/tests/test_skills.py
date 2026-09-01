@@ -31,6 +31,11 @@ EXPECTED = {
     "vitruvio-compound",
 }
 
+CREATION_SKILLS = (
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-cli" / "SKILL.md",
+)
+
 
 def envelope(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[str, Any]]:
     """Invoke the CLI in JSON mode and parse the single object it printed."""
@@ -67,6 +72,25 @@ class TestSkillsArePresent:
             for document in [skill / "SKILL.md", *(skill / "references").glob("*.md")]:
                 text = document.read_text(encoding="utf-8")
                 assert '"answer"' not in text, document
+
+    @pytest.mark.parametrize("skill", CREATION_SKILLS)
+    def test_brain_creation_requires_an_explicit_governance_choice(self, skill: Path) -> None:
+        """Neither init's nor migration's opposite default may silently choose the new brain's trust posture."""
+        text = skill.read_text(encoding="utf-8")
+        normalized = " ".join(text.split())
+        assert "governed" in normalized
+        assert "ungoverned" in normalized
+        assert "Offer exactly those two" in normalized
+        assert "do not recommend or select a default" in normalized
+        assert "do not create anything until the user answers" in normalized
+        assert "personal, shared, public" in normalized
+        assert "defaults to ungoverned" in normalized
+        assert "migration defaults to governed" in normalized
+        assert "public key" in normalized
+        assert "private key" in normalized
+        assert "quorum" in normalized
+        for scope in ("ingest", "commit", "drop:canonical", "redact", "govern", "propose"):
+            assert f"`{scope}`" in normalized
 
 
 class TestInstall:

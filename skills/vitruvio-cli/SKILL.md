@@ -87,6 +87,22 @@ better than passing flags every time.
 | `brain history` | the snapshot chain, newest first |
 | `brain migrate --to PATH` | temporary one-way recreation of a legacy brain. Dry-run first; destination must not exist |
 
+Before running `brain init` or creating a migration destination, ask the user to choose **governed** or
+**ungoverned** in the user's language while keeping those two protocol terms visible. Offer exactly those two choices:
+do not rename them as personal, shared, public, or similar categories; do not recommend or select a default; and do
+not create anything until the user answers. Init defaults to ungoverned and migration defaults to governed, but those
+defaults must never infer the user's choice because governance cannot be added to the same genesis later.
+
+- For ungoverned init, omit `--governed`; for ungoverned migration, pass `--no-governed` explicitly.
+- For governed creation, ask which Ed25519 public keys to trust, the canonical actor subject and scopes for each key,
+  the governance quorum, and which fingerprints in `ssh-agent` will sign the genesis. Never request a private key.
+- Use repeated `--sign-with` without a trust-root file only after the user accepts that the concise form grants every
+  scope to every supplied key. Use `--trust-root FILE` for different subjects or permissions.
+
+Signing scopes are `ingest`, `commit`, `drop:canonical`, `redact`, `govern`, and `propose`. They authorize snapshots
+for consumers; they are not local write ACLs. Filesystem permissions control who can alter a local layout, retention
+policy controls permitted removals, and registry credentials control who can publish.
+
 ### `source` — evidence in, by hand or declared
 | command | for |
 |---|---|
