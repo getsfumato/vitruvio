@@ -435,10 +435,7 @@ def history(*, limit: int | None = None, graph: bool = False) -> ExitCode:
     elif not result["snapshots"]:
         view = render.empty("No snapshots yet. A brain with no canonical evidence has no version to retain.")
     else:
-        table = render.table("snapshot", "created", ("blocks", "right"))
-        for item in result["snapshots"]:
-            table.add_row(render.digest(item["digest"]), item["created_at"], str(item["block_count"]))
-        view = table
+        view = render.history_table(result)
     return console.emit("brain.history", result, view=view)
 
 

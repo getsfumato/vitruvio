@@ -108,10 +108,16 @@ class AuthorshipAudit:
         return payload
 
     def snapshots(self) -> dict[str, Snapshot]:
-        """Every reachable and resolvable snapshot, including merged-in history."""
+        """Every resolvable retained or reachable snapshot, including discarded branches."""
         if self._snapshots is not None:
             return self._snapshots
         found: dict[str, Snapshot] = {}
+        # Retention and ancestry are different dimensions. A deliberate rollback moves HEAD to an ancestor while
+        # retaining the snapshot that held the discarded local work, so reachable_history() alone would erase the
+        # very audit row that makes the rollback recoverable. Start from the SDK's ordered retained roots, then add
+        # every merged-in ancestor reachable from the current head.
+        for snapshot in self.brain.history():
+            found[str(snapshot.digest)] = snapshot
         reachable = self.brain.reachable_history()
         if not reachable:
             self._snapshots = found

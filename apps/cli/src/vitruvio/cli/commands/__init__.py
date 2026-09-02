@@ -88,3 +88,4 @@ def register(app: App) -> None:
     # `vitruvio search TEXT` as a top-level alias for `vitruvio query search`. It is the single most-typed
     # command, and an agent driving this through a skill should not spend a token on the group name.
     app.command(query.search, name="search")
+    app.command(brain.history, name="history")

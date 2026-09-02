@@ -68,6 +68,14 @@ def status(*, snapshot: str | None = None, offered: bool = False) -> ExitCode:
     )
 
 
+@app.command(name="trust-root")
+def trust_root(*, snapshot: str | None = None) -> ExitCode:
+    """Show the trust root, authorized keys, permissions, validity, and consumer pin."""
+    console = current().console
+    result = current().service().auth_trust_root(snapshot=snapshot)
+    return console.emit("auth.trust_root", result, view=render.trust_root(result))
+
+
 @app.command(name="sign")
 def sign(
     key: str,

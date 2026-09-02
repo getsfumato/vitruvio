@@ -29,6 +29,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from vitruvio.cli.render import brand
+
 MEMORY_STYLES = {
     "canonical": "canonical",
     "episodic": "episodic",
@@ -44,26 +46,27 @@ THEME = Theme(
         # Structure.
         "label": "dim",
         "value": "default",
-        "heading": "bold",
+        "heading": f"bold {brand.GOLD}",
         "muted": "dim",
-        "digest": "dim cyan",
+        "digest": brand.GOLD_DIM,
         "count": "bold",
         # Verdicts. Three states, and the third one matters: a degraded answer that looks like a clean one is
         # the failure mode the whole output contract exists to prevent.
-        "ok": "green",
-        "bad": "bold red",
-        "warn": "yellow",
+        "ok": brand.SUCCESS,
+        "bad": f"bold {brand.ERROR}",
+        "warn": brand.WARNING,
+        "info": brand.INFO,
         # The five modules.
-        "canonical": "blue",
-        "episodic": "magenta",
-        "semantic": "cyan",
-        "procedural": "green",
-        "provenance": "yellow",
+        "canonical": brand.GOLD,
+        "episodic": brand.ERROR,
+        "semantic": brand.INFO,
+        "procedural": brand.SUCCESS,
+        "provenance": brand.GOLD_DIM,
         # Evidence.
         "score": "bold",
-        "flag": "yellow",
+        "flag": brand.WARNING,
         # Rich's own table furniture, toned down so a header never competes with a value.
-        "table.header": "bold dim",
+        "table.header": f"bold {brand.IVORY_DIM}",
         "table.footer": "dim",
     }
 )

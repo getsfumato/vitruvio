@@ -225,7 +225,10 @@ class LifecycleOps:
 
             audit = AuthorshipAudit(brain, policy=self.config.project.authenticity.build())
             resolved = list(audit.snapshots().values())
-            resolved.sort(key=lambda item: (str(item.created_at), str(item.digest)), reverse=True)
+            head = str(brain.snapshot().digest)
+            resolved.sort(
+                key=lambda item: (str(item.digest) == head, str(item.created_at), str(item.digest)), reverse=True
+            )
             # The two answer different questions and a reader needs both to make sense of the list. `ancestry` is
             # the first-parent chain -- what the protocol reads as *what this brain is*, and what an audit walks.
             # `reachable` is containment across every parent, which is what a fast-forward check asks: a merged-in
@@ -233,7 +236,6 @@ class LifecycleOps:
             # being *a* parent of something retained does not put a snapshot on either.
             chain = [str(digest) for digest in brain.ancestry()]
             reachable = sorted(str(digest) for digest in brain.reachable_history())
-            head = str(brain.snapshot().digest)
             rows: list[dict[str, Any]] = []
             for snapshot in resolved:
                 participants = audit.participants(snapshot)

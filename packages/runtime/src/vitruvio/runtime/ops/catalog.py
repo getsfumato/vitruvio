@@ -132,6 +132,7 @@ class CatalogOps:
                 for label, class_id in catalog.classes_in(scheme):
                     browsed = catalog.browse(class_id).nodes[0]
                     direct = [str(source) for source in browsed.direct_sources]
+                    effective = [str(source) for source in browsed.sources]
                     placed.update(direct)
                     nodes[str(class_id)] = {
                         "class_id": str(class_id),
@@ -140,7 +141,8 @@ class CatalogOps:
                         "broader": [str(item) for item in browsed.broader],
                         "narrower": [str(item) for item in browsed.narrower],
                         "direct_sources": [row_by_id.get(source, {"block_id": source}) for source in direct],
-                        "effective_source_count": len(browsed.sources),
+                        "effective_sources": [row_by_id.get(source, {"block_id": source}) for source in effective],
+                        "effective_source_count": len(effective),
                     }
 
                 def branch(

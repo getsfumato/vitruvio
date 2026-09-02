@@ -121,6 +121,19 @@ class TestBrainReads:
         _, payload = envelope(capsys, "--brain", str(brain), "brain", "history")
         assert payload["data"]["snapshots"] == []
 
+    def test_history_has_a_top_level_alias(self, capsys: pytest.CaptureFixture[str], brain: Path) -> None:
+        _, payload = envelope(capsys, "--brain", str(brain), "history")
+        assert payload["command"] == "brain.history"
+        assert payload["data"]["snapshots"] == []
+
+    def test_trust_root_and_catalog_keep_machine_readable_envelopes(
+        self, capsys: pytest.CaptureFixture[str], brain: Path
+    ) -> None:
+        _, trust = envelope(capsys, "--brain", str(brain), "auth", "trust-root")
+        _, catalog = envelope(capsys, "--brain", str(brain), "catalog")
+        assert trust["data"]["governed"] is False
+        assert catalog["data"]["schema"] == "vitruvio.catalog/tree-v1"
+
     def test_info_warns_that_nothing_semantic_will_be_published(
         self, capsys: pytest.CaptureFixture[str], brain: Path
     ) -> None:
@@ -322,6 +335,32 @@ class TestHumanRendering:
         _, out, _ = run(capsys, "--brain", str(brain), "brain", "state")
         assert "canonical" in out
         assert "provenance" in out
+
+    def test_trust_root_uses_a_rich_empty_state(self, capsys: pytest.CaptureFixture[str], brain: Path) -> None:
+        code, out, _ = run(capsys, "--brain", str(brain), "auth", "trust-root")
+        assert code == ExitCode.OK
+        assert "trust root" in out
+        assert "ungoverned" in out
+        assert not out.lstrip().startswith("{")
+
+    def test_catalog_default_draws_sources_as_a_tree(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path
+    ) -> None:
+        envelope(capsys, "--brain", str(brain), "source", "register", str(source))
+        code, out, _ = run(capsys, "--brain", str(brain), "catalog")
+        assert code == ExitCode.OK
+        assert "catalog" in out
+        assert "unclassified" in out
+        assert "fourier.md" in out
+
+    def test_history_human_view_includes_actor_and_authenticity(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path
+    ) -> None:
+        envelope(capsys, "--brain", str(brain), "source", "register", str(source))
+        code, out, _ = run(capsys, "--brain", str(brain), "history")
+        assert code == ExitCode.OK
+        assert "tester@exam" in out
+        assert "unsigned" in out
 
     def test_verify_failure_exits_with_the_protocol_code(
         self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path

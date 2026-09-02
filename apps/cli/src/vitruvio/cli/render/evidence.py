@@ -514,7 +514,7 @@ def graph(snapshots: Sequence[Mapping[str, Any]], *, ancestry: Sequence[str] = (
         return [theme.empty("No snapshots yet. A brain with no canonical evidence has no version to retain.")]
 
     trunk = set(ancestry)
-    rows = theme.table("", "snapshot", "created", ("blocks", "right"), "joined")
+    rows = theme.table("", "snapshot", "created", "actor", "auth", ("blocks", "right"), "joined")
     for item in snapshots:
         digest_value = str(item.get("digest", ""))
         parents = item.get("parents") or []
@@ -526,10 +526,16 @@ def graph(snapshots: Sequence[Mapping[str, Any]], *, ancestry: Sequence[str] = (
         else:
             # Reachable, off the first-parent chain. Someone else's version, kept because a merge named it.
             glyph = Text("o", style="muted")
+        actors = item.get("actors") or ()
+        actor = ", ".join(str(value.get("id", "unknown")) for value in actors) or "unknown"
+        state = str(item.get("authenticity") or "unknown")
+        auth_style = "ok" if state == "authorized" else "bad" if state == "unauthorized" else "warn" if state == "unsigned" else "muted"
         rows.add_row(
             glyph,
             theme.digest(digest_value),
             str(item.get("created_at", "-")),
+            Text(actor, style="value" if actors else "muted"),
+            Text(state, style=auth_style),
             str(item.get("block_count", 0)),
             Text(", ".join(theme.short(parent) for parent in parents[1:]) or "", style="muted"),
         )
