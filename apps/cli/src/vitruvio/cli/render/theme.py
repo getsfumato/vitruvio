@@ -178,6 +178,28 @@ def verdict(ok: bool, *, yes: str = "yes", no: str = "no") -> Text:
     return Text(yes, style="ok") if ok else Text(no, style="bad")
 
 
+def authenticity(value: Any) -> Text:
+    """Keep every authenticity view on the same policy-state vocabulary and palette."""
+    state = str(value or "unknown")
+    style = {
+        "authorized": "ok",
+        "unsigned": "warn",
+        "attributable": "info",
+        "unauthorized": "bad",
+        "unknown": "muted",
+    }.get(state, "muted")
+    return Text(state, style=style)
+
+
+def identity_state(value: bool | None) -> Text:
+    """Render the three-valued identity verdict without collapsing unknown into asserted."""
+    if value is True:
+        return Text("verified", style="ok")
+    if value is False:
+        return Text("asserted", style="warn")
+    return Text("unknown", style="muted")
+
+
 def table(*columns: str | tuple[str, str], box: Any = SIMPLE, title: str | None = None) -> Table:
     """
     A table in the house style.

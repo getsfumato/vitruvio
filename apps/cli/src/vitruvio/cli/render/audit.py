@@ -12,41 +12,31 @@ from rich.tree import Tree
 from vitruvio.cli.render import theme
 
 
-def authenticity(value: Any) -> Text:
-    """Style an authenticity state while keeping the state in text."""
-    state = str(value or "unknown")
-    style = {
-        "authorized": "ok",
-        "unsigned": "warn",
-        "attributable": "info",
-        "unauthorized": "bad",
-        "unknown": "muted",
-    }.get(state, "muted")
-    return Text(state, style=style)
-
-
 def creator(authorship: Mapping[str, Any] | None) -> tuple[Text, Text]:
-    """The compact creator and verification cells used by both CLI and TUI tables."""
+    """Aggregate every creation claim so list views never privilege storage order as the creator."""
+    if authorship and authorship.get("applicable") is False:
+        return Text("not applicable", style="muted"), Text("not applicable", style="muted")
     claims = list((authorship or {}).get("claims") or ())
     if not claims:
         return Text("unknown", style="muted"), Text("unknown", style="muted")
-    first = claims[0]
-    actor = first.get("actor") or {}
-    label = str(actor.get("id") or "unknown")
-    if len(claims) > 1:
-        label += f" +{len(claims) - 1}"
-    verified = first.get("actor_verified")
-    if verified is True:
-        state = Text("verified", style="ok")
-    elif verified is False:
-        state = Text("asserted", style="warn")
-    else:
-        state = Text("unknown", style="muted")
-    return Text(label), state
+    actors = sorted(
+        {str(actor.get("id") or "unknown") for claim in claims if isinstance((actor := claim.get("actor")), Mapping)}
+    )
+    states = [claim.get("actor_verified") for claim in claims]
+    aggregate = (
+        True
+        if states and all(state is True for state in states)
+        else False
+        if any(state is False for state in states)
+        else None
+    )
+    return Text(", ".join(actors) or "unknown"), theme.identity_state(aggregate)
 
 
 def authorship(data: Mapping[str, Any] | None) -> list[RenderableType]:
-    """Render every creation claim and the snapshot evidence behind it."""
+    """Keep absence, inapplicability, and incomplete evidence visibly distinct."""
+    if data and data.get("applicable") is False:
+        return [theme.empty("Authorship is not applicable to provenance evidence records.")]
     if not data or not data.get("claims"):
         complete = bool(data and data.get("complete"))
         message = "No creation provenance names this block." if complete else "Creation provenance is incomplete."
@@ -57,13 +47,7 @@ def authorship(data: Mapping[str, Any] | None) -> list[RenderableType]:
         actor = claim.get("actor") or {}
         assisted = claim.get("assisted_by") or []
         actor_state = claim.get("actor_verified")
-        verified = (
-            Text("verified", style="ok")
-            if actor_state is True
-            else Text("asserted", style="warn")
-            if actor_state is False
-            else Text("unknown", style="muted")
-        )
+        verified = theme.identity_state(actor_state)
         parts.append(
             theme.fields(
                 [
@@ -76,7 +60,7 @@ def authorship(data: Mapping[str, Any] | None) -> list[RenderableType]:
                     ),
                     ("provenance", theme.digest(claim.get("provenance"), full=True)),
                     ("snapshot", theme.digest(claim.get("snapshot"), full=True)),
-                    ("snapshot auth", authenticity(claim.get("snapshot_authenticity"))),
+                    ("snapshot auth", theme.authenticity(claim.get("snapshot_authenticity"))),
                     ("signature subjects", ", ".join(claim.get("signature_subjects") or ()) or "(none)"),
                     ("trust root", theme.digest(claim.get("trust_root"), full=True)),
                     ("pinned", theme.verdict(bool(claim.get("pinned")))),
@@ -90,7 +74,7 @@ def authorship(data: Mapping[str, Any] | None) -> list[RenderableType]:
 
 
 def source_rows(rows: Sequence[Mapping[str, Any]]) -> RenderableType:
-    """Canonical source rows with human names and stable identities."""
+    """Keep recorded names beside stable identities so catalog labels never become evidence identities."""
     if not rows:
         return theme.empty("No canonical sources.")
     table = theme.table("source", "media type", "creator", "identity", "block")
@@ -106,8 +90,8 @@ def source_rows(rows: Sequence[Mapping[str, Any]]) -> RenderableType:
     return table
 
 
-def catalog(data: Mapping[str, Any]) -> Tree:
-    """Draw the portable class hierarchy as folders and sources as leaves."""
+def catalog_tree(data: Mapping[str, Any]) -> Tree:
+    """Preserve hierarchy in the terminal because flattening it hides inherited placements."""
     root = Tree(Text("catalog", style="heading"), guide_style="muted")
 
     def add_class(parent: Tree, node: Mapping[str, Any]) -> None:
@@ -143,12 +127,12 @@ def catalog(data: Mapping[str, Any]) -> Tree:
 
 
 def trust_root(data: Mapping[str, Any]) -> list[RenderableType]:
-    """Draw governance as a summary followed by a key-permission tree."""
+    """Place consumer pinning beside governance so trust is never inferred from authorized keys alone."""
     summary = theme.fields(
         [
             ("snapshot", theme.digest(data.get("snapshot"), full=True)),
             ("governed", theme.verdict(bool(data.get("governed")))),
-            ("authenticity", authenticity(data.get("authenticity"))),
+            ("authenticity", theme.authenticity(data.get("authenticity"))),
             ("pinned", theme.verdict(bool(data.get("pinned")))),
         ],
         title="trust root",
@@ -181,9 +165,9 @@ def trust_root(data: Mapping[str, Any]) -> list[RenderableType]:
     return theme.stack(summary, "", keys)
 
 
-def history(data: Mapping[str, Any]) -> RenderableType:
-    """Draw the enriched audit fields for every reachable snapshot."""
-    snapshots = data.get("snapshots") or ()
+def history_table(data: Mapping[str, Any]) -> RenderableType:
+    """Draw the audit log rather than the compatibility-only retained snapshot envelope."""
+    snapshots = data.get("commits") or ()
     if not snapshots:
         return theme.empty("No snapshots yet. A brain with no canonical evidence has no version to retain.")
     table = theme.table("", "snapshot", "created", "actor", "auth", "integrity", ("blocks", "right"))
@@ -197,7 +181,7 @@ def history(data: Mapping[str, Any]) -> RenderableType:
             theme.digest(item.get("digest")),
             str(item.get("created_at") or "unresolved"),
             Text(actor, style="value" if actors else "muted"),
-            authenticity(item.get("authenticity")),
+            theme.authenticity(item.get("authenticity")),
             Text("ok", style="ok")
             if integrity is True
             else Text("failed", style="bad")
@@ -208,4 +192,4 @@ def history(data: Mapping[str, Any]) -> RenderableType:
     return table
 
 
-__all__ = ["authenticity", "authorship", "catalog", "creator", "history", "source_rows", "trust_root"]
+__all__ = ["authorship", "catalog_tree", "creator", "history_table", "source_rows", "trust_root"]

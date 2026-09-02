@@ -56,6 +56,58 @@ def service_for(brain: Path) -> Any:
     return BrainService(resolve(brain=brain))
 
 
+def governed_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, str]:
+    """A real governed service whose only substituted boundary is the operating system's SSH agent."""
+    from boltzmann.authenticity import SshPublicKey, rfc4253_signature
+
+    from vitruvio.kernel import resolve
+    from vitruvio.runtime import BrainService
+
+    ed25519 = pytest.importorskip("cryptography.hazmat.primitives.asymmetric.ed25519")
+    serialization = pytest.importorskip("cryptography.hazmat.primitives.serialization")
+
+    class Party:
+        def __init__(self) -> None:
+            self._private = ed25519.Ed25519PrivateKey.from_private_bytes(bytes([0x31]) * 32)
+            line = self._private.public_key().public_bytes(
+                serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH
+            )
+            self.public_key = SshPublicKey.parse(line.decode("ascii"))
+
+        def sign_blob(self, data: bytes) -> bytes:
+            return rfc4253_signature("ssh-ed25519", self._private.sign(data))
+
+    party = Party()
+
+    class TestAgent:
+        def __init__(self, key: str) -> None:
+            assert key == party.public_key.fingerprint
+            self.public_key = party.public_key
+
+        @staticmethod
+        def identities() -> list[Any]:
+            return [party.public_key]
+
+        def sign_blob(self, data: bytes) -> bytes:
+            return party.sign_blob(data)
+
+    monkeypatch.setattr("boltzmann.authenticity.AgentSigner", TestAgent)
+    monkeypatch.setattr("vitruvio.runtime.ops.authenticity.AgentSigner", TestAgent)
+    service = BrainService(resolve(brain=tmp_path / "governed", actor_id="tester@example.com", require_layout=False))
+    service.init(governed=True, sign_with=[party.public_key.fingerprint])
+    source = tmp_path / "governed-source.md"
+    source.write_text("governed catalog source", encoding="utf-8")
+    source_id = service.register(source, media_type="text/markdown")["block_id"]
+    service.catalog_apply(
+        {
+            "schema": "vitruvio.catalog/v1",
+            "schemes": [{"name": "topic", "exclusive": True}],
+            "classes": [{"scheme": "topic", "label": "Mathematics"}],
+        }
+    )
+    return service, source_id
+
+
 class TestTheCommand:
     def test_browse_refuses_json_because_it_has_no_output(
         self, brain: Path, capsys: pytest.CaptureFixture[str]
@@ -98,6 +150,31 @@ class TestTheReadingCommands:
         assert code == ExitCode.OK
         assert payload["command"] == "inspect.blocks"
         assert {row["title"] for row in payload["data"]["rows"]} == {"apuntes.md", "pizarron.png"}
+
+    def test_human_inspect_blocks_includes_creator_and_identity(
+        self, brain: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("COLUMNS", "240")
+        assert main(["--brain", str(brain), "inspect", "blocks", "canonical"]) == ExitCode.OK
+        output = capsys.readouterr().out
+        assert "creator" in output
+        assert "identity" in output
+        assert "tester@example.com" in output
+        assert "asserted" in output
+
+    def test_multiple_creator_claims_are_sorted_and_aggregated(self) -> None:
+        from vitruvio.cli import render
+
+        actor, state = render.creator(
+            {
+                "claims": [
+                    {"actor": {"id": "z@example.com"}, "actor_verified": True},
+                    {"actor": {"id": "a@example.com"}, "actor_verified": False},
+                ]
+            }
+        )
+        assert actor.plain == "a@example.com, z@example.com"
+        assert state.plain == "asserted"
 
     def test_inspect_blocks_filters_without_ranking(self, brain: Path, capsys: pytest.CaptureFixture[str]) -> None:
         code = main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "png"])
@@ -562,6 +639,7 @@ class TestTheInterface:
         async with app.run_test(size=(140, 40)) as pilot:
             await _settle(pilot)
             app.query_one("#filter", Input).value = "png"
+            await pilot.pause(0.2)
             await _settle(pilot)
             assert [row["title"] for row in app.rows] == ["pizarron.png"]
 
@@ -571,6 +649,7 @@ class TestTheInterface:
         async with app.run_test(size=(140, 40)) as pilot:
             await _settle(pilot)
             app.query_one("#filter", Input).value = "apuntes"
+            await pilot.pause(0.2)
             await _settle(pilot)
             rendered = _pane(app, "payload")
             assert "text/markdown" in rendered
@@ -580,47 +659,15 @@ class TestTheInterface:
             assert "verified" in _pane(app, "proof")
 
     async def test_catalog_folders_browse_and_classify_canonical_sources(
-        self, brain: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from vitruvio.cli.tui.screens import ClassificationScreen, SigningKeyScreen
 
-        service = service_for(brain)
-        service.catalog_apply(
-            {
-                "schema": "vitruvio.catalog/v1",
-                "schemes": [{"name": "topic", "exclusive": True}],
-                "classes": [{"scheme": "topic", "label": "Mathematics"}],
-            }
-        )
-        fingerprint = "SHA256:test-authority"
-        signed: list[tuple[str, str | None]] = []
-        monkeypatch.setattr(
-            service,
-            "auth_trust_root",
-            lambda: {
-                "governed": True,
-                "keys": [
-                    {
-                        "fingerprint": fingerprint,
-                        "subject": "tester@example.com",
-                        "active": True,
-                        "scopes": ["commit"],
-                    }
-                ],
-            },
-        )
-        monkeypatch.setattr(service, "auth_keys", lambda: {"keys": [{"fingerprint": fingerprint}]})
-
-        def sign(key: str, snapshot: str | None = None) -> dict[str, str | None]:
-            signed.append((key, snapshot))
-            return {"key": key, "snapshot": snapshot}
-
-        monkeypatch.setattr(service, "auth_sign", sign)
-        app = BrainBrowser(service, brain=str(brain))
+        service, selected = governed_service(tmp_path, monkeypatch)
+        app = BrainBrowser(service, brain=str(tmp_path / "governed"))
         async with app.run_test(size=(150, 42)) as pilot:
             await _settle(pilot)
             assert app.selected is not None
-            selected = str(app.selected["block_id"])
             scheme = app.catalog["schemes"][0]
             assert scheme["roots"][0]["label"] == "Mathematics"
 
@@ -638,9 +685,60 @@ class TestTheInterface:
             await pilot.press("enter")
             await _settle(pilot)
             assert selected in service.catalog_browse(["topic/Mathematics"])["sources"]
-            assert signed
-            assert signed[0][0] == fingerprint
-            assert signed[0][1] is not None
+            assert service.auth_status()["state"] == "authorized"
+            assert "tester@example.com" in service.auth_attribution()["verified"]
+
+    async def test_a_failed_catalog_signature_reports_the_exact_recovery_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from vitruvio.cli.tui.screens import ClassificationScreen, SigningKeyScreen
+
+        service, selected = governed_service(tmp_path, monkeypatch)
+        fingerprint = service.auth_trust_root()["keys"][0]["fingerprint"]
+        monkeypatch.setattr(
+            service, "auth_sign", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("agent lost"))
+        )
+        notices: list[str] = []
+        app = BrainBrowser(service, brain=str(tmp_path / "governed"))
+        monkeypatch.setattr(app, "notify", lambda message, **_kwargs: notices.append(str(message)))
+
+        async with app.run_test(size=(150, 42)) as pilot:
+            await _settle(pilot)
+            app.select(next(row for row in app.rows if row["block_id"] == selected))
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ClassificationScreen)
+            await pilot.press("space")
+            await pilot.press("ctrl+s")
+            await _settle(pilot)
+            assert isinstance(app.screen, SigningKeyScreen)
+            await pilot.press("enter")
+            await _settle(pilot)
+
+        assert selected in service.catalog_browse(["topic/Mathematics"])["sources"]
+        assert any(f"vitruvio auth sign {fingerprint} --snapshot" in notice for notice in notices)
+
+    async def test_search_reveal_clears_the_virtual_catalog_location(self, brain: Path) -> None:
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            selected = app.rows[0]
+            app._show_catalog("temporary", [selected])
+            assert app.catalog_context == "catalog/temporary"
+            app.reveal(selected["block_id"])
+            await _settle(pilot)
+            assert app.catalog_context is None
+
+    async def test_paging_from_a_full_catalog_folder_returns_to_the_module(self, brain: Path) -> None:
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            app.catalog_context = "catalog/full"
+            app.catalog_rows = list(app.rows)
+            app.rows = [app.rows[0]] * 200
+            app.action_next_page()
+            assert app.offset == 200
+            assert app.catalog_context is None
 
     async def test_a_module_with_nothing_in_it_says_so_rather_than_showing_an_empty_table(self, brain: Path) -> None:
         app = BrainBrowser(service_for(brain), brain=str(brain))

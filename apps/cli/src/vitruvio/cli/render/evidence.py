@@ -416,13 +416,18 @@ def rows(result: Mapping[str, Any]) -> list[RenderableType]:
     if not entries:
         return theme.stack(theme.fields(head), "", theme.empty("Nothing in this module matches."))
 
-    table = theme.table("block", "title", "detail", ("size", "right"), "type")
+    from vitruvio.cli.render.audit import creator
+
+    table = theme.table("block", "title", "creator", "identity", "detail", ("size", "right"), "type")
     for entry in entries:
         title = Text(str(entry.get("title", "")), style="value" if entry.get("resolvable", True) else "bad")
         size = entry.get("size")
+        actor, verified = creator(entry.get("authorship"))
         table.add_row(
             theme.digest(entry.get("block_id")),
             title,
+            actor,
+            verified,
             Text(str(entry.get("detail", "")), style="muted"),
             Text(_bytes(size) if isinstance(size, int) else "-", style="muted"),
             Text(str(entry.get("media_type") or entry.get("kind") or ""), style="muted"),
@@ -528,22 +533,12 @@ def graph(snapshots: Sequence[Mapping[str, Any]], *, ancestry: Sequence[str] = (
             glyph = Text("o", style="muted")
         actors = item.get("actors") or ()
         actor = ", ".join(str(value.get("id", "unknown")) for value in actors) or "unknown"
-        state = str(item.get("authenticity") or "unknown")
-        auth_style = (
-            "ok"
-            if state == "authorized"
-            else "bad"
-            if state == "unauthorized"
-            else "warn"
-            if state == "unsigned"
-            else "muted"
-        )
         rows.add_row(
             glyph,
             theme.digest(digest_value),
             str(item.get("created_at", "-")),
             Text(actor, style="value" if actors else "muted"),
-            Text(state, style=auth_style),
+            theme.authenticity(item.get("authenticity")),
             str(item.get("block_count", 0)),
             Text(", ".join(theme.short(parent) for parent in parents[1:]) or "", style="muted"),
         )

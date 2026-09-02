@@ -26,6 +26,7 @@ the same thing.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,15 @@ def named_bytes(row: dict[str, Any]) -> tuple[str, str | None, str] | None:
     if content := row.get("content"):
         return str(content["blob"]), row.get("title"), str(content.get("media_type") or "")
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class PendingClassification:
+    """One catalog write carried intact across class and signing-key prompts."""
+
+    source: str
+    classes: tuple[str, ...]
+    key: str | None = None
 
 
 class ModuleTree(Tree[Any]):
@@ -267,6 +277,7 @@ class BrainBrowser(App[None]):
         self.catalog: dict[str, Any] = {"schemes": [], "unclassified": []}
         self.catalog_context: str | None = None
         self.catalog_rows: list[dict[str, Any]] = []
+        self._filter_timer: Any = None
 
     @property
     def opened(self) -> BrainService:
@@ -830,15 +841,15 @@ class BrainBrowser(App[None]):
         if not additions:
             self.notify("no new catalog placements selected")
             return
-        self.prepare_classification(source, additions)
+        self.prepare_classification(PendingClassification(source, tuple(additions)))
 
     @work(thread=True, exclusive=True, group="classification")
-    def prepare_classification(self, source: str, classes: list[str]) -> None:
+    def prepare_classification(self, pending: PendingClassification) -> None:
         """Resolve governance and eligible agent keys before a catalog write."""
         try:
             governance = self.opened.auth_trust_root()
             if not governance["governed"]:
-                self._write_classification(source, classes, key=None)
+                self._write_classification(pending)
                 return
             offered = {item["fingerprint"] for item in self.opened.auth_keys()["keys"]}
             eligible = [
@@ -857,27 +868,27 @@ class BrainBrowser(App[None]):
                 timeout=12,
             )
             return
-        self.call_from_thread(self._choose_signing_key, source, classes, eligible)
+        self.call_from_thread(self._choose_signing_key, pending, eligible)
 
-    def _choose_signing_key(self, source: str, classes: list[str], keys: list[dict[str, Any]]) -> None:
+    def _choose_signing_key(self, pending: PendingClassification, keys: list[dict[str, Any]]) -> None:
         """Ask which eligible key should sign before the catalog commit exists."""
 
         def selected(key: str | None) -> None:
             if key is not None:
-                self.apply_classification(source, classes, key)
+                self.apply_classification(PendingClassification(pending.source, pending.classes, key))
 
         self.push_screen(SigningKeyScreen(keys), selected)
 
     @work(thread=True, exclusive=True, group="classification")
-    def apply_classification(self, source: str, classes: list[str], key: str) -> None:
+    def apply_classification(self, pending: PendingClassification) -> None:
         """Apply and sign a governed classification after the user chose its key."""
-        self._write_classification(source, classes, key=key)
+        self._write_classification(pending)
 
-    def _write_classification(self, source: str, classes: list[str], *, key: str | None) -> None:
+    def _write_classification(self, pending: PendingClassification) -> None:
         """Validate, commit, optionally sign, and report the one post-commit failure honestly."""
         manifest = {
             "schema": "vitruvio.catalog/v1",
-            "placements": [{"source": source, "classes": classes}],
+            "placements": [{"source": pending.source, "classes": list(pending.classes)}],
         }
         try:
             checked = self.opened.catalog_apply(manifest, dry_run=True)
@@ -899,14 +910,14 @@ class BrainBrowser(App[None]):
             self.call_from_thread(self.notify, str(error), severity="error", timeout=12)
             return
         snapshot = str(applied["snapshot"])
-        if key is not None:
+        if pending.key is not None:
             try:
-                self.opened.auth_sign(key, snapshot=snapshot)
+                self.opened.auth_sign(pending.key, snapshot=snapshot)
             except Exception as error:
                 self.call_from_thread(
                     self.notify,
                     f"catalog committed as {render.short(snapshot)} but signing failed: {error}. "
-                    f"Recover with `vitruvio auth sign {key} --snapshot {snapshot}`",
+                    f"Recover with `vitruvio auth sign {pending.key} --snapshot {snapshot}`",
                     severity="error",
                     timeout=20,
                 )
@@ -914,7 +925,7 @@ class BrainBrowser(App[None]):
                 return
         self.call_from_thread(
             self.notify,
-            f"classified in {', '.join(classes)}" + (f" and signed with {key}" if key else ""),
+            f"classified in {', '.join(pending.classes)}" + (f" and signed with {pending.key}" if pending.key else ""),
             severity="information",
             timeout=8,
         )
@@ -932,9 +943,16 @@ class BrainBrowser(App[None]):
 
     @on(Input.Changed, "#filter")
     def _filter_changed(self, event: Input.Changed) -> None:
-        """Refilter as it is typed. Each keystroke cancels the previous read rather than queueing behind it."""
+        """Debounce typing so a remote store is not reopened for every intermediate prefix."""
         self.filter = event.value or None
         self.offset = 0
+        if self._filter_timer is not None:
+            self._filter_timer.stop()
+        self._filter_timer = self.set_timer(0.15, self._apply_filter)
+
+    def _apply_filter(self) -> None:
+        """Apply only the most recent filter after the short typing pause."""
+        self._filter_timer = None
         if self.catalog_context:
             self._fill_catalog_rows()
         else:
@@ -943,6 +961,9 @@ class BrainBrowser(App[None]):
     @on(Input.Submitted, "#filter")
     def _filter_submitted(self) -> None:
         """Hand the cursor back to the rows, which is where the reading happens."""
+        if self._filter_timer is not None:
+            self._filter_timer.stop()
+            self._apply_filter()
         self.query_one("#blocks", DataTable).focus()
 
     # --- Actions --------------------------------------------------------------
@@ -1103,12 +1124,14 @@ class BrainBrowser(App[None]):
     def action_next_page(self) -> None:
         """Read the next page of this module."""
         if len(self.rows) == PAGE:
+            self.catalog_context = None
+            self.catalog_rows = []
             self.offset += PAGE
             self.load_rows()
 
     def action_previous_page(self) -> None:
         """Read the previous page of this module."""
-        if self.offset:
+        if self.catalog_context is None and self.offset:
             self.offset = max(0, self.offset - PAGE)
             self.load_rows()
 
@@ -1272,6 +1295,8 @@ class BrainBrowser(App[None]):
             self.call_from_thread(self.notify, "that block is not in its module's composition", severity="warning")
             return
         self.kind, self.offset, self.filter = kind, offset, None
+        self.catalog_context = None
+        self.catalog_rows = []
         self.call_from_thread(self._jump, block_id)
 
     def _jump(self, block_id: str) -> None:
