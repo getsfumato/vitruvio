@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-runtime"
-version = "0.9.0"
+version = "0.10.0"
 description = "The service layer every vitruvio interface shares: one method per protocol operation"
 readme = "README.md"
 license = {text = "MIT"}

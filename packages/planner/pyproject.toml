@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-planner"
-version = "0.9.0"
+version = "0.10.0"
 description = "A cost-based query planner for the Boltzmann protocol, with statistics and EXPLAIN"
 readme = "README.md"
 license = {text = "MIT"}
