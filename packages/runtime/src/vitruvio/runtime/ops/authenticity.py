@@ -16,6 +16,7 @@ from boltzmann.authenticity import (
     TrustRoot,
 )
 from boltzmann.identity.digest import OciDigest
+from boltzmann.module.snapshot import Snapshot
 
 from vitruvio.kernel import ResolvedConfig, UsageError
 from vitruvio.runtime.assembly import Capability
@@ -93,6 +94,56 @@ class AuthenticityOps:
                     policy=brain.policy,
                 ).verify()
         return payload
+
+    def auth_trust_root(self, *, snapshot: str | None = None) -> dict[str, Any]:
+        """Describe the trust root carried by one snapshot, including key permissions and validity."""
+        brain = self.session.brain(Capability.INSPECT)
+        with translated():
+            selected = brain.snapshot()
+            if snapshot is not None:
+                digest = OciDigest.parse(snapshot)
+                selected = Snapshot.from_document(brain.store.get_bytes(digest))
+            report = brain.authenticate(selected.digest, policy=self.config.project.authenticity.build())
+            root = selected.trust_root
+
+        if root is None:
+            return {
+                "snapshot": str(selected.digest),
+                "governed": False,
+                "authenticity": report.state.value,
+                "pinned": report.pinned,
+                "pin": str(report.pin) if report.pin is not None else None,
+                "trust_root": None,
+                "keys": [],
+            }
+
+        return {
+            "snapshot": str(selected.digest),
+            "governed": True,
+            "authenticity": report.state.value,
+            "pinned": report.pinned,
+            "pin": str(report.pin) if report.pin is not None else None,
+            "trust_root": {
+                "digest": str(root.digest),
+                "revision": root.revision,
+                "namespace": root.namespace,
+                "govern_quorum": root.govern_quorum,
+            },
+            "keys": [
+                {
+                    "fingerprint": entry.fingerprint,
+                    "public_key": entry.key.authorized_key,
+                    "key_type": entry.key.key_type,
+                    "subject": entry.subject,
+                    "scopes": [scope.value for scope in entry.scopes],
+                    "since": entry.since,
+                    "retired_from": entry.retired_from,
+                    "compromised_from": str(entry.compromised_from) if entry.compromised_from is not None else None,
+                    "active": not root.is_retired(entry) and entry.compromised_from is None,
+                }
+                for entry in root.keys
+            ],
+        }
 
     def auth_sign(
         self,

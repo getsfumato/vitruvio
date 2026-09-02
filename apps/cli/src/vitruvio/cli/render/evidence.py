@@ -416,13 +416,18 @@ def rows(result: Mapping[str, Any]) -> list[RenderableType]:
     if not entries:
         return theme.stack(theme.fields(head), "", theme.empty("Nothing in this module matches."))
 
-    table = theme.table("block", "title", "detail", ("size", "right"), "type")
+    from vitruvio.cli.render.audit import creator
+
+    table = theme.table("block", "title", "creator", "identity", "detail", ("size", "right"), "type")
     for entry in entries:
         title = Text(str(entry.get("title", "")), style="value" if entry.get("resolvable", True) else "bad")
         size = entry.get("size")
+        actor, verified = creator(entry.get("authorship"))
         table.add_row(
             theme.digest(entry.get("block_id")),
             title,
+            actor,
+            verified,
             Text(str(entry.get("detail", "")), style="muted"),
             Text(_bytes(size) if isinstance(size, int) else "-", style="muted"),
             Text(str(entry.get("media_type") or entry.get("kind") or ""), style="muted"),
@@ -514,7 +519,7 @@ def graph(snapshots: Sequence[Mapping[str, Any]], *, ancestry: Sequence[str] = (
         return [theme.empty("No snapshots yet. A brain with no canonical evidence has no version to retain.")]
 
     trunk = set(ancestry)
-    rows = theme.table("", "snapshot", "created", ("blocks", "right"), "joined")
+    rows = theme.table("", "snapshot", "created", "actor", "auth", ("blocks", "right"), "joined")
     for item in snapshots:
         digest_value = str(item.get("digest", ""))
         parents = item.get("parents") or []
@@ -526,10 +531,14 @@ def graph(snapshots: Sequence[Mapping[str, Any]], *, ancestry: Sequence[str] = (
         else:
             # Reachable, off the first-parent chain. Someone else's version, kept because a merge named it.
             glyph = Text("o", style="muted")
+        actors = item.get("actors") or ()
+        actor = ", ".join(str(value.get("id", "unknown")) for value in actors) or "unknown"
         rows.add_row(
             glyph,
             theme.digest(digest_value),
             str(item.get("created_at", "-")),
+            Text(actor, style="value" if actors else "muted"),
+            theme.authenticity(item.get("authenticity")),
             str(item.get("block_count", 0)),
             Text(", ".join(theme.short(parent) for parent in parents[1:]) or "", style="muted"),
         )

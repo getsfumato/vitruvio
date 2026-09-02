@@ -211,17 +211,26 @@ class LifecycleOps:
 
     def history(self, *, limit: int | None = None) -> dict[str, Any]:
         """
-        The retained snapshots, most recent first.
+        The retained SDK history and the complete reachable audit log.
 
         Args:
             limit (int | None): How many to return.
 
         Returns:
-            dict[str, Any]: The chain a prune walks, and an audit reads.
+            dict[str, Any]: ``snapshots`` preserves the SDK's retained order for compatibility; ``commits`` is
+            the audit view, including reachable merge parents and unreadable snapshot documents, HEAD first.
         """
         brain = self.session.brain(Capability.INSPECT)
         with translated():
-            snapshots = brain.history()
+            from vitruvio.runtime.authorship import AuthorshipAudit
+
+            audit = AuthorshipAudit(brain, policy=self.config.project.authenticity.build())
+            retained_snapshots = list(brain.history())
+            resolved = list(audit.snapshots().values())
+            head = str(brain.snapshot().digest)
+            resolved.sort(
+                key=lambda item: (str(item.digest) == head, str(item.created_at), str(item.digest)), reverse=True
+            )
             # The two answer different questions and a reader needs both to make sense of the list. `ancestry` is
             # the first-parent chain -- what the protocol reads as *what this brain is*, and what an audit walks.
             # `reachable` is containment across every parent, which is what a fast-forward check asks: a merged-in
@@ -229,10 +238,61 @@ class LifecycleOps:
             # being *a* parent of something retained does not put a snapshot on either.
             chain = [str(digest) for digest in brain.ancestry()]
             reachable = sorted(str(digest) for digest in brain.reachable_history())
-        chosen = snapshots[:limit] if limit else snapshots
+            rows: list[dict[str, Any]] = []
+            for snapshot in resolved:
+                participants = audit.participants(snapshot)
+                try:
+                    authentication = audit.authenticate(snapshot)
+                except Exception as error:
+                    authentication = {
+                        "state": "unknown",
+                        "pinned": False,
+                        "trust_root": str(snapshot.trust_root.digest) if snapshot.trust_root else None,
+                        "attribution": {"evidence_gaps": [str(error)]},
+                    }
+                try:
+                    integrity = audit.integrity(snapshot)
+                except Exception:
+                    integrity = None
+                rows.append(
+                    {
+                        **wire.snapshot(snapshot),
+                        **participants,
+                        "head": str(snapshot.digest) == head,
+                        "on_ancestry": str(snapshot.digest) in chain,
+                        "resolvable": True,
+                        "integrity": integrity,
+                        "authenticity": authentication.get("state", "unknown"),
+                        "authorized": authentication.get("state") == "authorized",
+                        "pinned": bool(authentication.get("pinned")),
+                        "attribution": authentication.get("attribution"),
+                    }
+                )
+            rows.extend(
+                {
+                    "digest": digest,
+                    "resolvable": False,
+                    "head": digest == head,
+                    "on_ancestry": digest in chain,
+                    "integrity": None,
+                    "authenticity": "unknown",
+                    "authorized": False,
+                    "pinned": False,
+                    "actors": [],
+                    "assisted_by": [],
+                    "complete": False,
+                    "evidence_gaps": ["snapshot document is not resolvable"],
+                }
+                for digest in audit.unresolved_history()
+            )
+        by_digest = {str(row["digest"]): row for row in rows}
+        retained_rows = [by_digest[str(snapshot.digest)] for snapshot in retained_snapshots]
+        chosen_commits = rows[:limit] if limit else rows
+        chosen_snapshots = retained_rows[:limit] if limit else retained_rows
         return {
-            "snapshots": [wire.snapshot(item) for item in chosen],
-            "retained": len(snapshots),
+            "snapshots": chosen_snapshots,
+            "commits": chosen_commits,
+            "retained": len(retained_snapshots),
             "ancestry": chain,
             "reachable": reachable,
         }

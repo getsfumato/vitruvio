@@ -29,6 +29,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from vitruvio.cli.render import brand
+
 MEMORY_STYLES = {
     "canonical": "canonical",
     "episodic": "episodic",
@@ -44,26 +46,27 @@ THEME = Theme(
         # Structure.
         "label": "dim",
         "value": "default",
-        "heading": "bold",
+        "heading": f"bold {brand.GOLD}",
         "muted": "dim",
-        "digest": "dim cyan",
+        "digest": brand.GOLD_DIM,
         "count": "bold",
         # Verdicts. Three states, and the third one matters: a degraded answer that looks like a clean one is
         # the failure mode the whole output contract exists to prevent.
-        "ok": "green",
-        "bad": "bold red",
-        "warn": "yellow",
+        "ok": brand.SUCCESS,
+        "bad": f"bold {brand.ERROR}",
+        "warn": brand.WARNING,
+        "info": brand.INFO,
         # The five modules.
-        "canonical": "blue",
-        "episodic": "magenta",
-        "semantic": "cyan",
-        "procedural": "green",
-        "provenance": "yellow",
+        "canonical": brand.GOLD,
+        "episodic": brand.ERROR,
+        "semantic": brand.INFO,
+        "procedural": brand.SUCCESS,
+        "provenance": brand.GOLD_DIM,
         # Evidence.
         "score": "bold",
-        "flag": "yellow",
+        "flag": brand.WARNING,
         # Rich's own table furniture, toned down so a header never competes with a value.
-        "table.header": "bold dim",
+        "table.header": f"bold {brand.IVORY_DIM}",
         "table.footer": "dim",
     }
 )
@@ -173,6 +176,28 @@ def verdict(ok: bool, *, yes: str = "yes", no: str = "no") -> Text:
         Text: Green or red, and nothing in between.
     """
     return Text(yes, style="ok") if ok else Text(no, style="bad")
+
+
+def authenticity(value: Any) -> Text:
+    """Keep every authenticity view on the same policy-state vocabulary and palette."""
+    state = str(value or "unknown")
+    style = {
+        "authorized": "ok",
+        "unsigned": "warn",
+        "attributable": "info",
+        "unauthorized": "bad",
+        "unknown": "muted",
+    }.get(state, "muted")
+    return Text(state, style=style)
+
+
+def identity_state(value: bool | None) -> Text:
+    """Render the three-valued identity verdict without collapsing unknown into asserted."""
+    if value is True:
+        return Text("verified", style="ok")
+    if value is False:
+        return Text("asserted", style="warn")
+    return Text("unknown", style="muted")
 
 
 def table(*columns: str | tuple[str, str], box: Any = SIMPLE, title: str | None = None) -> Table:

@@ -47,6 +47,14 @@ def _emit_apply(document: dict[str, Any], *, dry_run: bool) -> ExitCode:
     return console.emit("catalog.apply", result, view=view)
 
 
+@app.default
+def tree() -> ExitCode:
+    """Show schemes as folders, classes as subfolders, and canonical sources as leaves."""
+    console = current().console
+    result = current().service().catalog_tree()
+    return console.emit("catalog.tree", result, view=render.catalog_tree(result))
+
+
 @app.command(name="show")
 def show() -> ExitCode:
     """List declared schemes, classes, hierarchy and effective sources."""
@@ -125,7 +133,11 @@ def browse(classes: Annotated[list[str], Parameter(name=["--class"], negative=()
     return console.emit(
         "catalog.browse",
         result,
-        view=render.fields([("classes", ", ".join(classes)), ("sources", len(result["sources"]))]),
+        view=render.stack(
+            render.fields([("classes", ", ".join(classes)), ("sources", len(result["sources"]))]),
+            "",
+            render.source_rows(result.get("source_rows") or ()),
+        ),
     )
 
 
@@ -140,12 +152,16 @@ def path(
     return console.emit(
         "catalog.path",
         result,
-        view=render.fields(
-            [
-                ("path", result["path"] or "/"),
-                ("next scheme", result.get("scheme") or "(sources)"),
-                ("directories", ", ".join(result["directories"]) or "(none)"),
-                ("sources", len(result["sources"])),
-            ]
+        view=render.stack(
+            render.fields(
+                [
+                    ("path", result["path"] or "/"),
+                    ("next scheme", result.get("scheme") or "(sources)"),
+                    ("directories", ", ".join(result["directories"]) or "(none)"),
+                    ("sources", len(result["sources"])),
+                ]
+            ),
+            "" if result.get("source_rows") else None,
+            render.source_rows(result.get("source_rows") or ()) if result.get("source_rows") else None,
         ),
     )

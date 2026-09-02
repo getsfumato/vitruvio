@@ -68,7 +68,7 @@ Recompute every module's Merkle root from its blocks and compare.
 
 ### `vitruvio brain history` `--limit` `--graph`
 
-List the retained snapshots, most recent first.
+Audit every retained or reachable commit, with HEAD first.
 
 ### `vitruvio brain info`
 
@@ -253,6 +253,10 @@ List public Ed25519 keys available through the current SSH agent.
 ### `vitruvio auth status` `--snapshot` `--offered`
 
 Verify integrity and report the independent authenticity state.
+
+### `vitruvio auth trust-root` `--snapshot`
+
+Show the trust root, authorized keys, permissions, validity, and consumer pin.
 
 ### `vitruvio auth sign` `key` `--snapshot` `--scope`
 
@@ -521,3 +525,7 @@ Check for a newer vitruvio, and install it.
 ## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
+
+## `vitruvio history` `--limit` `--graph`
+
+Audit every retained or reachable commit, with HEAD first.

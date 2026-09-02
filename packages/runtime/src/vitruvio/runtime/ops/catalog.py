@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
+from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.catalog import Catalog
 from boltzmann.catalog_core import CATALOG_DUPLICATE
 from boltzmann.catalog_models import (
@@ -115,6 +116,72 @@ class CatalogOps:
                 schemes.append({"name": scheme, "classes": classes})
         return {"schema": "vitruvio.catalog/v1", "schemes": schemes}
 
+    def catalog_tree(self) -> dict[str, Any]:
+        """Return the class hierarchy as folders with canonical source rows as leaves."""
+        brain = self.session.brain(Capability.BROWSE)
+        with translated():
+            catalog = Catalog(brain.modules())
+            rows = self._canonical_rows()
+            row_by_id = {row["block_id"]: row for row in rows}
+            placed: set[str] = set()
+            schemes: list[dict[str, Any]] = []
+            exclusivity = self._scheme_exclusivity(brain)
+
+            for scheme in catalog.schemes:
+                nodes: dict[str, dict[str, Any]] = {}
+                for label, class_id in catalog.classes_in(scheme):
+                    browsed = catalog.browse(class_id).nodes[0]
+                    direct = [str(source) for source in browsed.direct_sources]
+                    effective = [str(source) for source in browsed.sources]
+                    placed.update(direct)
+                    nodes[str(class_id)] = {
+                        "class_id": str(class_id),
+                        "reference": self._reference(scheme, label),
+                        "label": label,
+                        "broader": [str(item) for item in browsed.broader],
+                        "narrower": [str(item) for item in browsed.narrower],
+                        "direct_sources": [row_by_id.get(source, {"block_id": source}) for source in direct],
+                        "effective_sources": [row_by_id.get(source, {"block_id": source}) for source in effective],
+                        "effective_source_count": len(effective),
+                    }
+
+                def branch(
+                    identity: str,
+                    trail: frozenset[str] = frozenset(),
+                    tree_nodes: dict[str, dict[str, Any]] = nodes,
+                ) -> dict[str, Any]:
+                    node = tree_nodes[identity]
+                    if identity in trail:
+                        return {**node, "children": [], "cycle": True}
+                    return {
+                        **node,
+                        "children": [
+                            branch(child, trail | {identity}) for child in node["narrower"] if child in tree_nodes
+                        ],
+                    }
+
+                roots = [identity for identity, node in nodes.items() if not node["broader"]]
+                schemes.append(
+                    {
+                        "name": scheme,
+                        "exclusive": exclusivity.get(scheme, False),
+                        "roots": [
+                            branch(identity) for identity in sorted(roots, key=lambda item: nodes[item]["label"])
+                        ],
+                        "classes": [
+                            nodes[identity] for identity in sorted(nodes, key=lambda item: nodes[item]["label"])
+                        ],
+                    }
+                )
+
+        return {
+            "schema": "vitruvio.catalog/tree-v1",
+            "snapshot": str(brain.snapshot().digest),
+            "schemes": schemes,
+            "unclassified": [row for row in rows if row["block_id"] not in placed],
+            "source_count": len(rows),
+        }
+
     def catalog_apply(self, manifest: Mapping[str, Any], *, dry_run: bool = False) -> dict[str, Any]:
         """Validate and atomically apply one ``vitruvio.catalog/v1`` manifest.
 
@@ -196,14 +263,57 @@ class CatalogOps:
         with translated():
             catalog = Catalog(brain.modules())
             result = catalog.browse([self._class_id(catalog, item) for item in classes])
-        return result.model_dump(mode="json")
+        payload = result.model_dump(mode="json")
+        wanted = {str(source) for source in result.sources}
+        payload["source_rows"] = self._canonical_rows(wanted)
+        return payload
 
     def catalog_path(self, schemes: Sequence[str], path: str = "") -> dict[str, Any]:
         """List one virtual path whose segment order is defined by ``schemes``."""
         brain = self.session.brain(Capability.INSPECT)
         with translated():
             result = brain.catalog_path(schemes).iterdir(path)
-        return result.model_dump(mode="json")
+        payload = result.model_dump(mode="json")
+        wanted = {str(source) for source in result.sources}
+        payload["source_rows"] = self._canonical_rows(wanted)
+        return payload
+
+    def _canonical_rows(self, wanted: set[str] | None = None) -> list[dict[str, Any]]:
+        """Project the requested canonical sources without widening a directory read to the whole module."""
+        from vitruvio.runtime.block_rows import project_rows
+
+        brain = self.session.brain(Capability.BROWSE)
+        reference = brain.snapshot().modules.get(MemoryType.CANONICAL)
+        if reference is None or wanted == set():
+            return []
+        module = brain.module(MemoryType.CANONICAL)
+        identities = module.block_ids
+        selected = identities if wanted is None else [identity for identity in identities if str(identity) in wanted]
+        rows, _ = project_rows(
+            brain,
+            MemoryType.CANONICAL,
+            selected,
+            policy=self.config.project.authenticity.build(),
+        )
+        return rows
+
+    @staticmethod
+    def _scheme_exclusivity(brain: Any) -> dict[str, bool]:
+        """Recover scheme cardinality without reaching into ``Catalog``'s private state."""
+        semantic = brain.modules().get(MemoryType.SEMANTIC)
+        if semantic is None:
+            return {}
+        found: dict[str, bool] = {}
+        for identity in semantic.block_ids:
+            if not semantic.store.is_resolvable(identity):
+                continue
+            try:
+                payload = semantic.get(identity).payload()
+            except Exception:
+                continue
+            if payload.get("kind") == "scheme" and isinstance(payload.get("scheme"), str):
+                found[payload["scheme"]] = bool(payload.get("exclusive"))
+        return found
 
 
 __all__ = ["CatalogManifest", "CatalogOps"]

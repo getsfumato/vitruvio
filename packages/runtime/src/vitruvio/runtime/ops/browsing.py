@@ -9,17 +9,14 @@ Row construction itself lives in :mod:`vitruvio.runtime.browse`; what is here is
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-
-from boltzmann.blocks.memory_type import MemoryType
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
-from vitruvio.runtime.provenance import ProvenanceReader, registration_origins
+from vitruvio.runtime.provenance import ProvenanceReader
 from vitruvio.runtime.session import BrainSession
 
 
@@ -73,7 +70,7 @@ class BrowsingOps:
         """
         from vitruvio.runtime import browse
 
-        brain = self.session.brain(Capability.INSPECT)
+        brain = self.session.brain(Capability.BROWSE)
         with translated():
             kind = coerce_memory_type(memory_type)
             if kind not in brain.snapshot().installed:
@@ -95,22 +92,10 @@ class BrowsingOps:
                     "provenance": None,
                 }
 
+            from vitruvio.runtime.block_rows import project_rows
+
             module = brain.module(kind)
             identities = module.block_ids
-            resolvable = module.resolvable()
-            origins: dict[str, str] = {}
-            provenance: dict[str, Any] | None = None
-            if kind is MemoryType.CANONICAL:
-                # Only records about identities this operation may render are requested. An ordinary page therefore
-                # performs work proportional to the page, while the explicitly scanning `contains` path requests
-                # the identities it already has to inspect.
-                targets = identities if contains is not None else identities[offset : offset + limit]
-                read = ProvenanceReader(brain).by_subjects(
-                    {str(identity) for identity in targets},
-                    read_limit=max(1, len(targets) * 8),
-                )
-                origins = registration_origins(read)
-                provenance = read.metadata()
 
             rows: list[dict[str, Any]] = []
             if contains is None:
@@ -118,17 +103,24 @@ class BrowsingOps:
                 # and there is nothing to learn from the rest -- while the walk below resolves a block per identity,
                 # which on a large module meant tens of thousands of store reads to return a hundred rows.
                 seen = len(identities)
-                rows = [
-                    self._entry(module, kind, identity, resolvable, origins)
-                    for identity in identities[offset : offset + limit]
-                ]
+                rows, provenance = project_rows(
+                    brain,
+                    kind,
+                    identities[offset : offset + limit],
+                    policy=self.config.project.authenticity.build(),
+                )
             else:
                 # With a filter the scan is the answer: `matched` is how many rows match in the whole module, and
                 # that is not knowable from a page. The cost is stated in this method's own docstring -- a filter is
                 # not a query, and `search` is where an index decides what to read.
+                candidates, provenance = project_rows(
+                    brain,
+                    kind,
+                    identities,
+                    policy=self.config.project.authenticity.build(),
+                )
                 seen = 0
-                for identity in identities:
-                    entry = self._entry(module, kind, identity, resolvable, origins)
+                for entry in candidates:
                     if not browse.matches(entry, contains):
                         continue
                     seen += 1
@@ -148,40 +140,6 @@ class BrowsingOps:
                 "installed": True,
                 "provenance": provenance,
             }
-
-    @staticmethod
-    def _entry(
-        module: Any,
-        kind: MemoryType,
-        identity: Any,
-        resolvable: Mapping[Any, bool],
-        origins: Mapping[str, str],
-    ) -> dict[str, Any]:
-        """
-        One row, whether or not the block behind it can be read.
-
-        Failure is per block on purpose: a version naming a block whose bytes are gone -- tombstoned under an
-        erasure policy, or never installed by a selective pull -- still lists, marked unreadable. Dropping those
-        rows would make a redacted brain look like a smaller one.
-
-        Args:
-            module (Module): The module being listed.
-            kind (MemoryType): Which module, for the row's own label.
-            identity (BlockId): The block.
-            resolvable (Mapping[Any, bool]): The module's resolvability map, read once by the caller.
-            origins (Mapping[str, str]): Block identity to origin, empty for every module but canonical.
-
-        Returns:
-            dict[str, Any]: The row.
-        """
-        from vitruvio.runtime import browse
-
-        if not resolvable.get(identity, True):
-            return browse.unreadable(str(identity), kind.value, "not resolvable (redacted or not installed)")
-        try:
-            return browse.row(module.get(identity), kind, origin=origins.get(str(identity)))
-        except Exception as error:  # the store disagreed with the composition; say so, do not stop
-            return browse.unreadable(str(identity), kind.value, f"{type(error).__name__}: {error}")
 
     def content(self, digest: str) -> bytes:
         """
@@ -257,7 +215,7 @@ class BrowsingOps:
             when provenance is not installed, which is a brain whose history was not pulled rather than a
             failure to read one.
         """
-        brain = self.session.brain(Capability.INSPECT)
+        brain = self.session.brain(Capability.BROWSE)
         with translated():
             kind = coerce_memory_type("provenance")
             if kind not in brain.snapshot().installed:

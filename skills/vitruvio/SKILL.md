@@ -62,9 +62,14 @@ actually returned.
    `vitruvio inspect links <BLOCK_ID> --json` gives the provenance records naming a block: where it came from, and
    what has been done to it since.
 
-   (`vitruvio browse` opens the same three reads as a terminal interface. Its `s` query workspace also shows the
-   selected physical plan and bounded graph/vector/ordered-index visualizations. It is for a person and refuses
-   `--json`; suggest it to the user, do not run it.)
+   For canonical sources, run `vitruvio catalog --json` before searching when the catalog may answer where evidence
+   belongs. It returns schemes as a hierarchy of classes and source rows, plus unclassified sources; use the stable
+   `block_id`, never a displayed filename, in later commands.
+
+   (`vitruvio browse` opens the same reads as a terminal interface. It shows each block's creator and verification
+   state, exposes the catalog as folders, and lets a person press `c` on a canonical source to add an existing class.
+   Its `s` query workspace also shows the selected physical plan and bounded graph/vector/ordered-index
+   visualizations. It is for a person and refuses `--json`; suggest it to the user, do not run it.)
 
    Sources belong to brains: `[brain.sources.<name>]` for a single brain and
    `[brains.<brain>.sources.<name>]` for a named project brain. Always select the brain before `source status`,
@@ -83,6 +88,11 @@ actually returned.
 7. **Keep integrity and authenticity separate.** `brain verify` checks hashes and roots. `auth status` additionally
    evaluates SSH signatures, trust-root authority and the consumer's pin. Intact unsigned data is not corrupt, and it
    is not authenticated either.
+
+8. **Use the audit views before interpreting authorship.** `auth trust-root --json` says which public keys, subjects
+   and scopes govern the selected snapshot. `history --json` reports every reachable snapshot with actor, integrity,
+   authenticity and authorization evidence. A block creator marked `asserted` is provenance, not verified identity;
+   call it verified only when the block's `authorship.claims[].actor_verified` is true.
 
 ## Choose governance before creating a brain
 

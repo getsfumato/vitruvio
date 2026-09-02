@@ -41,6 +41,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DataTable, Footer, Header, Static
 
 from vitruvio.cli import render
+from vitruvio.cli.tui.theme import install as install_theme
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.reconcile_result import (
     ReconcileStatusResult,
@@ -112,6 +113,7 @@ class Resolver(App[None]):
             strategy (str | None): The declared strategy, for starting one that is not open yet.
         """
         super().__init__()
+        install_theme(self)
         self.service = service
         self.strategy = strategy
         self.status: ReconcileStatusResult | None = None
@@ -132,9 +134,6 @@ class Resolver(App[None]):
 
     def on_mount(self) -> None:
         """Install the house theme, then load whatever state the brain is in."""
-        # The same reason `app.py` does it: these panes render the CLI's own renderables, which name styles from
-        # vitruvio's theme. Textual's console has never heard of them and raises on the first table it measures.
-        self.console.push_theme(render.THEME)
         self.title = "vitruvio reconcile"
         self.query_one("#questions", DataTable).add_columns("block", "module", "verdict", "decided")
         self.reload()

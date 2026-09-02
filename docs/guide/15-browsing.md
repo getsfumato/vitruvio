@@ -33,27 +33,39 @@ row is titled by the **origin its registration recorded**, read back out of prov
 module reads as the files that went into it, and why a brain pulled without its provenance layer shows media
 types instead.
 
+The human `inspect blocks` table and the middle TUI pane both include `creator` and `identity`. Provenance rows say
+`not applicable`: they are the evidence used to attribute other blocks, so recursively asking for their own creation
+provenance would turn the absence of a second provenance layer into a false warning.
+
 ## The interface
 
 ```
 ┌────────────┬─────────────────────────┬──────────────────────────┐
-│ canonical 4│ filter …                │ preview payload links    │
-│ episodic  -│ block   title   type    │                    proof │
-│ semantic  2│ sha256… apunte… pdf     │ apunte.pdf               │
+│ memory     │ filter …                │ preview payload links    │
+│  canonical│ block title creator auth│ authorship          proof│
+│ catalog    │ sha…  apunte… alex…  ✓  │ apunte.pdf               │
+│  discipline│                         │                           │
 │ …          │ sha256… pizarr… png     │ [the page, drawn]        │
 └────────────┴─────────────────────────┴──────────────────────────┘
 ```
 
 Modules on the left — **every** module, including the ones this brain does not have, because a module absent from
 a selectively pulled brain is a fact about this brain rather than something to hide. What is in the selected
-module in the middle. The selected block on the right, in four tabs:
+module or catalog folder in the middle. Every row names the actor asserted by the block's creation provenance and
+whether that identity is verified by an accepted historical signature. The selected block is on the right, in five
+tabs:
 
 | tab | what it holds |
 |---|---|
 | preview | the bytes the block names, drawn if a terminal can draw them |
 | payload | the block's document, as JSON. What it *is*, exactly |
 | links | the provenance records naming it: registration, derivation, supersession, removal |
+| authorship | who created it, assistance, the introducing snapshot, signatures, trust root and consumer pin |
 | proof | its Merkle inclusion proof, already checked against the module root |
+
+`verified` is deliberately narrower than “the bytes are valid”: it means an accepted signature on the snapshot that
+introduced the creation provenance vouches for the same actor subject. `asserted` means provenance names an actor but
+that cryptographic link is absent or not accepted. The proof tab remains the independent integrity check.
 
 "The bytes the block names" is not only canonical: a derived block may carry its own datum out of line — a
 semantic block whose `content` names a rendered diagram, an episodic one naming a recording. Its preview shows
@@ -95,7 +107,14 @@ evidence. `left` (or `m`) goes to the sidebar, landing on the module you are alr
 back into the blocks. In the sidebar, moving the cursor **opens** that module — there is no second keystroke to
 confirm. `tab` cycles the panes.
 
-Other keys: `/` filter, `s` search, `p` project and brain, `t` swap between original bytes and their normalized
+The catalog appears below the memory modules as folders: scheme, class hierarchy and canonical source. A broad class
+includes sources placed in descendants, while `unclassified` makes evidence outside every placement visible. On a
+canonical row, `c` opens an interactive class selector. Existing append-only placements are locked; exclusive schemes
+permit only one direct placement. The interface dry-runs every change first. For a governed brain it then requires an
+active `commit`-scoped key from `ssh-agent`, asks which eligible key to use and signs the new snapshot. If signing
+fails after the catalog commit, the alert prints the exact `vitruvio auth sign ... --snapshot ...` recovery command.
+
+Other keys: `/` filter, `s` search, `p` project and brain, `c` classify a canonical source, `t` swap between original bytes and their normalized
 text view, `]` and `[` turn PDF pages, `o` open in whatever the desktop uses, `e` export into the working
 directory, `y` copy the block id, `n` and `b` page through a large module, `r` re-read, `?` every binding.
 

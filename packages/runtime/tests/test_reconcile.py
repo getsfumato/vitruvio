@@ -778,6 +778,23 @@ class TestTheHistoryIsAGraph:
             "a merged-in history is contained without being on the first-parent chain -- which is exactly why "
             "containment is a reachability question and `ancestry` cannot answer it"
         )
+        assert {item["digest"] for item in history["commits"]} == set(history["reachable"])
+        assert "actors" in head
+        assert "authenticity" in head
+
+    def test_retained_snapshots_keep_sdk_order_while_commits_are_head_first(self, tmp_path: Path) -> None:
+        service = make(tmp_path, "history-envelope")
+        first = tmp_path / "first.md"
+        second = tmp_path / "second.md"
+        first.write_text("first", encoding="utf-8")
+        second.write_text("second", encoding="utf-8")
+        service.register(first, media_type="text/markdown")
+        service.register(second, media_type="text/markdown")
+
+        sdk_order = [str(snapshot.digest) for snapshot in service.brain().history()]
+        history = service.history()
+        assert [row["digest"] for row in history["snapshots"]] == sdk_order
+        assert history["commits"][0]["head"] is True
 
     def test_the_tree_reports_where_the_two_parted(self, diverged: tuple[Path, str, BrainService]) -> None:
         registry, reference, beto = diverged

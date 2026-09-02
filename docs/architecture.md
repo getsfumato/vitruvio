@@ -83,7 +83,7 @@ earlier describes the composition that was just replaced. It can only invalidate
 |---|---|---|
 | `ops/lifecycle.py` | init, state, verify, history, info | INSPECT, creates |
 | `ops/inspection.py` | resolvability, resolve, prove, module, roots | INSPECT |
-| `ops/browsing.py` | blocks, content, export_content, related | INSPECT |
+| `ops/browsing.py` | blocks, content, export_content, related | BROWSE, INSPECT for content |
 | `ops/registration.py` | register, replace, put_content | WRITE |
 | `ops/tasks.py` | define_task, task_schema, validate_candidates, commit_candidates, ingest_run, pipelines | RETRIEVE, WRITE |
 | `ops/sources.py` | sources, source_kinds, scaffold_source, add_source, remove_source, pull_source, pull_all | INSPECT, WRITE |
@@ -98,14 +98,21 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/embedders.py` | embedders, test_embedder | — |
 | `ops/retrieval.py` | search, explain | RETRIEVE |
 | `ops/compound.py` | compound_search, compound_explain | RETRIEVE, once per member brain |
-| `ops/catalog.py` | catalog_show, catalog_apply, catalog_browse, catalog_path | INSPECT, WRITE |
-| `ops/authenticity.py` | keys, status, sign, pin, attribution, rotation, revocation | INSPECT, WRITE for governance changes |
+| `ops/catalog.py` | catalog_show, catalog_tree, catalog_apply, catalog_browse, catalog_path | BROWSE, INSPECT, WRITE |
+| `ops/authenticity.py` | keys, status, trust_root, sign, pin, attribution, rotation, revocation | INSPECT, WRITE for governance changes |
 | `ops/migration.py` | plan_migration, migrate | INSPECT source; creates a new destination |
 
 `ops/*.py` are the operations, which open brains. `runtime/*.py` beside them — `wire`, `mapping`, `assembly`,
-`browse`, `registry`, `distribution`, `indexset`, `vouch`, `query_diagnostics`, `cross_brain` — are stateless helpers,
+`browse`, `block_rows`, `authorship`, `registry`, `distribution`, `indexset`, `vouch`, `query_diagnostics`,
+`cross_brain` — are request-scoped or stateless helpers,
 which do not. The naming is close enough to be worth stating: `ops/publish.py` publishes, `runtime/distribution.py`
 transports; `ops/registration.py` registers a block, `runtime/registry.py` talks to an OCI registry.
+
+`block_rows.project_rows` is the narrow shared projection used by browsing and catalog navigation. It accepts the
+identities a caller has already selected, so a catalog directory does not instantiate `BrowsingOps` or widen into a
+whole canonical-module scan. `AuthorshipAudit` caches joins for that one projection; only lifecycle audit operations
+ask it to rehash a historical brain. The boundary and the compatibility split between retained snapshots and audit
+commits are recorded in [ADR-0017](adr/0017-auditable-browse-projections.md).
 
 `runtime/operation_catalogue.py` is the authoritative list of those protocol operations. It drives the generated
 `BrainService` forwarding surface, documentation metadata and conformance checks; `ops/reconcile.py` is marked there
@@ -137,4 +144,6 @@ The reasoning is [ADR-0005](adr/0005-statistics-and-the-cost-model.md); the read
 - [`skills/`](../skills/README.md) — how an *agent* drives it. Authored once at the repository root and reached
   through a symlink from inside the package, so `vitruvio skills install` ships exactly what is under version
   control.
-- `.claude/skills/` — skills for agents working *on* this repository, which is a different audience.
+- `.claude/skills/` — skills for agents working *on* this repository, which is a different audience. Every one is
+  marked with `metadata.internal: true`: `npx skills add` scans agent-specific directories as well as `skills/`, and
+  that metadata keeps development tooling available locally without publishing it in the default catalog.

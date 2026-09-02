@@ -9,6 +9,7 @@ So indices are registered per *capability*, and the embedder is resolved lazily 
 
 * ``INSPECT`` registers nothing. ``brain state``, ``brain verify``, ``inspect *`` and ``dist manifest`` never
   touch an index or a model.
+* ``BROWSE`` registers only provenance's hash-map index. Browsing needs complete authorship lookup, but no model.
 * ``RETRIEVE`` registers the configured indices. A query needs them.
 * ``WRITE`` adds the retention policy and the validation gate.
 
@@ -41,9 +42,11 @@ class Capability(IntEnum):
 
     INSPECT = 0
     """Read the pointer, the snapshot, the modules. No index, no model."""
-    RETRIEVE = 1
+    BROWSE = 1
+    """Read structural relationships through provenance's rebuildable hash-map index."""
+    RETRIEVE = 2
     """Query. Registers the configured indices; the embedder is still resolved lazily."""
-    WRITE = 2
+    WRITE = 3
     """Commit, drop, publish. Adds the retention policy and the validation gate."""
 
 
@@ -61,8 +64,21 @@ def build_indices(config: ResolvedConfig, capability: Capability) -> dict[Memory
     Returns:
         dict[MemoryType, list[Index]] | None: The index set, or ``None`` when none should be registered.
     """
-    if capability < Capability.RETRIEVE:
+    if capability < Capability.BROWSE:
         return None
+
+    if capability is Capability.BROWSE:
+        from boltzmann.indices.base import IndexKind
+
+        from vitruvio.indices import build_indices as build_selected
+        from vitruvio.runtime.indexset import indices_home
+
+        specs = [
+            spec
+            for spec in config.project.indices
+            if spec.memory_type is MemoryType.PROVENANCE and spec.kind is IndexKind.HASH_MAP
+        ]
+        return build_selected(specs, home=indices_home(config))
 
     # Imported here, not at module scope: this is the line that pulls in usearch and the index engines, and an
     # INSPECT-capability command must not pay for it.

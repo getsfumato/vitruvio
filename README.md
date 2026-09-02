@@ -46,6 +46,9 @@ vitruvio source register notes.md
 vitruvio index build
 vitruvio search "what notes.md is about"
 vitruvio browse                      # read the brain: modules, blocks, and the PDFs and images inside them
+vitruvio catalog                     # canonical sources arranged under their portable classifications
+vitruvio auth trust-root             # governance keys, subjects and permissions
+vitruvio history                     # every reachable commit, its actor and its authorization state
 ```
 
 Every command that returns data takes `--json` and emits exactly one envelope on stdout; notes and warnings go to

@@ -76,7 +76,7 @@ class GeneratedFacade:
         return self.lifecycle_ops.verify()
 
     def history(self, *, limit: int | None = None) -> dict[str, Any]:
-        """The retained snapshots, most recent first.
+        """The retained SDK history and the complete reachable audit log.
 
         See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.history`."""
         return self.lifecycle_ops.history(limit=limit)
@@ -164,6 +164,12 @@ class GeneratedFacade:
         See :meth:`vitruvio.runtime.ops.catalog.CatalogOps.catalog_show`."""
         return self.catalog_ops.catalog_show()
 
+    def catalog_tree(self) -> dict[str, Any]:
+        """Return the class hierarchy as folders with canonical source rows as leaves.
+
+        See :meth:`vitruvio.runtime.ops.catalog.CatalogOps.catalog_tree`."""
+        return self.catalog_ops.catalog_tree()
+
     def catalog_apply(self, manifest: Mapping[str, Any], *, dry_run: bool = False) -> dict[str, Any]:
         """Validate and atomically apply one ``vitruvio.catalog/v1`` manifest.
 
@@ -198,6 +204,12 @@ class GeneratedFacade:
 
         See :meth:`vitruvio.runtime.ops.authenticity.AuthenticityOps.auth_status`."""
         return self.authenticity_ops.auth_status(snapshot=snapshot, offered=offered)
+
+    def auth_trust_root(self, *, snapshot: str | None = None) -> dict[str, Any]:
+        """Describe the trust root carried by one snapshot, including key permissions and validity.
+
+        See :meth:`vitruvio.runtime.ops.authenticity.AuthenticityOps.auth_trust_root`."""
+        return self.authenticity_ops.auth_trust_root(snapshot=snapshot)
 
     def auth_sign(
         self, key: str, *, snapshot: str | None = None, scopes: Sequence[str] | None = None

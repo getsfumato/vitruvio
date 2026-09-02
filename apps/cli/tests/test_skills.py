@@ -43,6 +43,8 @@ PULL_SKILLS = (
     Path(__file__).resolve().parents[3] / "skills" / "vitruvio-sync" / "SKILL.md",
 )
 
+DEVELOPMENT_SKILLS = Path(__file__).resolve().parents[3] / ".claude" / "skills"
+
 
 def envelope(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[str, Any]]:
     """Invoke the CLI in JSON mode and parse the single object it printed."""
@@ -79,6 +81,13 @@ class TestSkillsArePresent:
             for document in [skill / "SKILL.md", *(skill / "references").glob("*.md")]:
                 text = document.read_text(encoding="utf-8")
                 assert '"answer"' not in text, document
+
+    def test_repository_development_skills_are_hidden_from_public_discovery(self) -> None:
+        """`npx skills add REPO` scans agent-specific directories as well as `skills/`; internal metadata keeps
+        repository tooling available locally without presenting it as part of Vitruvio's public skill catalog."""
+        for skill in DEVELOPMENT_SKILLS.glob("*/SKILL.md"):
+            frontmatter = skill.read_text(encoding="utf-8").split("---", 2)[1]
+            assert "\nmetadata:\n  internal: true\n" in frontmatter, skill
 
     @pytest.mark.parametrize("skill", CREATION_SKILLS)
     def test_brain_creation_requires_an_explicit_governance_choice(self, skill: Path) -> None:

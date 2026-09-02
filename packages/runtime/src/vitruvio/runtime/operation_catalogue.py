@@ -57,7 +57,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "vitruvio.runtime.ops.catalog",
         "CatalogOps",
         "catalog_ops",
-        ("catalog_show", "catalog_apply", "catalog_browse", "catalog_path"),
+        ("catalog_show", "catalog_tree", "catalog_apply", "catalog_browse", "catalog_path"),
     ),
     OperationDomain(
         "vitruvio.runtime.ops.authenticity",
@@ -66,6 +66,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         (
             "auth_keys",
             "auth_status",
+            "auth_trust_root",
             "auth_sign",
             "auth_pin",
             "auth_attribution",

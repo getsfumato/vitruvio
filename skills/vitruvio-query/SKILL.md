@@ -67,11 +67,16 @@ query, so anything the query does not reach comes back looking absent. Read the 
 ```bash
 vitruvio inspect blocks canonical --json          # every block, in the module's own order
 vitruvio inspect blocks semantic --contains fourier --limit 50 --json
+vitruvio catalog --json                           # canonical sources in their portable class hierarchy
 ```
 
 No score column, because nothing was ranked. `--contains` filters rows that were already read — it names no index
 and cannot rank — so never present its rows as relevance. `inspect content DIGEST --out FILE` gets the bytes a
 canonical block names, and `inspect links BLOCK_ID` gets the provenance records about a block.
+
+Catalog navigation is also not retrieval: `catalog --json` is the structured inventory of canonical sources by
+scheme/class and includes unclassified evidence. Its creator verification fields are historical signature evidence,
+not a relevance or truth score.
 
 ## A small brain legitimately scans
 
