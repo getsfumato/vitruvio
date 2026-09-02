@@ -76,7 +76,7 @@ class GeneratedFacade:
         return self.lifecycle_ops.verify()
 
     def history(self, *, limit: int | None = None) -> dict[str, Any]:
-        """The retained snapshots, most recent first.
+        """The retained SDK history and the complete reachable audit log.
 
         See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.history`."""
         return self.lifecycle_ops.history(limit=limit)

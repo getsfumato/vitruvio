@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.catalog import Catalog
@@ -265,7 +265,7 @@ class CatalogOps:
             result = catalog.browse([self._class_id(catalog, item) for item in classes])
         payload = result.model_dump(mode="json")
         wanted = {str(source) for source in result.sources}
-        payload["source_rows"] = [row for row in self._canonical_rows() if row["block_id"] in wanted]
+        payload["source_rows"] = self._canonical_rows(wanted)
         return payload
 
     def catalog_path(self, schemes: Sequence[str], path: str = "") -> dict[str, Any]:
@@ -275,19 +275,27 @@ class CatalogOps:
             result = brain.catalog_path(schemes).iterdir(path)
         payload = result.model_dump(mode="json")
         wanted = {str(source) for source in result.sources}
-        payload["source_rows"] = [row for row in self._canonical_rows() if row["block_id"] in wanted]
+        payload["source_rows"] = self._canonical_rows(wanted)
         return payload
 
-    def _canonical_rows(self) -> list[dict[str, Any]]:
-        """All canonical rows through the same browsing interface the TUI uses."""
-        from vitruvio.runtime.ops.browsing import BrowsingOps
+    def _canonical_rows(self, wanted: set[str] | None = None) -> list[dict[str, Any]]:
+        """Project the requested canonical sources without widening a directory read to the whole module."""
+        from vitruvio.runtime.block_rows import project_rows
 
         brain = self.session.brain(Capability.BROWSE)
         reference = brain.snapshot().modules.get(MemoryType.CANONICAL)
-        if reference is None:
+        if reference is None or wanted == set():
             return []
-        rows = BrowsingOps(self.session).blocks("canonical", limit=max(1, reference.block_count))["rows"]
-        return cast(list[dict[str, Any]], rows)
+        module = brain.module(MemoryType.CANONICAL)
+        identities = module.block_ids
+        selected = identities if wanted is None else [identity for identity in identities if str(identity) in wanted]
+        rows, _ = project_rows(
+            brain,
+            MemoryType.CANONICAL,
+            selected,
+            policy=self.config.project.authenticity.build(),
+        )
+        return rows
 
     @staticmethod
     def _scheme_exclusivity(brain: Any) -> dict[str, bool]:

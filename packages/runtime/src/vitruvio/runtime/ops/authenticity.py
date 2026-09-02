@@ -112,6 +112,7 @@ class AuthenticityOps:
                 "governed": False,
                 "authenticity": report.state.value,
                 "pinned": report.pinned,
+                "pin": str(report.pin) if report.pin is not None else None,
                 "trust_root": None,
                 "keys": [],
             }

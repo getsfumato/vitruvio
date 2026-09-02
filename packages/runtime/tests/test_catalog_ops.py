@@ -70,6 +70,51 @@ def test_unclassified_sources_are_explicit(service: BrainService, source_file: P
     assert [row["block_id"] for row in tree["unclassified"]] == [source]
 
 
+def test_catalog_browse_projects_only_the_sources_in_the_selected_class(
+    service: BrainService, source_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = service.register(source_file, media_type="text/markdown")["block_id"]
+    other = source_file.parent / "other.md"
+    other.write_text("other", encoding="utf-8")
+    service.register(other, media_type="text/markdown")
+    service.catalog_apply(manifest(first))
+
+    from vitruvio.runtime.provenance import ProvenanceReader
+
+    original = ProvenanceReader.by_subjects
+    requested: list[set[str]] = []
+
+    def observed(reader: ProvenanceReader, subjects: set[str], *, read_limit: int) -> object:
+        requested.append(subjects)
+        return original(reader, subjects, read_limit=read_limit)
+
+    monkeypatch.setattr(ProvenanceReader, "by_subjects", observed)
+    result = service.catalog_browse(["topic/Mathematics"])
+    assert [row["block_id"] for row in result["source_rows"]] == [first]
+    assert requested == [{first}]
+
+
+def test_an_empty_catalog_directory_performs_no_canonical_authorship_read(
+    service: BrainService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service.catalog_apply(
+        {
+            "schema": "vitruvio.catalog/v1",
+            "schemes": [{"name": "topic"}],
+            "classes": [{"scheme": "topic", "label": "Empty"}],
+        }
+    )
+
+    from vitruvio.runtime.provenance import ProvenanceReader
+
+    monkeypatch.setattr(
+        ProvenanceReader,
+        "by_subjects",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("empty directory read provenance")),
+    )
+    assert service.catalog_browse(["topic/Empty"])["source_rows"] == []
+
+
 def test_query_class_references_filter_through_descendants(service: BrainService, source_file: Path) -> None:
     source = service.register(source_file, media_type="text/markdown")["block_id"]
     service.catalog_apply(manifest(source))

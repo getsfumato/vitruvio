@@ -8,6 +8,7 @@ here gives the CLI, TUI, and future protocol adapters one honest answer instead 
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from boltzmann.blocks.memory_type import MemoryType
@@ -21,6 +22,14 @@ from vitruvio.runtime.provenance import ProvenanceRead, decode_record
 CREATION_RECORDS = frozenset({"registration", "derivation"})
 
 
+@dataclass(frozen=True, slots=True)
+class Membership:
+    """A provenance composition membership together with any reason it cannot support attribution."""
+
+    members: frozenset[str]
+    evidence_gaps: tuple[str, ...] = ()
+
+
 class AuthorshipAudit:
     """A request-scoped audit cache over one opened brain."""
 
@@ -28,9 +37,11 @@ class AuthorshipAudit:
         self.brain = brain
         self.policy = policy
         self._snapshots: dict[str, Snapshot] | None = None
-        self._members: dict[str, set[str] | None] = {}
+        self._members: dict[str, Membership] = {}
+        self._introductions: dict[str, Membership] = {}
         self._introduced_by: dict[str, list[str]] | None = None
         self._reports: dict[str, dict[str, Any]] = {}
+        self._integrity: dict[str, bool] = {}
 
     def claims(self, read: ProvenanceRead) -> dict[str, dict[str, Any]]:
         """Project creation records returned for a set of block subjects, grouped by subject."""
@@ -46,6 +57,7 @@ class AuthorshipAudit:
 
         return {
             block_id: {
+                "applicable": True,
                 "complete": read.complete and all(claim["complete"] for claim in claims),
                 "provenance": read.metadata(),
                 "claims": claims,
@@ -55,25 +67,25 @@ class AuthorshipAudit:
 
     def empty(self, read: ProvenanceRead) -> dict[str, Any]:
         """The explicit no-claim shape, preserving whether the lookup was complete."""
-        return {"complete": read.complete, "provenance": read.metadata(), "claims": []}
+        return {"applicable": True, "complete": read.complete, "provenance": read.metadata(), "claims": []}
 
     def participants(self, snapshot: Snapshot) -> dict[str, Any]:
         """Actors and assisting parties introduced by one snapshot relative to its first parent."""
-        members = self._introduced(snapshot)
+        introduced = self._introduced(snapshot)
         actors: dict[str, dict[str, Any]] = {}
         assisted: dict[str, dict[str, Any]] = {}
-        gaps: list[str] = []
-        for identity in sorted(members):
+        gaps = list(introduced.evidence_gaps)
+        for identity in sorted(introduced.members):
             parsed = BlockId.parse(identity)
             if not self.brain.store.is_resolvable(parsed):
-                gaps.append(identity)
+                gaps.append(f"provenance record {identity} is not resolvable")
                 continue
             try:
                 record = decode_record(self.brain.store.get_block(parsed))
             except Exception:
                 record = None
             if record is None:
-                gaps.append(identity)
+                gaps.append(f"provenance record {identity} is unreadable")
                 continue
             actor = record.get("actor")
             if isinstance(actor, dict) and isinstance(actor.get("id"), str):
@@ -89,23 +101,34 @@ class AuthorshipAudit:
         }
 
     def authenticate(self, snapshot: Snapshot) -> dict[str, Any]:
-        """Authenticate and verify one resolvable historical snapshot, cached by digest."""
+        """Authenticate one historical snapshot without rehashing every module it references.
+
+        Signatures and trust policy answer whether the snapshot was authorized. Merkle integrity is a separate,
+        whole-brain operation and is deliberately reserved for lifecycle history/status calls; a browse page must
+        not hash an entire historical brain once per introducing snapshot merely to display its creator.
+        """
         key = str(snapshot.digest)
         if key in self._reports:
             return self._reports[key]
         report = self.brain.authenticate(snapshot.digest, policy=self.policy)
-        historical = Brain(
-            self.brain.store,
-            actor=self.brain.actor,
-            snapshot=snapshot,
-            assisted_by=self.brain.assisted_by,
-            policy=self.brain.policy,
-        )
         payload = report.model_dump(mode="json")
         payload["state"] = report.state.value
-        payload["integrity"] = historical.verify()
         self._reports[key] = payload
         return payload
+
+    def integrity(self, snapshot: Snapshot) -> bool:
+        """Rehash one historical brain for the explicit lifecycle audit, once per request."""
+        key = str(snapshot.digest)
+        if key not in self._integrity:
+            historical = Brain(
+                self.brain.store,
+                actor=self.brain.actor,
+                snapshot=snapshot,
+                assisted_by=self.brain.assisted_by,
+                policy=self.brain.policy,
+            )
+            self._integrity[key] = historical.verify()
+        return self._integrity[key]
 
     def snapshots(self) -> dict[str, Snapshot]:
         """Every resolvable retained or reachable snapshot, including discarded branches."""
@@ -198,39 +221,65 @@ class AuthorshipAudit:
             return self._introduced_by
         found: dict[str, list[str]] = {}
         for digest, snapshot in self.snapshots().items():
-            for identity in self._introduced(snapshot):
+            for identity in self._introduced(snapshot).members:
                 found.setdefault(identity, []).append(digest)
         self._introduced_by = found
         return found
 
-    def _introduced(self, snapshot: Snapshot) -> set[str]:
+    def _introduced(self, snapshot: Snapshot) -> Membership:
+        key = str(snapshot.digest)
+        if key in self._introductions:
+            return self._introductions[key]
         current = self._membership(snapshot)
-        if current is None:
-            return set()
+        if current.evidence_gaps:
+            self._introductions[key] = current
+            return current
         if snapshot.first_parent is None:
+            self._introductions[key] = current
             return current
         parent = self.snapshots().get(str(snapshot.first_parent))
-        inherited = self._membership(parent) if parent is not None else None
-        return current - (inherited or set())
+        if parent is None:
+            result = Membership(
+                frozenset(),
+                (f"parent snapshot {snapshot.first_parent} is not resolvable; introductions are unknown",),
+            )
+            self._introductions[key] = result
+            return result
+        inherited = self._membership(parent)
+        if inherited.evidence_gaps:
+            result = Membership(frozenset(), inherited.evidence_gaps)
+            self._introductions[key] = result
+            return result
+        result = Membership(current.members - inherited.members)
+        self._introductions[key] = result
+        return result
 
-    def _membership(self, snapshot: Snapshot | None) -> set[str] | None:
-        if snapshot is None:
-            return None
+    def _membership(self, snapshot: Snapshot) -> Membership:
         key = str(snapshot.digest)
         if key in self._members:
             return self._members[key]
         reference = snapshot.modules.get(MemoryType.PROVENANCE)
         if reference is None:
-            self._members[key] = set()
-            return set()
+            result = Membership(frozenset())
+            self._members[key] = result
+            return result
         try:
             composition = Composition.from_document(self.brain.store.get_bytes(reference.composition))
-        except Exception:
-            self._members[key] = None
-            return None
-        members = {str(identity) for identity in composition.block_ids}
-        self._members[key] = members
-        return members
+        except Exception as error:
+            result = Membership(
+                frozenset(),
+                (
+                    (
+                        f"snapshot {key} provenance composition {reference.composition} is unreadable: "
+                        f"{type(error).__name__}: {error}"
+                    ),
+                ),
+            )
+            self._members[key] = result
+            return result
+        result = Membership(frozenset(str(identity) for identity in composition.block_ids))
+        self._members[key] = result
+        return result
 
 
 __all__ = ["CREATION_RECORDS", "AuthorshipAudit"]

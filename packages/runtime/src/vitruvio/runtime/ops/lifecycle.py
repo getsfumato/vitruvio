@@ -211,19 +211,21 @@ class LifecycleOps:
 
     def history(self, *, limit: int | None = None) -> dict[str, Any]:
         """
-        The retained snapshots, most recent first.
+        The retained SDK history and the complete reachable audit log.
 
         Args:
             limit (int | None): How many to return.
 
         Returns:
-            dict[str, Any]: The chain a prune walks, and an audit reads.
+            dict[str, Any]: ``snapshots`` preserves the SDK's retained order for compatibility; ``commits`` is
+            the audit view, including reachable merge parents and unreadable snapshot documents, HEAD first.
         """
         brain = self.session.brain(Capability.INSPECT)
         with translated():
             from vitruvio.runtime.authorship import AuthorshipAudit
 
             audit = AuthorshipAudit(brain, policy=self.config.project.authenticity.build())
+            retained_snapshots = list(brain.history())
             resolved = list(audit.snapshots().values())
             head = str(brain.snapshot().digest)
             resolved.sort(
@@ -244,11 +246,14 @@ class LifecycleOps:
                 except Exception as error:
                     authentication = {
                         "state": "unknown",
-                        "integrity": None,
                         "pinned": False,
                         "trust_root": str(snapshot.trust_root.digest) if snapshot.trust_root else None,
                         "attribution": {"evidence_gaps": [str(error)]},
                     }
+                try:
+                    integrity = audit.integrity(snapshot)
+                except Exception:
+                    integrity = None
                 rows.append(
                     {
                         **wire.snapshot(snapshot),
@@ -256,7 +261,7 @@ class LifecycleOps:
                         "head": str(snapshot.digest) == head,
                         "on_ancestry": str(snapshot.digest) in chain,
                         "resolvable": True,
-                        "integrity": authentication.get("integrity"),
+                        "integrity": integrity,
                         "authenticity": authentication.get("state", "unknown"),
                         "authorized": authentication.get("state") == "authorized",
                         "pinned": bool(authentication.get("pinned")),
@@ -280,10 +285,14 @@ class LifecycleOps:
                 }
                 for digest in audit.unresolved_history()
             )
-        chosen = rows[:limit] if limit else rows
+        by_digest = {str(row["digest"]): row for row in rows}
+        retained_rows = [by_digest[str(snapshot.digest)] for snapshot in retained_snapshots]
+        chosen_commits = rows[:limit] if limit else rows
+        chosen_snapshots = retained_rows[:limit] if limit else retained_rows
         return {
-            "snapshots": chosen,
-            "retained": len(brain.history()),
+            "snapshots": chosen_snapshots,
+            "commits": chosen_commits,
+            "retained": len(retained_snapshots),
             "ancestry": chain,
             "reachable": reachable,
         }

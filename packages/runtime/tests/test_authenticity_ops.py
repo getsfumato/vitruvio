@@ -28,16 +28,21 @@ class Party:
         return rfc4253_signature("ssh-ed25519", self._private.sign(data))
 
 
-def test_governed_writes_are_signed_only_when_requested(
-    config: object, source_file: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def governed(config: object, monkeypatch: pytest.MonkeyPatch) -> tuple[BrainService, Party]:
+    """Open a genuinely governed brain while replacing only the process-external SSH agent."""
     party = Party()
     monkeypatch.setattr("boltzmann.authenticity.AgentSigner", lambda _key: party)
     monkeypatch.setattr("vitruvio.runtime.ops.authenticity.AgentSigner", lambda _key: party)
     service = BrainService(config)  # type: ignore[arg-type]
-
     created = service.init(governed=True, sign_with=[party.public_key.fingerprint])
     assert created["governed"] is True
+    return service, party
+
+
+def test_a_governed_write_remains_unsigned_until_explicitly_signed(
+    config: object, source_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, party = governed(config, monkeypatch)
     assert service.auth_status()["state"] == "authorized"
 
     service.register(source_file, media_type="text/markdown")
@@ -45,6 +50,14 @@ def test_governed_writes_are_signed_only_when_requested(
     record = service.auth_sign(party.public_key.fingerprint)
     assert record["key"] == party.public_key.fingerprint
     assert service.auth_status()["state"] == "authorized"
+
+
+def test_signed_creation_provenance_verifies_the_configured_actor(
+    config: object, source_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, party = governed(config, monkeypatch)
+    service.register(source_file, media_type="text/markdown")
+    record = service.auth_sign(party.public_key.fingerprint)
     attribution = service.auth_attribution()
     assert attribution["snapshot"] == record["snapshot"]
     assert attribution["complete"] is True
@@ -53,6 +66,11 @@ def test_governed_writes_are_signed_only_when_requested(
     assert row["authorship"]["claims"][0]["actor_verified"] is True
     assert row["authorship"]["claims"][0]["snapshot_authenticity"] == "authorized"
 
+
+def test_a_consumer_pin_is_reported_beside_the_governance_inventory(
+    config: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _party = governed(config, monkeypatch)
     pin = service.auth_pin()
     assert pin["source"] == "first_use"
     assert service.auth_status()["pinned"] is True
@@ -80,6 +98,7 @@ def test_an_ungoverned_brain_reports_integrity_separately(service: BrainService)
     root = service.auth_trust_root()
     assert root["governed"] is False
     assert root["keys"] == []
+    assert root["pin"] is None
 
 
 def test_invalid_auth_enums_are_usage_errors(service: BrainService) -> None:

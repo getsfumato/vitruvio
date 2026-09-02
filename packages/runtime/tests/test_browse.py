@@ -28,6 +28,15 @@ def registered(service: BrainService, source_file: Path) -> dict[str, str]:
 
 
 class TestBlocks:
+    def test_browsing_authorship_does_not_rehash_historical_brains(
+        self, service: BrainService, registered: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A list needs signature attribution, while whole-brain integrity belongs to the explicit audit command."""
+        from boltzmann.brain import Brain
+
+        monkeypatch.setattr(Brain, "verify", lambda _brain: (_ for _ in ()).throw(AssertionError("unexpected rehash")))
+        assert len(service.blocks("canonical")["rows"]) == len(registered)
+
     def test_a_canonical_row_is_titled_by_the_origin_its_registration_recorded(
         self, service: BrainService, registered: dict[str, str]
     ) -> None:
@@ -90,6 +99,7 @@ class TestBlocks:
         """A provenance block has no name of its own: what identifies it is the kind of record it is."""
         titles = {row["title"] for row in service.blocks("provenance")["rows"]}
         assert titles == {"registration"}
+        assert all(row["authorship"]["applicable"] is False for row in service.blocks("provenance")["rows"])
 
 
 @pytest.fixture
