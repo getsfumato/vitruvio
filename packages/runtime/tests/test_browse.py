@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from vitruvio.kernel import VitruvioError
+from vitruvio.kernel import ResolvedConfig, VitruvioError
 from vitruvio.runtime import BrainService
 
 
@@ -361,6 +361,34 @@ class TestRelated:
 
 class TestOriginsDegradeHonestly:
     """A brain with no provenance is a shape; a provenance module that half-read is not."""
+
+    def test_explicit_index_selection_cannot_make_origins_depend_on_provenance_order(
+        self, config: ResolvedConfig, tmp_path: Path
+    ) -> None:
+        """Browse needs provenance's subject index for correctness, even when retrieval declares fewer indices."""
+        from boltzmann.blocks.memory_type import MemoryType
+        from boltzmann.indices.base import IndexKind
+
+        from vitruvio.kernel import IndexSpec
+
+        project = config.project.model_copy(
+            update={"index": [IndexSpec(memory_type=MemoryType.CANONICAL, kind=IndexKind.HASH_MAP)]}
+        )
+        service = BrainService(config.model_copy(update={"project": project}))
+        service.init()
+
+        expected = set()
+        for index in range(40):
+            path = tmp_path / f"keeper-{index}.html"
+            path.write_text(f"<p>keeper {index}</p>\n", encoding="utf-8")
+            service.register(path, media_type="text/html")
+            expected.add(path.name)
+
+        pages = [service.blocks("canonical", limit=1, offset=offset) for offset in range(40)]
+
+        assert {page["rows"][0]["title"] for page in pages} == expected
+        assert all(page["provenance"]["state"] == "indexed" for page in pages)
+        assert all(page["provenance"]["complete"] is True for page in pages)
 
     def test_a_brain_without_provenance_lists_by_media_type(self, service: BrainService, source_file: Path) -> None:
         """The documented empty case: a selectively pulled brain can hold canonical evidence and no provenance."""
