@@ -49,10 +49,27 @@ def test_governed_writes_are_signed_only_when_requested(
     assert attribution["snapshot"] == record["snapshot"]
     assert attribution["complete"] is True
     assert "tester@example.com" in attribution["verified"]
+    row = service.blocks("canonical")["rows"][0]
+    assert row["authorship"]["claims"][0]["actor_verified"] is True
+    assert row["authorship"]["claims"][0]["snapshot_authenticity"] == "authorized"
 
     pin = service.auth_pin()
     assert pin["source"] == "first_use"
     assert service.auth_status()["pinned"] is True
+
+    root = service.auth_trust_root()
+    assert root["governed"] is True
+    assert root["pinned"] is True
+    assert root["trust_root"]["revision"] == 1
+    assert root["keys"][0]["subject"] == "tester@example.com"
+    assert set(root["keys"][0]["scopes"]) == {
+        "commit",
+        "ingest",
+        "drop:canonical",
+        "redact",
+        "govern",
+        "propose",
+    }
 
 
 def test_an_ungoverned_brain_reports_integrity_separately(service: BrainService) -> None:
@@ -60,6 +77,9 @@ def test_an_ungoverned_brain_reports_integrity_separately(service: BrainService)
     assert status["integrity"] is True
     assert status["state"] == "unsigned"
     assert status["trust_root"] is None
+    root = service.auth_trust_root()
+    assert root["governed"] is False
+    assert root["keys"] == []
 
 
 def test_invalid_auth_enums_are_usage_errors(service: BrainService) -> None:

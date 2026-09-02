@@ -778,6 +778,9 @@ class TestTheHistoryIsAGraph:
             "a merged-in history is contained without being on the first-parent chain -- which is exactly why "
             "containment is a reachability question and `ancestry` cannot answer it"
         )
+        assert {item["digest"] for item in history["snapshots"]} == set(history["reachable"])
+        assert "actors" in head
+        assert "authenticity" in head
 
     def test_the_tree_reports_where_the_two_parted(self, diverged: tuple[Path, str, BrainService]) -> None:
         registry, reference, beto = diverged

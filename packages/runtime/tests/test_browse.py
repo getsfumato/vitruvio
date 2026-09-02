@@ -46,6 +46,16 @@ class TestBlocks:
         assert rows[registered["markdown"]]["media_type"] == "text/markdown"
         assert rows[registered["markdown"]]["size"] > 0
 
+    def test_rows_carry_creator_and_snapshot_authenticity(
+        self, service: BrainService, registered: dict[str, str]
+    ) -> None:
+        row = next(item for item in service.blocks("canonical")["rows"] if item["block_id"] == registered["markdown"])
+        (claim,) = row["authorship"]["claims"]
+        assert claim["actor"]["id"] == "tester@example.com"
+        assert claim["actor_verified"] is False
+        assert claim["snapshot_authenticity"] == "unsigned"
+        assert claim["snapshot"].startswith("sha256:")
+
     def test_the_page_reports_what_it_did_not_return(self, service: BrainService, registered: dict[str, str]) -> None:
         """`truncated` is what tells a caller to ask for the next page; a reader who cannot see it has silently
         been shown half a module."""
@@ -233,7 +243,7 @@ class TestRelated:
         from vitruvio.runtime.assembly import Capability
 
         registration = service.register(source_file, media_type="text/markdown")
-        brain = service.brain(Capability.INSPECT)
+        brain = service.brain(Capability.BROWSE)
         module = brain.module(MemoryType.PROVENANCE)
         index = HashMapIndex(MemoryType.PROVENANCE)
         index.build([module.get(identity) for identity in module.block_ids], MemoryContent())
@@ -256,7 +266,7 @@ class TestRelated:
         from vitruvio.runtime import provenance
         from vitruvio.runtime.assembly import Capability
 
-        brain = service.brain(Capability.INSPECT)
+        brain = service.brain(Capability.BROWSE)
         monkeypatch.setitem(brain.indices, MemoryType.PROVENANCE, [])
         monkeypatch.setattr(provenance, "PROVENANCE_SCAN_LIMIT", 1)
 
@@ -292,7 +302,7 @@ class TestRelated:
 
         from vitruvio.runtime.assembly import Capability
 
-        brain = service.brain(Capability.INSPECT)
+        brain = service.brain(Capability.BROWSE)
         original = brain.module
 
         def unreadable(kind: MemoryType) -> Any:
@@ -333,7 +343,7 @@ class TestOriginsDegradeHonestly:
         second.write_text("# Laplace\n\nDe lo diferencial a lo algebraico.\n", encoding="utf-8")
         service.register(second, media_type="text/markdown")
 
-        brain = service.brain(Capability.INSPECT)
+        brain = service.brain(Capability.BROWSE)
         module = brain.module(MemoryType.PROVENANCE)
         original = module.get
         seen: list[Any] = []
@@ -375,7 +385,7 @@ class TestPagingReadsOnlyThePage:
         from vitruvio.runtime.assembly import Capability
 
         self._fill(service, source_file, 40)
-        brain = service.brain(Capability.INSPECT)
+        brain = service.brain(Capability.BROWSE)
         module = brain.module(MemoryType.CANONICAL)
         provenance = brain.module(MemoryType.PROVENANCE)
         original = module.get

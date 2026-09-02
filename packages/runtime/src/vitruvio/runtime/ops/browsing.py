@@ -19,7 +19,7 @@ from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
-from vitruvio.runtime.provenance import ProvenanceReader, registration_origins
+from vitruvio.runtime.provenance import ProvenanceRead, ProvenanceReader, registration_origins
 from vitruvio.runtime.session import BrainSession
 
 
@@ -73,7 +73,7 @@ class BrowsingOps:
         """
         from vitruvio.runtime import browse
 
-        brain = self.session.brain(Capability.INSPECT)
+        brain = self.session.brain(Capability.BROWSE)
         with translated():
             kind = coerce_memory_type(memory_type)
             if kind not in brain.snapshot().installed:
@@ -99,18 +99,25 @@ class BrowsingOps:
             identities = module.block_ids
             resolvable = module.resolvable()
             origins: dict[str, str] = {}
+            authorship: dict[str, dict[str, Any]] = {}
             provenance: dict[str, Any] | None = None
-            if kind is MemoryType.CANONICAL:
+            provenance_read = None
+            if kind is not MemoryType.PROVENANCE:
                 # Only records about identities this operation may render are requested. An ordinary page therefore
                 # performs work proportional to the page, while the explicitly scanning `contains` path requests
                 # the identities it already has to inspect.
                 targets = identities if contains is not None else identities[offset : offset + limit]
-                read = ProvenanceReader(brain).by_subjects(
+                provenance_read = ProvenanceReader(brain).by_subjects(
                     {str(identity) for identity in targets},
-                    read_limit=max(1, len(targets) * 8),
+                    read_limit=max(1, len(targets) * 32),
                 )
-                origins = registration_origins(read)
-                provenance = read.metadata()
+                origins = registration_origins(provenance_read)
+                provenance = provenance_read.metadata()
+                from vitruvio.runtime.authorship import AuthorshipAudit
+
+                authorship = AuthorshipAudit(
+                    brain, policy=self.config.project.authenticity.build()
+                ).claims(provenance_read)
 
             rows: list[dict[str, Any]] = []
             if contains is None:
@@ -119,7 +126,15 @@ class BrowsingOps:
                 # which on a large module meant tens of thousands of store reads to return a hundred rows.
                 seen = len(identities)
                 rows = [
-                    self._entry(module, kind, identity, resolvable, origins)
+                    self._entry(
+                        module,
+                        kind,
+                        identity,
+                        resolvable,
+                        origins,
+                        authorship=authorship,
+                        provenance_read=provenance_read,
+                    )
                     for identity in identities[offset : offset + limit]
                 ]
             else:
@@ -128,7 +143,15 @@ class BrowsingOps:
                 # not a query, and `search` is where an index decides what to read.
                 seen = 0
                 for identity in identities:
-                    entry = self._entry(module, kind, identity, resolvable, origins)
+                    entry = self._entry(
+                        module,
+                        kind,
+                        identity,
+                        resolvable,
+                        origins,
+                        authorship=authorship,
+                        provenance_read=provenance_read,
+                    )
                     if not browse.matches(entry, contains):
                         continue
                     seen += 1
@@ -156,6 +179,9 @@ class BrowsingOps:
         identity: Any,
         resolvable: Mapping[Any, bool],
         origins: Mapping[str, str],
+        *,
+        authorship: Mapping[str, dict[str, Any]],
+        provenance_read: ProvenanceRead | None,
     ) -> dict[str, Any]:
         """
         One row, whether or not the block behind it can be read.
@@ -176,12 +202,20 @@ class BrowsingOps:
         """
         from vitruvio.runtime import browse
 
+        block_id = str(identity)
         if not resolvable.get(identity, True):
-            return browse.unreadable(str(identity), kind.value, "not resolvable (redacted or not installed)")
-        try:
-            return browse.row(module.get(identity), kind, origin=origins.get(str(identity)))
-        except Exception as error:  # the store disagreed with the composition; say so, do not stop
-            return browse.unreadable(str(identity), kind.value, f"{type(error).__name__}: {error}")
+            entry = browse.unreadable(block_id, kind.value, "not resolvable (redacted or not installed)")
+        else:
+            try:
+                entry = browse.row(module.get(identity), kind, origin=origins.get(block_id))
+            except Exception as error:  # the store disagreed with the composition; say so, do not stop
+                entry = browse.unreadable(block_id, kind.value, f"{type(error).__name__}: {error}")
+        if kind is not MemoryType.PROVENANCE and provenance_read is not None:
+            entry["authorship"] = authorship.get(
+                block_id,
+                {"complete": provenance_read.complete, "provenance": provenance_read.metadata(), "claims": []},
+            )
+        return entry
 
     def content(self, digest: str) -> bytes:
         """
@@ -257,7 +291,7 @@ class BrowsingOps:
             when provenance is not installed, which is a brain whose history was not pulled rather than a
             failure to read one.
         """
-        brain = self.session.brain(Capability.INSPECT)
+        brain = self.session.brain(Capability.BROWSE)
         with translated():
             kind = coerce_memory_type("provenance")
             if kind not in brain.snapshot().installed:

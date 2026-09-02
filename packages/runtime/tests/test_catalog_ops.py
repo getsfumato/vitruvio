@@ -37,6 +37,14 @@ def test_a_manifest_is_atomic_navigable_and_idempotent(service: BrainService, so
     assert service.catalog_browse(["topic/Science"])["sources"] == [source]
     assert service.catalog_path(["topic"], "")["directories"] == ["Mathematics", "Science"]
 
+    tree = service.catalog_tree()
+    assert tree["schemes"][0]["exclusive"] is True
+    science = tree["schemes"][0]["roots"][0]
+    assert science["label"] == "Science"
+    assert science["children"][0]["label"] == "Mathematics"
+    assert science["children"][0]["direct_sources"][0]["block_id"] == source
+    assert tree["unclassified"] == []
+
     repeated = service.catalog_apply(manifest(source))
     assert repeated["clean"] is True
     assert repeated["applied"] is False
@@ -53,6 +61,13 @@ def test_an_invalid_manifest_commits_nothing(service: BrainService) -> None:
     assert result["clean"] is False
     assert result["applied"] is False
     assert service.state()["snapshot"]["digest"] == before
+
+
+def test_unclassified_sources_are_explicit(service: BrainService, source_file: Path) -> None:
+    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    tree = service.catalog_tree()
+    assert tree["schemes"] == []
+    assert [row["block_id"] for row in tree["unclassified"]] == [source]
 
 
 def test_query_class_references_filter_through_descendants(service: BrainService, source_file: Path) -> None:
