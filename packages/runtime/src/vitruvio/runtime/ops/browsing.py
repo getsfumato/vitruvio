@@ -115,9 +115,9 @@ class BrowsingOps:
                 provenance = provenance_read.metadata()
                 from vitruvio.runtime.authorship import AuthorshipAudit
 
-                authorship = AuthorshipAudit(
-                    brain, policy=self.config.project.authenticity.build()
-                ).claims(provenance_read)
+                authorship = AuthorshipAudit(brain, policy=self.config.project.authenticity.build()).claims(
+                    provenance_read
+                )
 
             rows: list[dict[str, Any]] = []
             if contains is None:

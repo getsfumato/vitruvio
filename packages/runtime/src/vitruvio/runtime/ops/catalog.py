@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.catalog import Catalog
@@ -156,9 +156,7 @@ class CatalogOps:
                     return {
                         **node,
                         "children": [
-                            branch(child, trail | {identity})
-                            for child in node["narrower"]
-                            if child in tree_nodes
+                            branch(child, trail | {identity}) for child in node["narrower"] if child in tree_nodes
                         ],
                     }
 
@@ -167,8 +165,12 @@ class CatalogOps:
                     {
                         "name": scheme,
                         "exclusive": exclusivity.get(scheme, False),
-                        "roots": [branch(identity) for identity in sorted(roots, key=lambda item: nodes[item]["label"])],
-                        "classes": [nodes[identity] for identity in sorted(nodes, key=lambda item: nodes[item]["label"])],
+                        "roots": [
+                            branch(identity) for identity in sorted(roots, key=lambda item: nodes[item]["label"])
+                        ],
+                        "classes": [
+                            nodes[identity] for identity in sorted(nodes, key=lambda item: nodes[item]["label"])
+                        ],
                     }
                 )
 
@@ -284,7 +286,8 @@ class CatalogOps:
         reference = brain.snapshot().modules.get(MemoryType.CANONICAL)
         if reference is None:
             return []
-        return BrowsingOps(self.session).blocks("canonical", limit=max(1, reference.block_count))["rows"]
+        rows = BrowsingOps(self.session).blocks("canonical", limit=max(1, reference.block_count))["rows"]
+        return cast(list[dict[str, Any]], rows)
 
     @staticmethod
     def _scheme_exclusivity(brain: Any) -> dict[str, bool]:

@@ -529,7 +529,15 @@ def graph(snapshots: Sequence[Mapping[str, Any]], *, ancestry: Sequence[str] = (
         actors = item.get("actors") or ()
         actor = ", ".join(str(value.get("id", "unknown")) for value in actors) or "unknown"
         state = str(item.get("authenticity") or "unknown")
-        auth_style = "ok" if state == "authorized" else "bad" if state == "unauthorized" else "warn" if state == "unsigned" else "muted"
+        auth_style = (
+            "ok"
+            if state == "authorized"
+            else "bad"
+            if state == "unauthorized"
+            else "warn"
+            if state == "unsigned"
+            else "muted"
+        )
         rows.add_row(
             glyph,
             theme.digest(digest_value),

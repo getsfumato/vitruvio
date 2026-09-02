@@ -198,7 +198,11 @@ def history(data: Mapping[str, Any]) -> RenderableType:
             str(item.get("created_at") or "unresolved"),
             Text(actor, style="value" if actors else "muted"),
             authenticity(item.get("authenticity")),
-            Text("ok", style="ok") if integrity is True else Text("failed", style="bad") if integrity is False else Text("unknown", style="muted"),
+            Text("ok", style="ok")
+            if integrity is True
+            else Text("failed", style="bad")
+            if integrity is False
+            else Text("unknown", style="muted"),
             str(item.get("block_count", "-")),
         )
     return table

@@ -821,9 +821,7 @@ class BrainBrowser(App[None]):
             lambda selected: self._classes_selected(source_id, classes, selected),
         )
 
-    def _classes_selected(
-        self, source: str, classes: list[dict[str, Any]], selected: list[str] | None
-    ) -> None:
+    def _classes_selected(self, source: str, classes: list[dict[str, Any]], selected: list[str] | None) -> None:
         """Continue classification only for newly selected placements."""
         if selected is None:
             return
@@ -863,10 +861,12 @@ class BrainBrowser(App[None]):
 
     def _choose_signing_key(self, source: str, classes: list[str], keys: list[dict[str, Any]]) -> None:
         """Ask which eligible key should sign before the catalog commit exists."""
-        self.push_screen(
-            SigningKeyScreen(keys),
-            lambda key: self.apply_classification(source, classes, key) if key is not None else None,
-        )
+
+        def selected(key: str | None) -> None:
+            if key is not None:
+                self.apply_classification(source, classes, key)
+
+        self.push_screen(SigningKeyScreen(keys), selected)
 
     @work(thread=True, exclusive=True, group="classification")
     def apply_classification(self, source: str, classes: list[str], key: str) -> None:

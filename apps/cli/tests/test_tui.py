@@ -593,14 +593,13 @@ class TestTheInterface:
         app = BrainBrowser(service, brain=str(brain))
         async with app.run_test(size=(150, 42)) as pilot:
             await _settle(pilot)
+            assert app.selected is not None
             selected = str(app.selected["block_id"])
             scheme = app.catalog["schemes"][0]
             assert scheme["roots"][0]["label"] == "Mathematics"
 
             app._show_catalog("unclassified", app.catalog["unclassified"])
-            assert {row["block_id"] for row in app.rows} == {
-                row["block_id"] for row in app.catalog["unclassified"]
-            }
+            assert {row["block_id"] for row in app.rows} == {row["block_id"] for row in app.catalog["unclassified"]}
 
             app.select(next(row for row in app.rows if row["block_id"] == selected))
             await pilot.press("c")

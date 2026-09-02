@@ -30,7 +30,7 @@ class AuthorshipAudit:
         self._snapshots: dict[str, Snapshot] | None = None
         self._members: dict[str, set[str] | None] = {}
         self._introduced_by: dict[str, list[str]] | None = None
-        self._reports: dict[str, Any] = {}
+        self._reports: dict[str, dict[str, Any]] = {}
 
     def claims(self, read: ProvenanceRead) -> dict[str, dict[str, Any]]:
         """Project creation records returned for a set of block subjects, grouped by subject."""
