@@ -30,7 +30,8 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import DataTable, Footer, Header, Input, Label, Static, TabbedContent, TabPane
+from textual.widgets import DataTable, Footer, Header, Input, Label, SelectionList, Static, TabbedContent, TabPane
+from textual.widgets.selection_list import Selection
 
 from vitruvio.cli import render
 from vitruvio.cli.tui.query_views import btree_view, graph_view, plan_view, vector_view
@@ -38,6 +39,117 @@ from vitruvio.runtime import BrainService
 
 LIMIT = 25
 """How many matches to ask the planner for."""
+
+
+class ClassificationScreen(ModalScreen[list[str] | None]):
+    """Choose additional existing catalog classes for one canonical source."""
+
+    CSS = """
+    ClassificationScreen { align: center middle; }
+    #classify-panel { width: 72%; height: 76%; border: round $primary; background: $surface; padding: 1 2; }
+    #classify-title { height: 2; text-style: bold; color: $primary; }
+    #classify-note { height: 3; color: $text-muted; }
+    #classes { height: 1fr; background: $background; }
+    #classify-help { height: 2; color: $text-muted; }
+    """
+
+    BINDINGS = [
+        Binding("ctrl+s", "save", "apply classes"),
+        Binding("escape", "cancel", "cancel"),
+    ]
+
+    def __init__(self, source: dict[str, Any], classes: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.source = source
+        self.class_options = classes
+
+    def compose(self) -> ComposeResult:
+        options = [
+            Selection(
+                f"{item['scheme']} / {item['label']}",
+                item["reference"],
+                bool(item.get("selected")),
+                disabled=bool(item.get("disabled")),
+            )
+            for item in self.class_options
+        ]
+        with Vertical(id="classify-panel"):
+            yield Label(str(self.source.get("title") or self.source.get("block_id")), id="classify-title")
+            yield Static(
+                "Space toggles a class. Existing placements are selected and locked because catalog history is "
+                "append-only.",
+                id="classify-note",
+            )
+            yield SelectionList(*options, id="classes")
+            yield Static("ctrl+s validates and applies · escape leaves the brain unchanged", id="classify-help")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#classes", SelectionList).focus()
+
+    def action_save(self) -> None:
+        selected = list(self.query_one("#classes", SelectionList).selected)
+        by_scheme: dict[str, list[str]] = {}
+        for reference in selected:
+            scheme = str(reference).partition("/")[0]
+            by_scheme.setdefault(scheme, []).append(str(reference))
+        exclusive = {item["scheme"] for item in self.class_options if item.get("exclusive")}
+        conflicts = [scheme for scheme in exclusive if len(by_scheme.get(scheme, [])) > 1]
+        if conflicts:
+            self.notify(
+                f"exclusive schemes accept one class: {', '.join(sorted(conflicts))}", severity="warning", timeout=8
+            )
+            return
+        self.dismiss(sorted(str(value) for value in selected))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class SigningKeyScreen(ModalScreen[str | None]):
+    """Choose which eligible ssh-agent key will sign a catalog commit."""
+
+    CSS = """
+    SigningKeyScreen { align: center middle; }
+    #key-panel { width: 74%; height: 54%; border: round $primary; background: $surface; padding: 1 2; }
+    #key-title { height: 2; text-style: bold; color: $primary; }
+    #eligible-keys { height: 1fr; background: $background; }
+    #key-help { height: 2; color: $text-muted; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "cancel")]
+
+    def __init__(self, keys: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.keys = keys
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="key-panel"):
+            yield Label("sign governed catalog change", id="key-title")
+            yield DataTable(id="eligible-keys", cursor_type="row")
+            yield Static("enter chooses a key · escape leaves the brain unchanged", id="key-help")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        table = self.query_one("#eligible-keys", DataTable)
+        table.add_columns("subject", "fingerprint", "scopes")
+        for key in self.keys:
+            table.add_row(
+                str(key.get("subject") or "(no subject)"),
+                render.digest(key.get("fingerprint")),
+                ", ".join(key.get("scopes") or ()),
+                key=str(key["fingerprint"]),
+            )
+        table.focus()
+        if self.keys:
+            table.move_cursor(row=0)
+
+    @on(DataTable.RowSelected, "#eligible-keys")
+    def _selected(self, event: DataTable.RowSelected) -> None:
+        self.dismiss(str(event.row_key.value))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class SearchScreen(Screen[str | None]):
@@ -418,4 +530,4 @@ class SelectionScreen(ModalScreen["tuple[Path, str | None] | None"]):
         self.dismiss(None)
 
 
-__all__ = ["LIMIT", "SearchScreen", "SelectionScreen"]
+__all__ = ["LIMIT", "ClassificationScreen", "SearchScreen", "SelectionScreen", "SigningKeyScreen"]

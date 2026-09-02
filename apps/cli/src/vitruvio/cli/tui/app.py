@@ -38,7 +38,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedContent, TabPane, Tree
 
 from vitruvio.cli import render
-from vitruvio.cli.tui.screens import SearchScreen, SelectionScreen
+from vitruvio.cli.tui.screens import ClassificationScreen, SearchScreen, SelectionScreen, SigningKeyScreen
+from vitruvio.cli.tui.theme import install as install_theme
 from vitruvio.runtime import BrainService
 
 MODULES = ("canonical", "episodic", "semantic", "procedural", "provenance")
@@ -90,7 +91,7 @@ def named_bytes(row: dict[str, Any]) -> tuple[str, str | None, str] | None:
     return None
 
 
-class ModuleTree(Tree[str]):
+class ModuleTree(Tree[Any]):
     """
     The module sidebar, with one binding the default tree does not have.
 
@@ -117,12 +118,15 @@ class ModuleTree(Tree[str]):
         self.focus()
         app = self.app
         current = getattr(app, "kind", None)
-        for node in self.root.children:
+        frontier = list(self.root.children)
+        while frontier:
+            node = frontier.pop(0)
             if node.data == current:
                 # Assigning the line rather than calling a move helper: the cursor is addressed by row, and the
                 # node's line is where the tree has laid it out.
                 self.cursor_line = node.line
                 return
+            frontier.extend(node.children)
 
     def action_descend(self) -> None:
         """Move into the selected module's blocks, or expand a node that is still collapsed.
@@ -171,14 +175,17 @@ class BrainBrowser(App[None]):
     CSS = """
     Screen { layers: base; }
 
-    #modules { width: 22; border-right: solid $panel; }
-    #middle { width: 1fr; min-width: 40; }
-    #detail { width: 1fr; min-width: 40; border-left: solid $panel; }
+    Screen { background: $background; color: $text; }
+    Header, Footer { background: $surface; color: $text; }
 
-    #filter { border: none; height: 3; background: $boost; }
+    #modules { width: 27; border-right: solid $border; background: $surface; }
+    #middle { width: 1fr; min-width: 40; }
+    #detail { width: 1fr; min-width: 40; border-left: solid $border; background: $background; }
+
+    #filter { border: none; height: 3; background: $boost; color: $text; }
     #blocks { height: 1fr; }
 
-    #preview, #payload, #links, #proof { padding: 0 1; }
+    #preview, #payload, #links, #authorship, #proof { padding: 0 1; }
 
     .empty { color: $text-muted; padding: 1; }
     """
@@ -201,6 +208,7 @@ class BrainBrowser(App[None]):
         Binding("o", "open_external", "open"),
         Binding("e", "export", "export"),
         Binding("y", "copy_id", "copy id"),
+        Binding("c", "classify", "classify"),
         Binding("n", "next_page", "next page", show=False),
         Binding("b", "previous_page", "previous page", show=False),
         Binding("right_square_bracket", "next_pdf_page", "pdf +1", show=False),
@@ -239,6 +247,7 @@ class BrainBrowser(App[None]):
         say which one you got.
         """
         super().__init__()
+        install_theme(self)
         self.service = service
         self.brain = brain
         self.origin = origin
@@ -255,6 +264,9 @@ class BrainBrowser(App[None]):
         self.pdf_page = 0
         self.normalized = False
         self.counts: dict[str, int] = {}
+        self.catalog: dict[str, Any] = {"schemes": [], "unclassified": []}
+        self.catalog_context: str | None = None
+        self.catalog_rows: list[dict[str, Any]] = []
 
     @property
     def opened(self) -> BrainService:
@@ -293,21 +305,18 @@ class BrainBrowser(App[None]):
                     yield Static(id="payload")
                 with TabPane("links", id="tab-links"), VerticalScroll():
                     yield Static(id="links")
+                with TabPane("authorship", id="tab-authorship"), VerticalScroll():
+                    yield Static(id="authorship")
                 with TabPane("proof", id="tab-proof"), VerticalScroll():
                     yield Static(id="proof")
         yield Footer()
 
     def on_mount(self) -> None:
         """Install the house theme, then populate the module tree and load the first module."""
-        # The renderables this interface shows are the *same* ones the CLI prints, and they name styles from
-        # vitruvio's theme -- `digest`, `canonical`, `warn`. Textual renders them through its own Rich console,
-        # which has never heard of those names and raises `MissingStyle` on the first table it measures. Pushing
-        # the theme here is what makes one renderer serve both interfaces instead of two that drift.
-        self.console.push_theme(render.THEME)
         self.title = "vitruvio"
         self.sub_title = self._where()
         table = self.query_one("#blocks", DataTable)
-        table.add_columns("block", "title", "detail", "size", "type")
+        table.add_columns("block", "title", "creator", "identity", "type")
         # The blocks, not the sidebar. Browsing starts by reading what is in the module you opened on, so the
         # arrow keys should walk the evidence from the first keystroke. Focusing the tree instead -- which is what
         # composing it first made Textual do -- put the cursor in a five-item list of leaves where the arrows
@@ -358,13 +367,14 @@ class BrainBrowser(App[None]):
         """Read the brain's anatomy and fill the tree."""
         try:
             info = self.opened.info()
+            catalog = self.opened.catalog_tree()
         except Exception as error:  # a brain that cannot be opened is a message, not a traceback
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
         counts = {entry["memory_type"]: entry["block_count"] for entry in info["modules"]}
-        self.call_from_thread(self._fill_tree, counts)
+        self.call_from_thread(self._fill_tree, counts, catalog)
 
-    def _fill_tree(self, counts: dict[str, int]) -> None:
+    def _fill_tree(self, counts: dict[str, int], catalog: dict[str, Any]) -> None:
         """
         Rebuild the module tree.
 
@@ -377,8 +387,10 @@ class BrainBrowser(App[None]):
         self.counts = counts
         tree = self.query_one("#modules", Tree)
         tree.clear()
+        self.catalog = catalog
         tree.root.label = Text(f"{sum(counts.values())} blocks")
         tree.root.expand()
+        memory = tree.root.add(Text("memory", style="heading"), expand=True)
         for name in MODULES:
             held = counts.get(name)
             # A module that is not installed is listed with a dash rather than a sentence: the sidebar is 22
@@ -388,8 +400,50 @@ class BrainBrowser(App[None]):
                 (name, name if held else "muted"),
                 (f"  {held}", "count") if held else ("  -", "muted"),
             )
-            tree.root.add_leaf(label, data=name)
+            memory.add_leaf(label, data=name)
+
+        catalog_branch = tree.root.add(Text("catalog", style="heading"), expand=True)
+        for scheme in catalog.get("schemes") or ():
+            suffix = "exclusive" if scheme.get("exclusive") else "multi"
+            scheme_branch = catalog_branch.add(
+                Text.assemble((str(scheme.get("name")), "semantic"), (f"  {suffix}", "muted")), expand=True
+            )
+            for node in scheme.get("roots") or ():
+                self._add_catalog_node(scheme_branch, node)
+        unclassified = catalog.get("unclassified") or ()
+        if unclassified:
+            loose = catalog_branch.add(
+                Text.assemble(("unclassified", "warn"), (f"  {len(unclassified)}", "count")),
+                data={"type": "catalog-class", "label": "unclassified", "rows": list(unclassified)},
+            )
+            for source in unclassified:
+                loose.add_leaf(
+                    Text(str(source.get("title") or source.get("block_id")), style="canonical"),
+                    data={"type": "catalog-source", "row": source},
+                )
         self.load_rows()
+
+    def _add_catalog_node(self, parent: Any, node: dict[str, Any]) -> None:
+        """Recursively add one catalog class and the sources placed directly in it."""
+        label = Text.assemble(
+            (str(node.get("label") or "(unnamed)"), "semantic"),
+            (f"  {node.get('effective_source_count', 0)}", "count"),
+        )
+        branch = parent.add(
+            label,
+            data={
+                "type": "catalog-class",
+                "label": str(node.get("reference") or node.get("label")),
+                "rows": list(node.get("effective_sources") or ()),
+            },
+        )
+        for source in node.get("direct_sources") or ():
+            branch.add_leaf(
+                Text(str(source.get("title") or source.get("block_id")), style="canonical"),
+                data={"type": "catalog-source", "row": source},
+            )
+        for child in node.get("children") or ():
+            self._add_catalog_node(branch, child)
 
     @work(thread=True, exclusive=True, group="rows")
     def load_rows(self) -> None:
@@ -416,18 +470,19 @@ class BrainBrowser(App[None]):
             # datum is a 2 MB diagram has a size the same way a canonical PDF does, and blank columns would say
             # otherwise.
             content = row.get("content") or {}
-            size = row.get("size", content.get("size"))
+            actor, verified = render.creator(row.get("authorship"))
             table.add_row(
                 render.digest(row.get("block_id")),
                 Text(str(row.get("title", "")), style="value" if row.get("resolvable", True) else "bad"),
-                Text(str(row.get("detail", "")), style="muted"),
-                Text(_bytes(size) if isinstance(size, int) else "", style="muted"),
+                actor,
+                verified,
                 Text(str(row.get("media_type") or row.get("kind") or content.get("media_type") or ""), style="muted"),
                 key=row["block_id"],
             )
         shown = f"{len(self.rows)} of {result['matched']}"
         where = f"  offset {self.offset}" if self.offset else ""
-        self.sub_title = f"{self._where()}    {self.kind}  {shown}{where}"
+        location = self.catalog_context or self.kind
+        self.sub_title = f"{self._where()}    {location}  {shown}{where}"
         if not self.rows:
             self._set("preview", render.empty("Nothing in this module matches."))
             self.selected = None
@@ -484,6 +539,8 @@ class BrainBrowser(App[None]):
             self.call_from_thread(self._set, "links", render.records(self.opened.related(identity)))
         except Exception as error:
             self.call_from_thread(self._set, "links", Text(str(error), style="bad"))
+
+        self.call_from_thread(self._set, "authorship", render.authorship(row.get("authorship")))
 
         try:
             proof = self.opened.prove(identity, row["memory_type"])
@@ -656,23 +713,56 @@ class BrainBrowser(App[None]):
     # --- Events ---------------------------------------------------------------
 
     @on(Tree.NodeHighlighted, "#modules")
-    def _module_highlighted(self, event: Tree.NodeHighlighted[str]) -> None:
+    def _module_highlighted(self, event: Tree.NodeHighlighted[Any]) -> None:
         """Switch modules as the sidebar cursor moves, rather than waiting to be told twice.
 
         Moving onto a module is unambiguous about what the reader wants to see, and requiring enter as well meant
         the middle pane sat showing the previous module while the highlight said otherwise.
         """
-        self._switch(event.node.data)
+        self._navigate(event.node.data)
 
     @on(Tree.NodeSelected, "#modules")
-    def _module_chosen(self, event: Tree.NodeSelected[str]) -> None:
+    def _module_chosen(self, event: Tree.NodeSelected[Any]) -> None:
         """On enter, switch if the highlight has not already, then move into the blocks.
 
         Enter on a module means "show me this one", and the answer to that is in the next pane -- so the cursor
         goes there. Leaving it in the tree is what made a selected module look like a module that did nothing.
         """
-        self._switch(event.node.data)
+        self._navigate(event.node.data)
         self.query_one("#blocks", DataTable).focus()
+
+    def _navigate(self, data: Any) -> None:
+        """Open a memory module, catalog folder, or canonical source from the shared tree."""
+        if isinstance(data, str):
+            self._switch(data)
+            return
+        if not isinstance(data, dict):
+            return
+        if data.get("type") == "catalog-class":
+            self._show_catalog(str(data.get("label") or "catalog"), list(data.get("rows") or ()))
+        elif data.get("type") == "catalog-source" and isinstance(data.get("row"), dict):
+            row = data["row"]
+            self._show_catalog(str(row.get("title") or "catalog source"), [row])
+
+    def _show_catalog(self, label: str, rows: list[dict[str, Any]]) -> None:
+        """Fill the middle pane from an already-resolved virtual catalog folder."""
+        self.kind = "canonical"
+        self.offset = 0
+        self.catalog_context = f"catalog/{label}"
+        self.catalog_rows = rows
+        self._fill_catalog_rows()
+
+    def _fill_catalog_rows(self) -> None:
+        from vitruvio.runtime import browse as browsing
+
+        rows = [row for row in self.catalog_rows if not self.filter or browsing.matches(row, self.filter)]
+        self._fill_rows(
+            {
+                "rows": rows,
+                "matched": len(rows),
+                "block_count": len(self.catalog_rows),
+            }
+        )
 
     def _switch(self, name: object) -> None:
         """
@@ -681,11 +771,154 @@ class BrainBrowser(App[None]):
         Args:
             name (object): A tree node's data, which is a memory type for a module and ``None`` for the root.
         """
-        if not isinstance(name, str) or name == self.kind:
+        if not isinstance(name, str) or (name == self.kind and self.catalog_context is None):
             return
         self.kind = name
+        self.catalog_context = None
+        self.catalog_rows = []
         self.offset = 0
         self.load_rows()
+
+    def action_classify(self) -> None:
+        """Add the selected canonical source to existing catalog classes."""
+        source = self.selected
+        if source is None or source.get("memory_type") != "canonical":
+            self.notify("classification is available on a canonical source", severity="warning")
+            return
+        classes: list[dict[str, Any]] = []
+        source_id = source["block_id"]
+        existing_by_scheme: dict[str, set[str]] = {}
+        for scheme in self.catalog.get("schemes") or ():
+            for item in scheme.get("classes") or ():
+                selected = any(row.get("block_id") == source_id for row in item.get("direct_sources") or ())
+                if selected:
+                    existing_by_scheme.setdefault(str(scheme["name"]), set()).add(str(item["reference"]))
+        for scheme in self.catalog.get("schemes") or ():
+            name = str(scheme["name"])
+            has_exclusive = bool(scheme.get("exclusive") and existing_by_scheme.get(name))
+            for item in scheme.get("classes") or ():
+                reference = str(item["reference"])
+                selected = reference in existing_by_scheme.get(name, set())
+                classes.append(
+                    {
+                        "scheme": name,
+                        "label": item["label"],
+                        "reference": reference,
+                        "exclusive": bool(scheme.get("exclusive")),
+                        "selected": selected,
+                        "disabled": selected or (has_exclusive and not selected),
+                    }
+                )
+        if not classes:
+            self.notify(
+                "the catalog has no classes; declare them with `vitruvio catalog class` first",
+                severity="warning",
+                timeout=10,
+            )
+            return
+        self.push_screen(
+            ClassificationScreen(source, classes),
+            lambda selected: self._classes_selected(source_id, classes, selected),
+        )
+
+    def _classes_selected(
+        self, source: str, classes: list[dict[str, Any]], selected: list[str] | None
+    ) -> None:
+        """Continue classification only for newly selected placements."""
+        if selected is None:
+            return
+        existing = {str(item["reference"]) for item in classes if item.get("selected")}
+        additions = sorted(set(selected) - existing)
+        if not additions:
+            self.notify("no new catalog placements selected")
+            return
+        self.prepare_classification(source, additions)
+
+    @work(thread=True, exclusive=True, group="classification")
+    def prepare_classification(self, source: str, classes: list[str]) -> None:
+        """Resolve governance and eligible agent keys before a catalog write."""
+        try:
+            governance = self.opened.auth_trust_root()
+            if not governance["governed"]:
+                self._write_classification(source, classes, key=None)
+                return
+            offered = {item["fingerprint"] for item in self.opened.auth_keys()["keys"]}
+            eligible = [
+                key
+                for key in governance["keys"]
+                if key["fingerprint"] in offered and key["active"] and "commit" in key["scopes"]
+            ]
+        except Exception as error:
+            self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
+            return
+        if not eligible:
+            self.call_from_thread(
+                self.notify,
+                "this governed brain has no active commit-scoped key in ssh-agent; nothing was changed",
+                severity="error",
+                timeout=12,
+            )
+            return
+        self.call_from_thread(self._choose_signing_key, source, classes, eligible)
+
+    def _choose_signing_key(self, source: str, classes: list[str], keys: list[dict[str, Any]]) -> None:
+        """Ask which eligible key should sign before the catalog commit exists."""
+        self.push_screen(
+            SigningKeyScreen(keys),
+            lambda key: self.apply_classification(source, classes, key) if key is not None else None,
+        )
+
+    @work(thread=True, exclusive=True, group="classification")
+    def apply_classification(self, source: str, classes: list[str], key: str) -> None:
+        """Apply and sign a governed classification after the user chose its key."""
+        self._write_classification(source, classes, key=key)
+
+    def _write_classification(self, source: str, classes: list[str], *, key: str | None) -> None:
+        """Validate, commit, optionally sign, and report the one post-commit failure honestly."""
+        manifest = {
+            "schema": "vitruvio.catalog/v1",
+            "placements": [{"source": source, "classes": classes}],
+        }
+        try:
+            checked = self.opened.catalog_apply(manifest, dry_run=True)
+            if not checked["clean"]:
+                problems = [
+                    issue.get("message", "catalog declaration rejected")
+                    for verdict in checked["verdicts"]
+                    for issue in verdict.get("issues", [])
+                ]
+                self.call_from_thread(
+                    self.notify,
+                    "; ".join(problems) or "catalog declaration rejected",
+                    severity="error",
+                    timeout=12,
+                )
+                return
+            applied = self.opened.catalog_apply(manifest)
+        except Exception as error:
+            self.call_from_thread(self.notify, str(error), severity="error", timeout=12)
+            return
+        snapshot = str(applied["snapshot"])
+        if key is not None:
+            try:
+                self.opened.auth_sign(key, snapshot=snapshot)
+            except Exception as error:
+                self.call_from_thread(
+                    self.notify,
+                    f"catalog committed as {render.short(snapshot)} but signing failed: {error}. "
+                    f"Recover with `vitruvio auth sign {key} --snapshot {snapshot}`",
+                    severity="error",
+                    timeout=20,
+                )
+                self.call_from_thread(self.load_modules)
+                return
+        self.call_from_thread(
+            self.notify,
+            f"classified in {', '.join(classes)}" + (f" and signed with {key}" if key else ""),
+            severity="information",
+            timeout=8,
+        )
+        self.call_from_thread(self.load_modules)
 
     @on(DataTable.RowHighlighted, "#blocks")
     def _row_highlighted(self, event: DataTable.RowHighlighted) -> None:
@@ -702,7 +935,10 @@ class BrainBrowser(App[None]):
         """Refilter as it is typed. Each keystroke cancels the previous read rather than queueing behind it."""
         self.filter = event.value or None
         self.offset = 0
-        self.load_rows()
+        if self.catalog_context:
+            self._fill_catalog_rows()
+        else:
+            self.load_rows()
 
     @on(Input.Submitted, "#filter")
     def _filter_submitted(self) -> None:
@@ -820,6 +1056,8 @@ class BrainBrowser(App[None]):
         self.offset = 0
         self.filter = None
         self.selected = None
+        self.catalog_context = None
+        self.catalog_rows = []
         self.pdf_page = 0
         self.normalized = False
         self.query_one("#filter", Input).value = ""

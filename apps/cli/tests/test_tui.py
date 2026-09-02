@@ -451,10 +451,22 @@ class TestTheInterface:
         app = BrainBrowser(service_for(brain), brain=str(brain))
         async with app.run_test(size=(140, 40)) as pilot:
             await _settle(pilot)
-            labels = [str(node.label) for node in app.query_one("#modules", Tree).root.children]
+            memory = app.query_one("#modules", Tree).root.children[0]
+            labels = [str(node.label) for node in memory.children]
             assert len(labels) == 5
             assert any("canonical" in label and "2" in label for label in labels)
             assert any("procedural" in label and "-" in label for label in labels)
+
+    async def test_the_app_registers_the_vitruvio_site_theme(self, brain: Path) -> None:
+        from vitruvio.cli.render import brand
+
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await pilot.pause()
+            assert app.theme == "vitruvio"
+            active = app.available_themes[app.theme]
+            assert active.primary == brand.GOLD
+            assert active.background == brand.INK_000
 
     async def test_the_header_says_which_brain_and_why_it_was_chosen(self, brain: Path) -> None:
         """Four layers can select a brain and only `--brain` is visible in what was typed, so a bare `browse`
@@ -554,7 +566,7 @@ class TestTheInterface:
             assert [row["title"] for row in app.rows] == ["pizarron.png"]
 
     async def test_the_detail_panes_hold_the_selected_block(self, brain: Path) -> None:
-        """All four tabs are loaded together, so switching to one is never a wait."""
+        """Every evidence tab is loaded together, so switching to one is never a wait."""
         app = BrainBrowser(service_for(brain), brain=str(brain))
         async with app.run_test(size=(140, 40)) as pilot:
             await _settle(pilot)
@@ -563,7 +575,41 @@ class TestTheInterface:
             rendered = _pane(app, "payload")
             assert "text/markdown" in rendered
             assert "registration" in _pane(app, "links")
+            assert "tester@example.com" in _pane(app, "authorship")
+            assert "unsigned" in _pane(app, "authorship")
             assert "verified" in _pane(app, "proof")
+
+    async def test_catalog_folders_browse_and_classify_canonical_sources(self, brain: Path) -> None:
+        from vitruvio.cli.tui.screens import ClassificationScreen
+
+        service = service_for(brain)
+        service.catalog_apply(
+            {
+                "schema": "vitruvio.catalog/v1",
+                "schemes": [{"name": "topic", "exclusive": True}],
+                "classes": [{"scheme": "topic", "label": "Mathematics"}],
+            }
+        )
+        app = BrainBrowser(service, brain=str(brain))
+        async with app.run_test(size=(150, 42)) as pilot:
+            await _settle(pilot)
+            selected = str(app.selected["block_id"])
+            scheme = app.catalog["schemes"][0]
+            assert scheme["roots"][0]["label"] == "Mathematics"
+
+            app._show_catalog("unclassified", app.catalog["unclassified"])
+            assert {row["block_id"] for row in app.rows} == {
+                row["block_id"] for row in app.catalog["unclassified"]
+            }
+
+            app.select(next(row for row in app.rows if row["block_id"] == selected))
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ClassificationScreen)
+            await pilot.press("space")
+            await pilot.press("ctrl+s")
+            await _settle(pilot)
+            assert selected in service.catalog_browse(["topic/Mathematics"])["sources"]
 
     async def test_a_module_with_nothing_in_it_says_so_rather_than_showing_an_empty_table(self, brain: Path) -> None:
         app = BrainBrowser(service_for(brain), brain=str(brain))
