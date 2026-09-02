@@ -33,6 +33,11 @@ row is titled by the **origin its registration recorded**, read back out of prov
 module reads as the files that went into it, and why a brain pulled without its provenance layer shows media
 types instead.
 
+An authored semantic relation keeps its label. A protocol relation that deliberately has no label — notably a
+catalog placement — is titled `Relation · <predicate>`, such as `Relation · classified_as`, rather than
+`(unnamed)`. These blocks remain visible because browsing a module is an inventory of its actual composition;
+the catalog tree is the higher-level view when you want those placement relations rendered as folders.
+
 The human `inspect blocks` table and the middle TUI pane both include `creator` and `identity`. Provenance rows say
 `not applicable`: they are the evidence used to attribute other blocks, so recursively asking for their own creation
 provenance would turn the absence of a second provenance layer into a false warning.
