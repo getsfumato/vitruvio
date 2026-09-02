@@ -579,8 +579,10 @@ class TestTheInterface:
             assert "unsigned" in _pane(app, "authorship")
             assert "verified" in _pane(app, "proof")
 
-    async def test_catalog_folders_browse_and_classify_canonical_sources(self, brain: Path) -> None:
-        from vitruvio.cli.tui.screens import ClassificationScreen
+    async def test_catalog_folders_browse_and_classify_canonical_sources(
+        self, brain: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from vitruvio.cli.tui.screens import ClassificationScreen, SigningKeyScreen
 
         service = service_for(brain)
         service.catalog_apply(
@@ -590,6 +592,30 @@ class TestTheInterface:
                 "classes": [{"scheme": "topic", "label": "Mathematics"}],
             }
         )
+        fingerprint = "SHA256:test-authority"
+        signed: list[tuple[str, str | None]] = []
+        monkeypatch.setattr(
+            service,
+            "auth_trust_root",
+            lambda: {
+                "governed": True,
+                "keys": [
+                    {
+                        "fingerprint": fingerprint,
+                        "subject": "tester@example.com",
+                        "active": True,
+                        "scopes": ["commit"],
+                    }
+                ],
+            },
+        )
+        monkeypatch.setattr(service, "auth_keys", lambda: {"keys": [{"fingerprint": fingerprint}]})
+
+        def sign(key: str, snapshot: str | None = None) -> dict[str, str | None]:
+            signed.append((key, snapshot))
+            return {"key": key, "snapshot": snapshot}
+
+        monkeypatch.setattr(service, "auth_sign", sign)
         app = BrainBrowser(service, brain=str(brain))
         async with app.run_test(size=(150, 42)) as pilot:
             await _settle(pilot)
@@ -608,7 +634,13 @@ class TestTheInterface:
             await pilot.press("space")
             await pilot.press("ctrl+s")
             await _settle(pilot)
+            assert isinstance(app.screen, SigningKeyScreen)
+            await pilot.press("enter")
+            await _settle(pilot)
             assert selected in service.catalog_browse(["topic/Mathematics"])["sources"]
+            assert signed
+            assert signed[0][0] == fingerprint
+            assert signed[0][1] is not None
 
     async def test_a_module_with_nothing_in_it_says_so_rather_than_showing_an_empty_table(self, brain: Path) -> None:
         app = BrainBrowser(service_for(brain), brain=str(brain))
