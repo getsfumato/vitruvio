@@ -33,6 +33,10 @@ row is titled by the **origin its registration recorded**, read back out of prov
 module reads as the files that went into it, and why a brain pulled without its provenance layer shows media
 types instead.
 
+The human `inspect blocks` table and the middle TUI pane both include `creator` and `identity`. Provenance rows say
+`not applicable`: they are the evidence used to attribute other blocks, so recursively asking for their own creation
+provenance would turn the absence of a second provenance layer into a false warning.
+
 ## The interface
 
 ```

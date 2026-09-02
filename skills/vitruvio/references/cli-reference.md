@@ -68,7 +68,7 @@ Recompute every module's Merkle root from its blocks and compare.
 
 ### `vitruvio brain history` `--limit` `--graph`
 
-List the retained snapshots, most recent first.
+Audit every retained or reachable commit, with HEAD first.
 
 ### `vitruvio brain info`
 
@@ -528,4 +528,4 @@ Search the brain and print the Evidence Bundle.
 
 ## `vitruvio history` `--limit` `--graph`
 
-List the retained snapshots, most recent first.
+Audit every retained or reachable commit, with HEAD first.
