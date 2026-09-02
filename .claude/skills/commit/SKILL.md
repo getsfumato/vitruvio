@@ -1,6 +1,8 @@
 ---
 name: commit
 description: Create commit messages and optionally run git commit using Commitizen/commitlint-compatible Conventional Commits. Use when the user asks to create, write, draft, prepare, improve, or validate a commit message; make a commit; follow commitlint, commitizen, conventional commits, semantic commits, or type/scope/subject commit style; or summarize staged changes for a commit.
+metadata:
+  internal: true
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git add:*), Bash(git commit:*), Read, Glob, Grep
 ---
 

@@ -137,4 +137,6 @@ The reasoning is [ADR-0005](adr/0005-statistics-and-the-cost-model.md); the read
 - [`skills/`](../skills/README.md) — how an *agent* drives it. Authored once at the repository root and reached
   through a symlink from inside the package, so `vitruvio skills install` ships exactly what is under version
   control.
-- `.claude/skills/` — skills for agents working *on* this repository, which is a different audience.
+- `.claude/skills/` — skills for agents working *on* this repository, which is a different audience. Every one is
+  marked with `metadata.internal: true`: `npx skills add` scans agent-specific directories as well as `skills/`, and
+  that metadata keeps development tooling available locally without publishing it in the default catalog.
