@@ -101,6 +101,36 @@ class TestBlocks:
         assert titles == {"registration"}
         assert all(row["authorship"]["applicable"] is False for row in service.blocks("provenance")["rows"])
 
+    def test_an_unlabelled_semantic_relation_is_named_by_its_predicate(self) -> None:
+        """Catalog placements are deliberately label-free relation blocks. Browsing the semantic module must
+        describe that protocol fact instead of presenting hundreds of indistinguishable ``(unnamed)`` rows."""
+        from boltzmann.blocks.memory_type import MemoryType
+        from boltzmann.catalog_models import PlacementDeclaration
+        from boltzmann.identity.digest import BlockId
+
+        from vitruvio.runtime.browse import row
+
+        source = BlockId.parse("sha256:" + "1" * 64)
+        class_id = BlockId.parse("sha256:" + "2" * 64)
+        block = PlacementDeclaration(source=source, class_id=class_id).to_block()
+
+        assert row(block, MemoryType.SEMANTIC)["title"] == "Relation · classified_as"
+
+    def test_a_labelled_semantic_relation_keeps_its_authored_title(self) -> None:
+        """The fallback is for protocol relations only; an authored knowledge relation already has a name."""
+        from boltzmann.blocks.memory_type import MemoryType
+        from boltzmann.blocks.semantic import SemanticBlock, SemanticKind
+
+        from vitruvio.runtime.browse import row
+
+        block = SemanticBlock(
+            kind=SemanticKind.RELATION,
+            label="Relación entre eventos y variables de estado",
+            statement="Un evento modifica alguna variable de estado.",
+        )
+
+        assert row(block, MemoryType.SEMANTIC)["title"] == "Relación entre eventos y variables de estado"
+
 
 @pytest.fixture
 def named_content(service: BrainService, source_file: Path) -> dict[str, Any]:

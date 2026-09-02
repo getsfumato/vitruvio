@@ -12,9 +12,10 @@ have to agree on what a block's one-line identity *is*. Two implementations of "
 would show a user two different brains.
 
 **A block's title is chosen per memory type, not guessed.** A canonical block has no label -- it is bytes
-plus a media type -- so its title is its origin-facing identity, while a semantic block has a label written
-for exactly this purpose. Falling back to a generic scan of the payload would put ``"registration"`` in the
-title column of a provenance record and call it a name.
+plus a media type -- so its title is its origin-facing identity, while an authored semantic block has a label
+written for exactly this purpose. Protocol semantic relations such as catalog placements are deliberately
+label-free, so their title identifies the relation and its predicate. Falling back to a generic scan of the
+payload would put ``"registration"`` in the title column of a provenance record and call it a name.
 """
 
 from __future__ import annotations
@@ -109,6 +110,30 @@ def _provenance_detail(payload: Mapping[str, Any]) -> str:
     return "  ".join(parts)
 
 
+def _semantic_title(payload: Mapping[str, Any]) -> str:
+    """Name authored semantics by their label and label-free relations by what they express.
+
+    Catalog placements are v3 semantic relation blocks with an evidence source and a ``classified_as`` edge,
+    but intentionally have no human-authored label or statement. They are still real blocks in the semantic
+    composition, so hiding them would make browse incomplete; calling every one ``(unnamed)`` makes the list
+    equally uninformative. The predicate is the stable one-line identity the protocol does provide.
+    """
+    title = _first(payload, TITLE_FIELDS["semantic"])
+    if title or payload.get("kind") != "relation":
+        return title
+
+    predicates: list[str] = []
+    relations = payload.get("relations")
+    if isinstance(relations, list):
+        for relation in relations:
+            if not isinstance(relation, Mapping):
+                continue
+            predicate = relation.get("predicate")
+            if isinstance(predicate, str) and predicate.strip() and predicate.strip() not in predicates:
+                predicates.append(predicate.strip())
+    return f"Relation · {', '.join(predicates)}" if predicates else "Relation"
+
+
 def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, resolvable: bool = True) -> dict[str, Any]:
     """
     One block, as a line in a list.
@@ -130,7 +155,12 @@ def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, res
     kind = memory_type.value
     payload = block.payload()
 
-    title = _provenance_title(payload) if kind == "provenance" else _first(payload, TITLE_FIELDS.get(kind, ()))
+    if kind == "provenance":
+        title = _provenance_title(payload)
+    elif kind == "semantic":
+        title = _semantic_title(payload)
+    else:
+        title = _first(payload, TITLE_FIELDS.get(kind, ()))
     detail = _provenance_detail(payload) if kind == "provenance" else _first(payload, DETAIL_FIELDS.get(kind, ()))
 
     if kind == "canonical" and origin:
