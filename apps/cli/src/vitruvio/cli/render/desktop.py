@@ -155,8 +155,8 @@ def filename(name: str | None, digest: str, media_type: str | None = None) -> st
     What to call bytes taken out of a content-addressed store.
 
     The origin when the block records one, the content address when it does not -- and in both cases a suffix, if
-    the name does not already carry one. A desktop handler is chosen by suffix, so an extensionless file is one no
-    application can open correctly no matter what is in it.
+    the name does not already carry a plausible one. A desktop handler is chosen by suffix, so arbitrary dotted
+    prose cannot count: the final segment must be at most seven alphanumeric characters after the dot.
 
     Args:
         name (str | None): The origin recorded when the block was registered, when there is one.
@@ -167,7 +167,8 @@ def filename(name: str | None, digest: str, media_type: str | None = None) -> st
         str: A file name.
     """
     stem = Path(name).name if name else digest.replace(":", "-")
-    if Path(stem).suffix:
+    suffix = Path(stem).suffix
+    if suffix and len(suffix) <= 8 and suffix[1:].isalnum():
         return stem
     return stem + extension_for(media_type)
 
