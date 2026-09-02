@@ -254,6 +254,10 @@ List public Ed25519 keys available through the current SSH agent.
 
 Verify integrity and report the independent authenticity state.
 
+### `vitruvio auth trust-root` `--snapshot`
+
+Show the trust root, authorized keys, permissions, validity, and consumer pin.
+
 ### `vitruvio auth sign` `key` `--snapshot` `--scope`
 
 Explicitly sign a snapshot through ssh-agent; no private key enters Vitruvio.
@@ -521,3 +525,7 @@ Check for a newer vitruvio, and install it.
 ## `vitruvio search` `[text]` `--memory-type` `--subject` `--since` `--until` `--tag` `--class` `--evidence` `--include-superseded` `--mode` `--limit` `--expand-depth` `--content`
 
 Search the brain and print the Evidence Bundle.
+
+## `vitruvio history` `--limit` `--graph`
+
+List the retained snapshots, most recent first.

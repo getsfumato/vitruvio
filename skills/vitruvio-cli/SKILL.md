@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Eighteen groups, one hundred and ten commands. This skill is the map: which group owns a task, which command inside it, and
+Eighteen groups, one hundred and twelve commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -84,7 +84,7 @@ better than passing flags every time.
 | `brain list` | this project's brains, then every layout this machine has seen |
 | `brain verify` | every block against every module root |
 | `brain info` | per-module shape: roots, counts, registered indices |
-| `brain history` | the snapshot chain, newest first |
+| `brain history` | every reachable snapshot, HEAD first, with actors, integrity and authenticity (`history` is a top-level alias) |
 | `brain migrate --to PATH` | temporary one-way recreation of a legacy brain. Dry-run first; destination must not exist |
 
 Before running `brain init` or creating a migration destination, ask the user to choose **governed** or
@@ -153,6 +153,7 @@ policy controls permitted removals, and registry credentials control who can pub
 ### `catalog` — canonical metadata
 | command | for |
 |---|---|
+| `catalog` | folder tree of schemes, classes, canonical source names, creators and identity verification; use `--json` for agents |
 | `catalog show` | schemes, classes, hierarchy and effective source membership |
 | `catalog apply FILE` | atomically validate and apply a `vitruvio.catalog/v1` TOML/JSON manifest; dry-run first |
 | `catalog scheme NAME` | declare one scheme; `--exclusive` permits one direct placement per source |
@@ -166,6 +167,7 @@ policy controls permitted removals, and registry credentials control who can pub
 |---|---|
 | `auth keys` | Ed25519 public keys currently offered by `ssh-agent` |
 | `auth status` | integrity and authenticity as separate verdicts |
+| `auth trust-root` | root revision, pin, quorum, public keys, subjects, scopes and validity; `--snapshot` audits history |
 | `auth sign KEY` | explicitly sign a snapshot through the agent; private keys never enter Vitruvio |
 | `auth pin` | pin the current or out-of-band trust-root digest in consumer state |
 | `auth attribution` | compare provenance actors with subjects vouched by accepted signatures |
@@ -285,16 +287,19 @@ already read: no index is consulted and nothing is ranked. When relevance is wha
 |---|---|
 | `browse` | open the brain in a terminal UI. `--memory-type` to land on a module |
 
-For a person, not for you: it needs a terminal and refuses `--json`. `inspect blocks`, `inspect content` and
-`inspect links` are the same three reads it is built on, with an envelope.
+For a person, not for you: it needs a terminal and refuses `--json`. `inspect blocks`, `inspect content`,
+`inspect links`, `catalog --json` and the authenticity commands expose its underlying reads with an envelope.
 
 `s` opens the query workspace: query plus optional RFC3339 `since`/`until`, graph depth (blank means one), the first
 25 matches, the executed physical plan and selected indices. Graph, vector/PCA and ordered-range tabs are bounded
 inspection views of indices that actually ran; hash lookup is named in the plan and has no diagram.
 
-If you are telling a user how to drive it: arrows walk the blocks, `left`/`m` reaches the module sidebar and
+If you are telling a user how to drive it: arrows walk the blocks, `left`/`m` reaches the module/catalog sidebar and
 `right`/`enter` comes back, `i` says which brain is open and why, `t` swaps a PDF for its extracted text, `o`
-opens the bytes in the desktop's own viewer, `?` lists every key. A preview is a thumbnail — a page in a
+opens the bytes in the desktop's own viewer, and `c` classifies a canonical source into existing catalog classes.
+Rows and the authorship tab distinguish asserted creators from identities verified by historical signatures. On a
+governed brain, classification requires an active `commit`-scoped key in `ssh-agent`, asks which key will sign, and
+reports an exact recovery command if the commit succeeds but signing fails. `?` lists every key. A preview is a thumbnail — a page in a
 60-column pane is 60x80 pixels — so `t` and `o` are how a document actually gets read.
 
 ### `config` — the configuration

@@ -43,12 +43,18 @@ Validate the entire document before writing, then apply it atomically:
 ```console
 vitruvio catalog apply catalog.toml --dry-run
 vitruvio catalog apply catalog.toml
+vitruvio catalog
 vitruvio catalog show
 ```
 
 A validation failure writes nothing. Applying the same declarations again is idempotent. The shorter `catalog
 scheme`, `catalog class` and `catalog place` commands create the same declaration blocks and are useful while
 exploring.
+
+The bare `vitruvio catalog` command renders a folder tree: schemes, nested classes, directly placed canonical
+sources and an `unclassified` folder. Source leaves include the recorded creator and whether that identity is
+cryptographically verified. Use `--json` to give an LLM the same hierarchy as structured data, including stable
+block ids and effective memberships; `catalog show` remains the flat declaration-oriented view.
 
 ## Browse and query
 
@@ -68,3 +74,8 @@ schemes; it creates no directories and changes no block.
 
 Catalog metadata names canonical block ids rather than filenames. Register or inspect the source first, and never
 copy a digest from another edition under the assumption that it means the same bytes.
+
+For a person, `vitruvio browse` exposes this same hierarchy in the sidebar. Select a canonical source and press `c`
+to add placements interactively. The UI never invents schemes or classes: declare those first with a manifest or the
+`catalog scheme` / `catalog class` commands. Governed changes require an active authorized key with `commit` scope in
+`ssh-agent` and the resulting snapshot is explicitly signed; ungoverned changes remain visibly unsigned.

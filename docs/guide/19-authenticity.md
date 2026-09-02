@@ -10,6 +10,7 @@ Vitruvio never reads a private key. Signing uses an Ed25519 key already offered 
 ssh-add ~/.ssh/id_ed25519
 vitruvio auth keys
 vitruvio auth status
+vitruvio auth trust-root
 ```
 
 The fingerprint printed by `auth keys` is the identifier accepted by `--sign-with` and `auth sign`.
@@ -37,8 +38,19 @@ vitruvio auth status
 vitruvio auth attribution
 ```
 
+`auth trust-root` is the human-readable governance inventory: the root digest and revision, consumer pin, quorum,
+each public-key fingerprint, its canonical subject, scopes and whether it is active at the inspected snapshot. Pass
+`--snapshot` to audit an earlier version. It prints an explicit ungoverned result when no root exists; an unsigned
+ungoverned brain is not thereby corrupt.
+
 `auth attribution` compares actors in the head's provenance with the `subject` entries vouched for by accepted
 keys. It does not infer that a machine key belongs to a person.
+
+For a chronological audit, `vitruvio history` (also available as `vitruvio brain history`) lists every reachable
+snapshot, including histories joined by reconciliation, with its actors, integrity result and authenticity state.
+`--graph` preserves the DAG view while adding actor and authorization columns. A block's row in `vitruvio browse`
+goes one step deeper: its authorship tab connects that block's creation provenance to the historical snapshot and
+signature subjects that can—or cannot—verify the asserted actor.
 
 ## Pinning is a consumer decision
 
