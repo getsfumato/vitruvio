@@ -1,0 +1,81 @@
+---
+title: "Governed or ungoverned"
+description: "The first decision, and the one you cannot revisit: whether a trust root names the keys whose signatures consumers may accept."
+---
+
+{/* Mirrors the "Choose governance" section of skills/vitruvio-onboarding/SKILL.md. Change both. */}
+
+Governance belongs in the genesis of a brain. It cannot be added to that same brain later, and it cannot be
+removed. So before `brain init` — or before `brain migrate` creates its destination — decide between exactly two
+protocol choices:
+
+- **ungoverned** — integrity, provenance and retention still apply, but the head has no trust root and remains
+  unsigned. Anyone who installs it can verify that the blocks are intact; nobody can verify who committed them.
+- **governed** — a trust root names the public keys whose signatures consumers may accept, and a snapshot is
+  *authorized* only when one of those keys signed it.
+
+Vitruvio does not choose for you. `brain init` defaults to ungoverned and `brain migrate` defaults to governed, and
+neither default is a recommendation. Say what you decided — `--governed` on init, `--no-governed` on migrate — so
+the command records a choice rather than a default.
+
+## When ungoverned is enough
+
+A brain only you write to and only you read. A brain whose value is the evidence, re-derived whenever the models
+improve. Anything you would not sign a document for. Distribution still works: a consumer's `[authenticity]`
+policy decides what to do with an unsigned head, and the default *warns* rather than refusing, so legacy and
+personal brains stay readable. What they are not is authenticated — and vitruvio never says otherwise.
+
+## What governed needs from you
+
+Vitruvio never reads a private key. Signing uses an Ed25519 key already offered by `ssh-agent`:
+
+```bash
+ssh-add ~/.ssh/id_ed25519
+vitruvio auth keys
+```
+
+The fingerprint `auth keys` prints (`SHA256:…`) is the identifier `--sign-with` accepts. Before creating a governed
+brain, have answers to four questions:
+
+1. **Which public keys are authorities.** The `ssh-ed25519 …` public key of each — never a private key.
+2. **The canonical actor subject each key represents**: a lowercase address (`ana@example.org`) or a namespaced
+   name (`openai/codex`).
+3. **The scopes each key receives**: `ingest`, `commit`, `drop:canonical`, `redact`, `govern`, or `propose`.
+4. **The quorum** for changing the trust root later, and which of those fingerprints — loaded in `ssh-agent` right
+   now — will sign the genesis.
+
+## The concise form, and the explicit one
+
+```bash
+vitruvio --actor you@example.com brain init ./brain \
+  --governed --sign-with SHA256:REPLACE_WITH_FINGERPRINT --govern-quorum 1
+```
+
+The concise form synthesizes the trust root from the keys you pass: every supplied key is associated with the
+configured actor and granted every scope. That is right when you are the only authority. Repeat `--sign-with` and
+raise `--govern-quorum` when two independent keys must approve a trust-root change.
+
+Keep more `govern` holders than the quorum requires. With one key and a quorum of one, vitruvio warns that losing
+that key freezes governance permanently — there is no recovery path inside the protocol.
+
+For distinct subjects, or least-privilege scopes per key, author a TOML or JSON `TrustRoot` document from the four
+answers above and pass `--trust-root root.toml` instead. It implies `--governed`. A trust root must include at least
+one active `govern` holder, and its quorum must be reachable. The root travels in the snapshot; a consumer pins its
+digest, not a mutable list maintained elsewhere.
+
+## What a scope does, and does not do
+
+Scopes authorize a signature in the eyes of a verifier. They do not grant filesystem access, and they do not stop
+somebody modifying a local copy. Operating-system permissions control local writes, the retention policy controls
+which removals are allowed, registry credentials control publication, and the trust root controls which resulting
+snapshots consumers call authorized. Four boundaries, four mechanisms.
+
+## Migrating a legacy brain
+
+`brain migrate --to NEW` recreates a pre-0.9 brain, and its destination is a genesis too, so the same decision
+applies. Migration defaults to governed; pass `--no-governed` explicitly for an ungoverned destination. The
+runbook is [Migrating legacy brains](/brain/migrating-legacy-brains).
+
+## Next
+
+[Create a brain](/onboarding/create-a-brain): standalone or in a project, then one of four recipes.

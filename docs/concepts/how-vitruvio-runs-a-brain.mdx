@@ -1,0 +1,107 @@
+---
+title: "How vitruvio runs a brain"
+description: "The lifecycle of a brain in commands, the one output contract every command honours, the exit codes, and why every write names an actor."
+---
+
+[The protocol](/concepts/what-is-a-boltzmann-brain) says what a brain is. Vitruvio is what you run against one.
+This page is the shape of that: the handful of verbs, the one output contract, and the two rules that every
+command obeys.
+
+## The lifecycle, in commands
+
+| step | command | what happens | read more |
+|---|---|---|---|
+| register | `vitruvio source register notes.md` | the evidence enters canonical memory, byte for byte | [Registering evidence](/sources/registering-evidence) |
+| index | `vitruvio index build` | the six index kinds the planner chooses from are derived | [Indices](/under-the-hood/indices) |
+| search | `vitruvio search "what notes.md is about"` | an evidence bundle comes back: blocks, ids, provenance | [Searching](/brain/searching) |
+| ingest | `vitruvio ingest run notes.md` | a model proposes knowledge; the gate validates before anything is committed | [Ingest](/brain/ingest) |
+| remove | `vitruvio retain supersede BLOCK --supersedes OLD --memory-type semantic` | one of five mechanisms; blocks are never mutated | [Retention](/brain/retention) |
+| publish | `vitruvio dist push --tag v1` | the brain leaves as an OCI artifact, to any registry | [Publishing](/brain/publishing) |
+| reconcile | `vitruvio dist fetch`, then `vitruvio reconcile merge THEIRS --reason "..."` | a history somebody else advanced joins yours | [Reconciliation](/reconciliation/behind-ahead-diverged) |
+
+Everything vitruvio derives — indices, statistics, the embedding cache — lives under `.vitruvio/` beside the
+layout. Deleting it costs time, never knowledge: the blocks are the brain, and everything else is rebuilt from them.
+
+Every command needs to know **which brain** it means. Inside a project that is a name, `--brain algebra`; alone it
+is the nearest `vitruvio.toml`. The full resolution order is on [Selecting a brain](/projects/selecting-a-brain).
+
+## One output contract
+
+Every command that returns data takes `--json` and emits exactly one envelope on stdout. Notes, progress and
+warnings go to stderr, so `vitruvio search q --json | jq` works unconditionally.
+
+```json
+{
+  "vitruvio": "0.10.0",
+  "command": "query.search",
+  "ok": true,
+  "data": {},
+  "warnings": [],
+  "error": null
+}
+```
+
+Branch on `ok`, then on `error.code`. Read `warnings` **even when `ok` is true**: "the vector index will not be
+published", "stats are stale", "the recall floor was lowered" all arrive there, and a degraded result that looks
+identical to a clean one is the failure this design exists to prevent.
+
+`browse` is the one exception. It is an interface for a person, has no envelope, and refuses `--json` rather than
+printing something a caller cannot read.
+
+## Exit codes
+
+The point of these is "may I retry, and with what changed".
+
+| code | meaning | what to do |
+|---|---|---|
+| 0 | success | — |
+| 1 | a bug in vitruvio | report it; do not retry |
+| 2 | usage error | rephrase the command |
+| 3 | no brain selected, or config invalid | fix the config, or pass `--brain` |
+| 4 | not found | do not retry |
+| 5 | protocol violation: verification, membership, integrity | **do not retry**; this is corruption or a broken claim |
+| 6 | refused by retention policy, or by `publish = false` | **do not retry**; the declaration says no |
+| 7 | candidates rejected by validation | repair the payloads and retry |
+| 8 | push is not a fast-forward | `dist fetch`, reconcile, push again — never `--force`, never `pull` |
+| 9 | registry unreachable or refused | retryable |
+| 10 | the cascade needs human review | stop and ask a person |
+| 11 | a declared source was unreachable or refused | retryable |
+| 12 | a reconciliation is open on this brain | `reconcile status`, then `continue` or `abort` |
+
+The distinction that matters most: **2** means you asked wrong, **5** and **6** mean the protocol refused and
+retrying is pointless, **7** means your input was wrong and is fixable.
+
+## Every write names an actor
+
+```
+error: no actor identity is configured, and every write is attributed in provenance
+```
+
+This is a refusal, not an inconvenience. An unattributed write is a provenance record that lies, and the whole value
+of the provenance module is that it does not.
+
+Reads never need one: inspecting someone else's brain is legitimate and attributes nothing.
+
+New writes accept exactly two stable actor-id forms: a lowercase address (`alex@example.org`) or a lowercase
+namespaced name (`openai/codex`). Vitruvio refuses uppercase, whitespace and free-form display names rather than
+normalizing them, because the bytes enter provenance block identities. `name` remains the display label.
+
+When another agent helped the primary actor, record it instead of replacing the author:
+
+```toml
+[[assisted_by]]
+id = "openai/codex"
+kind = "agent"
+name = "Codex"
+model = "openai/gpt-5"
+```
+
+The committed list can be overridden with repeatable global `--assisted-by` flags, or with a JSON array in
+`VITRUVIO_ASSISTED_BY`. Assistance is written into provenance v2 on every new operation.
+
+## Integrity is not authenticity
+
+`brain verify` proves that the blocks match their hashes and module roots. `auth status` additionally asks whether
+valid, authorized SSH signatures support the claimed head. A brain can be intact and still be unsigned, unpinned,
+or signed by a key outside its trust root — which is why the two are always reported separately, and why
+[governed or ungoverned](/onboarding/governed-or-ungoverned) is the first decision when creating one.

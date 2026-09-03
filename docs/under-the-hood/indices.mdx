@@ -1,4 +1,7 @@
-# 4. Indices
+---
+title: "Indices"
+description: "The six kinds, what each tells the planner, and why an empty index is worse than none."
+---
 
 ```bash
 vitruvio index list          # what is registered, per module
@@ -27,7 +30,7 @@ vector index is not — embedding vectors and HNSW structure are not reproducibl
 design fixes that (BLAS kernel selection, non-associative float reduction, insertion order).
 
 That is exactly *why* the protocol has a travelling index: the vector layer ships inside the artifact instead of being
-rebuilt. See [7. Embeddings and the vector index](07-embeddings-and-vectors.md).
+rebuilt. See [7. Embeddings and the vector index](/under-the-hood/embeddings-and-vectors).
 
 ## Freshness has two levels
 
@@ -49,7 +52,3 @@ hard requirement on every vitruvio index, an empty index is treated as absent an
 ## Everything derived lives in `.vitruvio/`
 
 Sibling of the SDK's `boltzmann/`, and never inside the layout. Deleting it costs a rebuild, never knowledge.
-
-## Next
-
-[5. Searching](05-searching.md)

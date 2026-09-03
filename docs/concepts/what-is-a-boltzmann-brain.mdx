@@ -1,0 +1,87 @@
+---
+title: "What is a Boltzmann brain"
+description: "The protocol vitruvio runs: typed, content-addressed blocks in five memory modules, a Merkle DAG per module, and a brain that returns evidence rather than prose."
+---
+
+A **Boltzmann brain** is portable, verifiable, model-agnostic knowledge. It is defined by a protocol, not by
+vitruvio. The protocol is the paper *Boltzmann Brain: A Versioned, Distributable, and Model-Agnostic Knowledge
+Architecture* (Alex Fiorenza, Gaussia) —
+[read the PDF](https://github.com/gaussia-labs/papers/blob/main/papers/2026-07-boltzmann-brain/boltzmann_brain_en.pdf)
+— and [`pyboltzmann`](https://github.com/gaussia-labs/pyboltzmann) implements it. Vitruvio is the engine the
+protocol deliberately leaves out: the indices, the query planner, the embeddings, the ingestion gate and the
+distribution tooling.
+
+The paper rests on one principle. Knowledge produced with language models tends to get locked inside one provider,
+one agent or one vector store, where it is hard to audit, reindex, version or move. So **the brain conserves,
+validates and retrieves knowledge, and an external, interchangeable model processes, contextualises and uses it.**
+The brain embeds no model of its own.
+
+## How it works, in plain words
+
+1. **Evidence goes in as it is.** You register a document, a transcript, an image. It is stored byte for byte in
+   *canonical* memory. Registering it does not claim it is true — only that this evidence was incorporated and
+   preserved.
+2. **Everything is a block.** Each unit of knowledge is a typed block identified by the SHA-256 of its canonical
+   serialisation. Same content, same identity, on any machine — which is what makes two brains comparable and
+   deduplication automatic.
+3. **Blocks live in five modules**, each with its own Merkle DAG and one root that commits to exactly which
+   blocks it holds. A root proves a module's integrity without shipping its internals.
+4. **Interpretation is separate and cited.** A fact, an event or a procedure derived from evidence is another
+   block, and a *provenance* record ties it to the evidence and to whoever derived it. When models improve, you
+   re-derive and supersede — and the record of what was previously believed survives.
+5. **A brain is versioned and distributable.** A snapshot commits the roots; history is a chain of snapshots,
+   and a graph once two people's work is reconciled. The whole thing is an OCI image layout, so any registry can
+   hold it, and a consumer can install one module and verify it alone.
+6. **A search returns evidence, never prose.** The result is a bundle of blocks with their identities and
+   provenance. There is no answer field and there will not be one: synthesising the answer is the model's job,
+   outside the brain, and its citations have to point at blocks the brain actually returned.
+
+## The layout on disk
+
+```
+demo/
+├── oci-layout  index.json  blobs/sha256/...   # the layout: the SDK's, and portable
+├── boltzmann/                                 # compositions, snapshots, the head pointer
+└── .vitruvio/                                 # derived state. Deleting it costs time, never knowledge.
+    ├── indices/  stats/  embeddings/
+    └── calibration.json          # only if you wrote one; nothing generates it yet
+vitruvio.toml                                  # beside the brain, and committed
+```
+
+Vitruvio adds exactly one file and one directory, both outside the layout, so `oras cp` and every other OCI tool keep
+working on a brain vitruvio has touched.
+
+## Five modules, and why the count is fixed
+
+| module | holds | removal |
+|---|---|---|
+| canonical | the evidence itself, as registered, plus deterministic normalized views | drop (policy-gated) |
+| episodic | what happened, when | **supersede only** — append-only by protocol |
+| semantic | facts, definitions, claims | drop |
+| procedural | goals and ordered steps | drop |
+| provenance | who derived what from what, and everything that was removed | written by the protocol |
+
+Each module has its **own Merkle DAG and its own root**. That is what makes a selective install coherent: you can
+take semantic memory and leave a canonical layer of gigabytes behind, and what you took still verifies on its own.
+
+## Registration is not assertion
+
+Registering a source does **not** say it is true. Canonical memory asserts one thing: *this evidence was incorporated
+and preserved*. Every interpretation of it is a separate block that cites it through provenance.
+
+That separation is what makes a brain re-interpretable. When the models improve, you re-derive the interpretations
+against the same evidence and supersede the old ones — and the record of what was previously believed survives.
+
+## Three hash levels, deliberately not one type
+
+- **BlockId** — the identity of one block, over its canonical bytes.
+- **MerkleRoot** — the identity of a module's whole composition.
+- **OciDigest** — the identity of a blob or manifest in the layout.
+
+They are distinct types throughout, in the SDK and in vitruvio, and the type checker enforces it. Collapsing them
+into "a hash" is how a client comes to compare a block id against a root and conclude something false.
+
+## Next
+
+[How vitruvio runs a brain](/concepts/how-vitruvio-runs-a-brain): the lifecycle of one, the output contract, and
+why every write names an actor.

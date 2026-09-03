@@ -21,7 +21,7 @@ from vitruvio.cli.main import app
 ROOT = Path(__file__).resolve().parents[3]
 """The repository root, from apps/cli/tests/."""
 
-DOCUMENTS = ("docs", "skills", "README.md")
+DOCUMENTS = ("docs", "skills", "adr", "README.md", "ARCHITECTURE.md", "CONTRIBUTING.md")
 
 INVOCATION = re.compile(r"(?:^|[\s(`])vitruvio ((?:[a-z][a-z0-9-]*)(?:\s+[a-z][a-z0-9-]*){0,2})")
 """A command being offered. Applied only to code, never to prose."""
@@ -64,14 +64,14 @@ def code_spans(text: str) -> list[str]:
 
 
 def documents() -> list[Path]:
-    """Every markdown file that could offer a command."""
+    """Every markdown or MDX file that could offer a command. docs/ is MDX for Mintlify; skills stay markdown."""
     found: list[Path] = []
     for entry in DOCUMENTS:
         target = ROOT / entry
         if target.is_file():
             found.append(target)
         elif target.is_dir():
-            found.extend(sorted(target.rglob("*.md")))
+            found.extend(sorted(path for path in target.rglob("*") if path.suffix in {".md", ".mdx"}))
     return found
 
 

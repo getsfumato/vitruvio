@@ -1,6 +1,9 @@
-# 14. Sources: declaring where material comes from
+---
+title: "Declared sources"
+description: "Declaring where material comes from, pulling only what is new, and why a pull cannot resurrect redacted bytes."
+---
 
-Chapter 3 registered evidence a file at a time. That is right for a paper you just read and wrong for material that
+[Registering evidence](/sources/registering-evidence) takes one file at a time. That is right for a paper you just read and wrong for material that
 keeps arriving: a course platform that publishes a new practical every week, a browser extension dropping arXiv PDFs
 into a folder, a transcript per video.
 
@@ -82,59 +85,6 @@ Overrides are acquisition parameters, not hidden state. A plugin must include ev
 item's identity in that item's stable `origin` — for example both `course_id` and `resource_id`. Otherwise two
 courses that reuse an id could cause a false origin skip.
 
-## The config names a kind and cannot define one
-
-There is nowhere in `vitruvio.toml` to put a command line. That is deliberate, and it is the reason this feature has
-no trust-confirmation ceremony: `vitruvio.toml` is committed and shared, so a field holding an argv would mean that
-cloning a repository and running `source pull` executes a stranger's command.
-
-A kind vitruvio does not ship is a **Python class you install**, either as a file under
-`$XDG_CONFIG_HOME/vitruvio/sources/` or as a `vitruvio.sources` entry point. Importing a module you wrote from your
-own configuration directory is code execution at the same trust level as your shell profile. Executing an argv that
-arrived with a `git clone` is not, and no prompt makes it so.
-
-```console
-vitruvio source kinds        # directory (built-in), plus anything you installed
-```
-
-## Writing a source
-
-```console
-vitruvio source scaffold aulasvirtuales     # writes ~/.config/vitruvio/sources/aulasvirtuales.py
-$EDITOR ~/.config/vitruvio/sources/aulasvirtuales.py
-vitruvio --project facultad --brain algebra source add aula \
-  --kind aulasvirtuales --option course_id=77
-vitruvio --project facultad --brain algebra source pull aula
-```
-
-Two methods: `list()` returns what is on offer without fetching any of it, and `fetch(item)` returns one item's
-bytes. They are separate so that a duplicate can be skipped *before* it is downloaded. When a remote listing omits
-the real filename or MIME type, return `FetchResult(data, media_type=..., title=...)` instead of bare bytes. The
-metadata discovered from the downloaded file is then recorded on the canonical block; a declared `media_type` still
-wins.
-
-`self.options` contains the effective merge for this pull, not necessarily only the committed defaults. Reject
-unknown keys in the constructor so a typo on either `source add` or `source pull` fails before fetching anything.
-
-Use what `BaseSource` gives you rather than the bare equivalents. Each carries a bound the naked call does not, and
-every one of them fails as a hang with nothing on screen:
-
-| use | instead of | because |
-|---|---|---|
-| `self.run([...])` | `subprocess.run` | closed stdin, a real timeout, bytes not text, `VITRUVIO_*` stripped, stderr in the error |
-| `self.get(url)` | `httpx.get` | a timeout, a status check, `max_bytes` |
-| `self.contain(path)` | `Path.read_bytes` | refuses a symlink, anything outside the root, a FIFO, an oversized file |
-
-The `VITRUVIO_*` stripping is not paranoia: a source that shells back into vitruvio while inheriting `VITRUVIO_BRAIN`
-writes into the brain that is pulling it. And `contain` refusing a FIFO is the one that has teeth — `read_bytes()` on
-a FIFO blocks forever, and a glob will hand you one without comment.
-
-### `origin` is the dedup key
-
-Make it stable across runs, and strip anything incidental before returning it — a session token, a rotating query
-parameter. Only the source knows which parts of its own addresses are meaningful. vitruvio case-folds it, so two
-origins differing only in case collide; the worst case is a spurious skip.
-
 ## What stops the same thing being registered twice
 
 Three layers, in the order they run:
@@ -213,3 +163,5 @@ warns when a path sits outside the project directory. Read that warning.
 | 2 | the invocation was wrong: an undeclared source, `--all` with a name |
 | 3 | the declaration is wrong: no `path` on a directory source, a kind that is not installed |
 | 11 | a source was unreachable or refused: a tool missing, a timeout, a directory gone |
+
+Sources are plugins. What the configuration may name, and how to write a kind of your own, is on [Writing a source kind](/sources/writing-a-source-kind).

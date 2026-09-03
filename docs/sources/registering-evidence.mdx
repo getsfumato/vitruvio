@@ -1,4 +1,7 @@
-# 3. Registering evidence
+---
+title: "Registering evidence"
+description: "Media types, normalized views, and why images have no pipeline."
+---
 
 ```bash
 vitruvio source register paper.pdf --media-type application/pdf --normalize-with pdf-text
@@ -55,7 +58,3 @@ Content is addressed by its hash, so registering the same bytes twice produces o
 
 There is none, anywhere. A newer edition of a source is a **new block plus a supersession edge**, which is what
 `source replace` does. Immutability is what lets a root mean something.
-
-## Next
-
-[4. Indices](04-indices.md)

@@ -1,0 +1,55 @@
+---
+title: "First evidence and search"
+description: "Register one file, build the indices, run one search, and read what came back as evidence rather than as an answer."
+---
+
+```bash
+vitruvio source register notes.md
+vitruvio index build
+vitruvio search "what notes.md is about"
+```
+
+Three commands, three ideas.
+
+**Register** puts the file into *canonical* memory byte for byte, with its media type, and records that it was
+incorporated — not that it is true. The media type is load-bearing: it decides which normalized views exist and
+therefore what can be searched. [Registering evidence](/sources/registering-evidence) has the details, and
+[Declared sources](/sources/declared-sources) is for material that keeps arriving.
+
+**Index** derives the structures the query planner chooses from. Everything it writes lives under `.vitruvio/`, is
+rebuilt from the blocks on demand, and is never knowledge. Run it again after any write; a stale index looks like an
+empty one.
+
+**Search** returns an **evidence bundle**: matching blocks, their identities, and the provenance that ties each to
+its source. There is no answer field, and there will not be one. You — or the model you hand the bundle to — write
+the prose, and every citation has to point at a block id the brain actually returned.
+[Searching](/brain/searching) is how to read a bundle without over-claiming.
+
+## Look at it
+
+```bash
+vitruvio browse                # the terminal interface: modules, blocks, and the content inside them
+vitruvio brain state --json    # modules installed, version, origin
+vitruvio inspect doctor        # anything about this brain that is going to disappoint you
+```
+
+`browse` is the one command with no `--json`: it is an interface for a person. `brain state` is the one to run
+first in any new session. `inspect doctor` reports stale indices, missing modules, model-tag mismatches and an
+unreachable registry in one pass; run it after a pull and before a publish.
+
+## Where next
+
+<CardGroup cols={2}>
+  <Card title="Let a model interpret" icon="wand-magic-sparkles" href="/brain/ingest">
+    The propose, validate, commit loop: a model proposes knowledge, the gate decides.
+  </Card>
+  <Card title="Material that keeps arriving" icon="folder-tree" href="/sources/declared-sources">
+    Declare where it comes from; pull only what is new.
+  </Card>
+  <Card title="Publish it" icon="cloud-arrow-up" href="/brain/publishing">
+    An OCI artifact to any registry, with the warnings that matter read first.
+  </Card>
+  <Card title="Several brains" icon="layer-group" href="/projects">
+    One project, one repository per brain, one question across all of them.
+  </Card>
+</CardGroup>

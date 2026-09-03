@@ -6,7 +6,7 @@ every one of `service.py`'s function-local imports were hoisted to module scope,
 their heavy dependencies (`usearch` is imported inside a function in `indices/vector.py`, and `sentence_transformers` is
 resolved by name through the embeddings registry). So that test cannot see the regression this one is about.
 
-What the function-local imports actually buy is startup latency, which `docs/architecture.md` makes load-bearing: on
+What the function-local imports actually buy is startup latency, which `ARCHITECTURE.md` makes load-bearing: on
 this machine `import vitruvio.runtime` costs ~124ms, and adding `vitruvio.indices` (+24ms), `asyncio` (+17ms),
 `vitruvio.stats` (+4ms), `vitruvio.embeddings` (+3ms) and `vitruvio.bench.harness` (+2ms) is a ~40% regression on every
 invocation -- including `vitruvio --help` and `vitruvio config show`.

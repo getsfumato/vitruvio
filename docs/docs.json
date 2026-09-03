@@ -1,0 +1,93 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "linden",
+  "name": "Vitruvio",
+  "description": "The runtime for a Boltzmann brain: portable, verifiable, model-agnostic knowledge that any model can read and none of them owns.",
+  "colors": {
+    "primary": "#cba053",
+    "light": "#e0bd73",
+    "dark": "#946712"
+  },
+  "favicon": "/favicon.svg",
+  "background": {
+    "color": {
+      "light": "#ffffff",
+      "dark": "#0b0908"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get started",
+        "pages": ["index", "get-started/install", "get-started/skills"]
+      },
+      {
+        "group": "Onboarding",
+        "pages": [
+          "onboarding/index",
+          "onboarding/governed-or-ungoverned",
+          "onboarding/create-a-brain",
+          "onboarding/first-evidence-and-search"
+        ]
+      },
+      {
+        "group": "Boltzmann brain",
+        "pages": ["concepts/what-is-a-boltzmann-brain", "concepts/how-vitruvio-runs-a-brain"]
+      },
+      {
+        "group": "Working with a brain",
+        "pages": [
+          "brain/searching",
+          "brain/browsing",
+          "brain/ingest",
+          "brain/retention",
+          "brain/publishing",
+          "brain/migrating-legacy-brains"
+        ]
+      },
+      {
+        "group": "Sources",
+        "pages": ["sources/registering-evidence", "sources/declared-sources", "sources/writing-a-source-kind"]
+      },
+      {
+        "group": "Projects",
+        "pages": ["projects/index", "projects/selecting-a-brain", "projects/publishing-a-project"]
+      },
+      {
+        "group": "Reconciliation",
+        "pages": ["reconciliation/behind-ahead-diverged", "reconciliation/joining-two-histories"]
+      },
+      {
+        "group": "Authenticity",
+        "pages": ["authenticity/signing-and-trust-roots", "authenticity/pinning-and-verifying"]
+      },
+      {
+        "group": "Compound",
+        "pages": ["compound/searching-several-brains"]
+      },
+      {
+        "group": "Catalog",
+        "pages": ["catalog/classifying-evidence"]
+      },
+      {
+        "group": "Under the hood",
+        "pages": [
+          "under-the-hood/indices",
+          "under-the-hood/the-planner",
+          "under-the-hood/embeddings-and-vectors",
+          "under-the-hood/benchmarking"
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      { "label": "Changelog", "href": "https://github.com/getsfumato/vitruvio/blob/main/CHANGELOG.md" },
+      { "label": "Skills", "href": "https://github.com/getsfumato/vitruvio/tree/main/skills" }
+    ],
+    "primary": { "type": "github", "href": "https://github.com/getsfumato/vitruvio" }
+  },
+  "footer": {
+    "socials": { "github": "https://github.com/getsfumato/vitruvio" }
+  }
+}

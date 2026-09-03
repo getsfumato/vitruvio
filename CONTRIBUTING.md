@@ -66,7 +66,7 @@ attempted against a dead daemon where `docker run` hangs instead of failing.
 
 ## Where to write things down
 
-A change to behaviour lands in [`docs/guide/`](guide/README.md). A change to a *decision* lands in a new
+A change to behaviour lands in [`docs/`](docs/). A change to a *decision* lands in a new
 [ADR](adr/README.md) — the old file stays, because the point of the series is the reasoning, and deleting a mistake
 deletes the reasoning that led to the correction. A change to how an agent should drive vitruvio lands in
-[`skills/`](../skills/README.md).
+[`skills/`](skills/README.md).

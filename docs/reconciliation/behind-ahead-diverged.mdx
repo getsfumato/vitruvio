@@ -1,0 +1,150 @@
+---
+title: "Behind, ahead, or diverged"
+description: "Local and remote disagree. Three of the four situations have a one-command answer that is safe; the fourth is a reconciliation. Find out which one you are in before writing anything."
+---
+
+There is a brain on disk and a brain in a registry, and they are not the same. That sentence covers four different
+situations, and three of them have a one-command answer that is safe. The fourth is a reconciliation. The mistake
+this page exists to prevent is treating all four as the fourth — or, worse, treating the fourth as one of the
+first three and losing a week of somebody's work.
+
+**Establish which situation you are in before running anything that writes.** Every command in the first section
+moves no pointer and discards nothing.
+
+## First, find out what is true
+
+```bash
+vitruvio brain state --json            # where this brain came from, and what it is now
+vitruvio dist tags --json              # what the registry holds under the configured reference
+vitruvio dist plan-pull --tag v1 --json
+```
+
+Read three things:
+
+- `data.origin` in `brain state` — `reference` and `tag` are the copy this brain was installed from. `null` means
+  it was never pulled: it was born here, and "remote" is only whatever `vitruvio.toml` or the logged-in account
+  derives. `data.ancestry` lists the snapshots this brain has been, most recent first.
+- `data.tags` — whether the tag you are thinking of exists at all. A tag nobody pushed yet is not a divergence, it
+  is a first push.
+- `data.is_noop` and `data.impact` in `plan-pull`. `is_noop: true` means the registry holds exactly what is
+  installed. `impact.blocks` is how many blocks were committed here since the last pull — read `impact.certainty`
+  first, because a plan can be `approximate`, and `unknown` comes with `blocks: null`.
+
+When both sides have moved, bring their history alongside yours **without adopting it** and look at the split:
+
+```bash
+vitruvio dist fetch --tag v1 --no-reconcile --json     # their head lands in the store; the pointer stays
+vitruvio reconcile tree THEIRS --json                   # THEIRS is data.digest from the fetch
+```
+
+`tree` reports `ours`, `theirs`, the `ancestor` they parted at, and per module how many blocks were
+`added_by_us`, `added_by_them` and `removed`. That table is the whole picture.
+
+## The four situations
+
+| what you observed | situation | the safe answer |
+|---|---|---|
+| `plan-pull` says `is_noop: true`; a push would find its own digest | in step | nothing |
+| registry moved, `impact.blocks` is `0` with `exact` certainty | **behind** — nothing committed here since the pull | `dist pull`, then the post-pull checks below |
+| registry unchanged since the pull, blocks committed here | **ahead** | `dist push`; it is a fast-forward and exits 0 |
+| both moved: push exits **8**, `tree` shows blocks on both sides | **diverged** | `dist fetch`, then reconcile — see below |
+
+**Behind is the only case where `pull` is right**, and it is right because `impact` says there is nothing to
+lose. If `impact.blocks` is greater than zero, or `certainty` is `unknown`, you are not behind — you are diverged
+and have not fetched yet.
+
+After every successful `dist pull`, run `brain verify` and `auth status` on that same brain. If `auth status`
+reports a trust root, the installed brain is governed: run `auth attribution` too, and treat a head that is not
+`authorized`, or an audit that is not `complete` and `fully_vouched`, as a **possible authorship breach** to review
+before calling the brain authenticated. It is not proof of corruption — a merge may legitimately introduce an actor
+the head's signer does not vouch for — but it is not something to wave through either.
+
+**Ahead needs no ceremony.** A push that is a fast-forward is refused by nothing. If it comes back 8, the registry
+moved between your `plan-pull` and your `push`; that is the fourth row now, not a retry.
+
+## Diverged: keep both sides
+
+```bash
+vitruvio dist fetch --tag v1 --json         # 1. bring theirs; reconciles by itself only when that decides nothing
+vitruvio brain verify --json                # 2. after any reconciliation that committed
+vitruvio dist push --tag v1 --json          # 3. their head is now an ancestor of yours; the push is a fast-forward
+```
+
+Step 1 does one of four things, and `data.reconciliation.why` says which:
+
+| `why` | what happened | next |
+|---|---|---|
+| `clean` | the brain declared a strategy and every block applied | steps 2 and 3 |
+| `already contained` | their history is already in yours | step 3; if that exits 8, re-read the tag |
+| `no strategy declared` | nobody has said how to record the join | `reconcile plan THEIRS`, then choose |
+| `not clean` | blocks did not apply, or work of yours would leave; **nothing was written** | open it by hand — below |
+
+`THEIRS` is `data.reconciliation.theirs`, which is also `data.digest`. The fetch does not remember it for you.
+
+### No strategy declared
+
+The three strategies land byte-for-byte the same composition and differ only in whose name stays on the incoming
+work — `merge` keeps their snapshots and signatures, `rebase` and `squash` reissue the work under yours. That is an
+attribution decision, and vitruvio refuses to make it for you:
+
+```bash
+vitruvio reconcile plan THEIRS --json                                   # data.attribution is what you are deciding
+vitruvio reconcile merge THEIRS --reason "incorporate ana's week" --json
+```
+
+`merge` is the only strategy under which a contributor's snapshots still cover something; `rebase` invalidates any
+root they already published. Do not add `reconcile = ...` to `vitruvio.toml` just to make the fetch go through; if
+you want a standing choice for next time, declare the one you actually mean.
+
+### Not clean
+
+The fetch reported and stopped, because opening a reconciliation blocks every write until it is resolved. Open it
+deliberately, with the strategy you chose:
+
+```bash
+vitruvio reconcile merge THEIRS --reason "..." --json      # exits 12 and halts, listing what is open
+vitruvio reconcile status --json                           # every open question is one block
+vitruvio reconcile resolve BLOCK --reject --json           # or --admit, or --prefer BLOCK
+vitruvio reconcile accept-removals --json                  # only if `withdrawn` is non-empty, knowingly
+vitruvio reconcile continue --json
+vitruvio brain verify --json
+```
+
+Exit 12 with `halted: true` is a question, not a failure. What each verdict means and which decision it admits is
+the subject of [Joining two histories](/reconciliation/joining-two-histories). Two rules matter here: a `rejected`
+block is never admitted, and if `withdrawn` names blocks, they are *your* work leaving — look at how many, and from
+which modules, before accepting.
+
+`vitruvio reconcile abort` abandons an open reconciliation and writes nothing. It always works.
+
+## What never fixes a divergence
+
+- **`dist push --force`.** It overwrites the registry with your history and discards theirs. There is no undo and
+  no command that recovers what a force-push replaced. The flag exists for a version that is genuinely to be
+  thrown away, and "I want the push to go through" is not that.
+- **`dist pull` to escape exit 8.** A pull adopts the published composition; every block committed here since the
+  last pull leaves it. The blobs remain and the old snapshot is retained, but no command restores it. Pull is the
+  *behind* answer and only the behind answer.
+- **Retrying the push.** Exit 8 is not a transient failure and comes back identical every time. The registry did
+  not hiccup; it refused.
+- **Editing `vitruvio.toml`** to declare a strategy, flip `publish = false`, or point at a different reference so
+  the refusal goes away. Each of those is a statement you make, not a workaround.
+
+## Things that look like a divergence and are not
+
+| symptom | what it is | do |
+|---|---|---|
+| a commit or ingest exits **12** | a reconciliation is already open on this brain | `reconcile status`; `continue` or `abort` |
+| push exits **9** | the registry was unreachable or refused the request | retry; check `registry whoami`, `registry check` |
+| push exits **4** | nothing published under that reference and tag yet | it is a first push; push |
+| push exits **6** | the brain declares `publish = false` — it is somebody else's upstream | do not publish; `pull` is how this brain updates |
+| push exits **5** after a fetch, no common ancestor | the two histories are unrelated brains | do not reconcile; decide which one you mean |
+| `brain verify` fails | corruption, not a sync problem | `inspect resolvability`; stop |
+| `origin.partial: true` in `brain state` | a selective install — modules deliberately not taken | nothing; those modules are missing, not stale |
+| search finds nothing after a pull or reconciliation | the vector index is stale after any write | `index build`; not a divergence |
+
+## In a project with several brains
+
+Each named brain has its own remote and its own answer. Run `vitruvio project show` and go through them one at a
+time with `--brain NAME`; a brain marked `publish = false` can only ever be behind, and one with nothing committed
+is skipped by `dist push --all` rather than failed. A project is not diverged because one brain is: name the brain.

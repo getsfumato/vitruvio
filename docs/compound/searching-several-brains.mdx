@@ -1,4 +1,8 @@
-# 17. Compound: one question, several brains
+---
+title: "Compound: one question, several brains"
+sidebarTitle: "Searching several brains"
+description: "One question across several brains of one project: why the result is grouped by default, what --fuse does, and what a block two brains hold means."
+---
 
 ```bash
 vitruvio compound search "sesgo de seleccion" --brains metrica-a --brains metrica-b
@@ -8,7 +12,7 @@ vitruvio compound explain "sesgo de seleccion" --all
 ```
 
 A project is several brains under one configuration -- a subject per brain, a client per brain, a metric per brain
-([chapter 13](13-projects.md)) -- and every command so far addresses one of them. A **compound** asks two or more the
+([chapter 13](/projects)) -- and every command so far addresses one of them. A **compound** asks two or more the
 same question in one invocation, and composes what they return.
 
 ## Brains of one project, by name
@@ -33,7 +37,7 @@ at least, either way -- for one, `search` is the command.
 ## Every brain answers on its own
 
 Nothing is shared between members at query time. Each one plans with its own planner over its own statistics
-([chapter 6](06-the-planner.md)), consults its own indices, and verifies against its own roots. What a compound adds
+([chapter 6](/under-the-hood/the-planner)), consults its own indices, and verifies against its own roots. What a compound adds
 happens *after* every brain has answered, and it is a rule rather than a decision -- which is why `compound explain`
 returns one explanation per brain and no compound plan.
 
@@ -60,7 +64,7 @@ metrica-b
 Each brain's ranking comes back intact, one after the other, in the order you named them. Nothing is merged, so a
 block two brains both hold appears once per brain.
 
-This is the default because of something [chapter 5](05-searching.md) says about a single bundle: a score is
+This is the default because of something [chapter 5](/brain/searching) says about a single bundle: a score is
 agreement between retrieval strategies, rescaled so the best match reads `1.00`. Two `1.00` from two brains
 therefore say nothing about each other, and sorting a concatenation by score would rank a weak best-in-brain above
 a strong second-in-brain. Grouped output claims nothing the brains did not.
@@ -74,7 +78,7 @@ a strong second-in-brain. Grouped output claims nothing the brains did not.
 ```
 
 Reciprocal-rank fusion across brains -- the same rule the planner uses across generators inside one brain
-([ADR-0005](../adr/0005-statistics-and-the-cost-model.md)). Each brain that returned a block contributes
+([ADR-0005](https://github.com/getsfumato/vitruvio/blob/main/adr/0005-statistics-and-the-cost-model.md)). Each brain that returned a block contributes
 `1 / (60 + rank)`, a brain that did not contributes nothing, and the top is rescaled to `1.00`. Ranks are
 comparable across brains where scores are not: rank 1 means "the best this brain had" in every brain.
 
@@ -112,8 +116,3 @@ holds per match.
 `compound explain` shows why each brain planned as it did, side by side. A brain with no indices built scans; a brain
 whose statistics are stale plans pessimistically; a brain with nothing on the subject returns an empty bundle, which
 is an answer. `warnings` in the envelope carries each brain's degradations prefixed with its name.
-
-## Next
-
-The [`vitruvio-compound` skill](11-skills.md) walks an agent through choosing the project and the brains with the
-user before running any of this.

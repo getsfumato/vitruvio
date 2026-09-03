@@ -1,0 +1,47 @@
+---
+title: "Pinning and verifying"
+description: "What a consumer does: pin a trust root, let installation be gated, and audit authorship and history."
+---
+
+## Pinning is a consumer decision
+
+On first trusted contact, review the trust-root digest out of band and pin it:
+
+```console
+vitruvio auth pin --source out_of_band
+vitruvio auth status
+```
+
+An explicit digest can be supplied with `--trust-root`. A pin is local consumer state: publishing a brain cannot
+force its readers to trust a replacement root.
+
+`[authenticity]` controls evaluation:
+
+```toml
+[authenticity]
+unsigned = "refuse"
+required_signatures = 2
+allow_propose_head = false
+```
+
+The default warns on unsigned brains so legacy data remains readable. It does not silently call it authentic.
+
+## Installation is gated before adoption
+
+`dist pull` retrieves the remote history into the content-addressed store, evaluates its detached records and only
+then decides whether to move the local head. An unsigned head follows the configured `unsigned` policy: `warn` and
+`permit` may install it as explicitly unauthenticated, while `refuse` rejects it. Once a signature is present, a
+head evaluated as `unauthorized` is refused before adoption. That makes `required_signatures`, trust-root authority
+and signing scope hard installation gates rather than warning-only diagnostics. The successful pull result includes
+the evaluated `authenticity` state; it never folds that state into integrity verification.
+
+## Auditing authorship and history
+
+`auth attribution` compares actors in the head's provenance with the `subject` entries vouched for by accepted
+keys. It does not infer that a machine key belongs to a person.
+
+For a chronological audit, `vitruvio history` (also available as `vitruvio brain history`) lists every reachable
+snapshot, including histories joined by reconciliation, with its actors, integrity result and authenticity state.
+`--graph` preserves the DAG view while adding actor and authorization columns. A block's row in `vitruvio browse`
+goes one step deeper: its authorship tab connects that block's creation provenance to the historical snapshot and
+signature subjects that can—or cannot—verify the asserted actor.

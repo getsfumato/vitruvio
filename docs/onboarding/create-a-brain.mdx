@@ -1,0 +1,101 @@
+---
+title: "Create a brain"
+description: "Standalone or inside a project, then one of four recipes, then two checks read separately."
+---
+
+{/* Mirrors the recipes in skills/vitruvio-onboarding/SKILL.md. Change both. */}
+
+## Standalone, or in a project?
+
+A brain is the unit of *publication*: if somebody might want one subject without the others, those are separate
+brains, each publishable, installable and droppable on its own. A **project** is what several brains share — one
+actor, one retention policy, one embedder, one registry account — declared in one `vitruvio.toml`, with a
+repository per brain derived as `<namespace>/<project>-<brain>`.
+
+Choose **standalone** when there is one subject and you are the one writing. Choose a **project** when there are
+several subjects you will publish separately, or several people, or you already know the brain will live beside
+others. A standalone brain can join a project later — `project add NAME --path PATH --no-create` registers an
+existing layout without touching it — so the cheaper mistake is starting standalone.
+
+Unlike [governance](/onboarding/governed-or-ungoverned), this is a decision vitruvio is happy to see you change.
+
+## The actor
+
+Every write is attributed in provenance, so every write needs an actor: a lowercase address (`you@example.com`) or
+a lowercase namespaced name (`openai/codex`). Passing `--actor` to `brain init` or `project init` writes it into
+`vitruvio.toml`, and you never pass it again. Reads never need one.
+
+## The retention policy
+
+`brain init --policy` takes a retention profile: `conservative` (the default), `permissive` or `archival`. It decides
+which removals the protocol will allow later. Unlike governance, leaving the default is fine when you have no
+opinion yet, and [Retention](/brain/retention) is where to form one.
+
+## Four recipes
+
+The governed recipes need a fingerprint from `vitruvio auth keys`; the previous page says what else to have ready.
+
+### Standalone, ungoverned
+
+```bash
+vitruvio --actor you@example.com brain init ./brain
+```
+
+### Standalone, governed
+
+```bash
+vitruvio --actor you@example.com brain init ./brain \
+  --governed --sign-with SHA256:REPLACE_WITH_FINGERPRINT --govern-quorum 1
+```
+
+Or `--trust-root root.toml` in place of `--sign-with`, for distinct subjects or scopes.
+The command warns when the quorum equals the number of `govern` holders; read it, it is telling you a lost key
+would be unrecoverable.
+
+### In a project, ungoverned
+
+```bash
+mkdir facultad && cd facultad
+vitruvio --actor you@example.com project init facultad --namespace docker.io/you
+vitruvio project add algebra --description "apuntes de algebra"
+vitruvio project show
+```
+
+`project init` writes the `vitruvio.toml` and registers the project's name on this machine, so `--project facultad`
+reaches it from any directory afterwards. Start in a fresh directory: if a `vitruvio.toml` already exists above the
+working directory, `project init` adds the project to that file instead of creating a new one. `--namespace` is where the brains will publish; leave it out if you do not
+know yet, and the account you log in to later is used instead. `project add` creates the layout at
+`./brains/algebra` and declares it.
+
+### In a project, governed
+
+`project add` on its own always creates an **ungoverned** brain — it has no governance flags. For a governed brain
+inside a project, create the genesis with `brain init` and then declare it with `--no-create`:
+
+```bash
+mkdir facultad && cd facultad
+vitruvio --actor you@example.com project init facultad
+vitruvio --actor you@example.com brain init ./brains/algebra \
+  --governed --sign-with SHA256:REPLACE_WITH_FINGERPRINT
+vitruvio project add algebra --path ./brains/algebra --no-create
+vitruvio project show
+```
+
+Run inside the project directory, `brain init` finds the project's `vitruvio.toml` and writes no second one.
+
+## Check it
+
+```bash
+vitruvio brain verify          # integrity: every block against every module root
+vitruvio auth status           # authenticity: trust root, signatures, pin
+vitruvio brain state --json    # what this brain is, and where it came from
+vitruvio project show          # in a project: every brain, and where each publishes
+```
+
+Read the first two separately. `brain verify` passing says the bytes are intact; `auth status` says whether an
+authorized signature supports the head. On an ungoverned brain `auth status` reports exactly that — ungoverned, no
+trust root — and that is a description, not a failure. In a project, add `--brain algebra` to address one brain.
+
+## Next
+
+[First evidence and search](/onboarding/first-evidence-and-search).

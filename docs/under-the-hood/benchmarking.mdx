@@ -1,4 +1,7 @@
-# 12. Benchmarking and calibration
+---
+title: "Benchmarking and calibration"
+description: "Measuring recall, and calibrating the cost model."
+---
 
 ```bash
 vitruvio bench --tier 1000
@@ -9,7 +12,7 @@ vitruvio inspect doctor
 
 ## The corpus is synthetic and has ground truth
 
-`vitruvio.bench` builds deterministic brains at N ∈ {10², 10³, 10⁴, 10⁵} across six subjects with distinct
+`vitruvio.bench` builds deterministic brains at N ∈ \{10², 10³, 10⁴, 10⁵\} across six subjects with distinct
 vocabularies, and it knows which blocks answer which query. That is what makes recall a measurement rather than an
 impression.
 
@@ -19,7 +22,7 @@ exists to prevent.
 
 ## What it reports
 
-recall@{1,5,10}, nDCG@10, and p50/p95/p99 for six configurations: `scan`, lexical-only, vector-only,
+recall@\{1,5,10\}, nDCG@10, and p50/p95/p99 for six configurations: `scan`, lexical-only, vector-only,
 `planner(λ=0)`, `planner(default)` and `planner(floor=1.0)`.
 
 The `λ=0` column exists to demonstrate the recall/cost trade-off empirically rather than assert it rhetorically: with
@@ -58,7 +61,3 @@ Three habits carry most of the weight in the test suite:
   most insidious class of bug here: set iteration order leaking into a plan.
 - The five structural indices have byte-exact golden dumps. The vector index does not, and cannot — it asserts
   round-trip equality of *results*.
-
-## The end
-
-That is the whole guide. The [ADRs](../adr/README.md) carry the decisions and what they cost.

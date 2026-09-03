@@ -1,0 +1,89 @@
+---
+title: "Install"
+description: "One command installs vitruvio into an isolated environment. Then check the version, pick extras, and keep it current."
+---
+
+```bash
+curl -fsSL https://vitruvio.sh/install.sh | sh
+```
+
+The installer downloads a release's wheel bundle and hands it to `uv tool install`, bootstrapping `uv` and a
+Python if the host has neither. vitruvio is nine pure-Python distributions rather than one binary, and they are
+published as release assets rather than to PyPI — so `uv tool install vitruvio` and `pipx install vitruvio` do
+not resolve, and the installer is the supported path. Nothing in it depends on the host's Python.
+
+## Check the installation
+
+```bash
+vitruvio --version
+```
+
+That prints the installed release. If the shell cannot find the command, the installer placed it in `~/.local/bin`
+and printed the line that adds that directory to `PATH`; run it, or open a new shell.
+
+The installer reads four variables:
+
+| variable | does |
+|---|---|
+| `VITRUVIO_VERSION` | pins a release instead of taking the latest |
+| `VITRUVIO_EXTRAS` | comma-separated extras, e.g. `local,api`, or `all` |
+| `VITRUVIO_BIN_DIR` | where the command lands (default `~/.local/bin`) |
+| `VITRUVIO_NO_MODIFY_PATH=1` | skip the `PATH` hint |
+
+## Extras
+
+The base install carries no model. That is intentional: the default text embedder is `hashing:bow`, which needs
+nothing, and the extras are opt-in.
+
+| extra | brings | for |
+|---|---|---|
+| `local` | sentence-transformers, torch | real local text embeddings |
+| `vision` | SigLIP, pypdfium2 | image embeddings, PDF text |
+| `api` | httpx | API embedders and API proposers |
+| `keyring` | keyring | registry tokens in the system keychain |
+| `all` | all of the above | |
+
+```bash
+curl -fsSL https://vitruvio.sh/install.sh | VITRUVIO_EXTRAS=all sh
+```
+
+## Staying current
+
+```bash
+vitruvio update --check                  # is there a newer release
+vitruvio update                          # install it
+```
+
+After an ordinary command, vitruvio prints one line on stderr when a newer release exists. It asks GitHub at
+most once a day, caches the answer — including a failed lookup, so being offline costs one timeout rather than
+one per command — and gives up after two seconds. It is suppressed under `--json`, under `--quiet`, and when
+stderr is not a terminal, so it can never land in output something else is parsing. `VITRUVIO_NO_UPDATE_CHECK=1`
+turns it off for good.
+
+The notice never installs anything and never asks a question: a prompt after an unrelated command would hang
+the first script that ran unattended. `vitruvio update` is where the decision lives, and it confirms before
+replacing anything unless you pass `--yes`.
+
+Updating re-runs the same installer, pinned to the version you were shown, rather than reimplementing it. The
+`--reinstall` inside it is why: only `vitruvio` is pinned, so an upgrade that did not force it would find the
+eight sibling libraries already satisfied and leave a new CLI on old packages — which then reports the old
+version, because `--version` reads the kernel's.
+
+A source checkout is refused, since the installer would replace the environment the command is served from.
+Use git there.
+
+## Shell completion
+
+```bash
+vitruvio completion zsh > "${fpath[1]}/_vitruvio"
+vitruvio completion bash | sudo tee /usr/local/etc/bash_completion.d/vitruvio
+vitruvio completion fish > ~/.config/fish/completions/vitruvio.fish
+```
+
+The scripts know the command names and nothing about any brain's contents. A completion hook that called back into
+`vitruvio` would open a brain to answer, and with a vector index registered that means constructing an embedder.
+Pressing Tab should not load a model.
+
+## Next
+
+Give your agent the [skills](/get-started/skills), or go straight to [creating a brain](/onboarding).

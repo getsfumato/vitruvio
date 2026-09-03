@@ -135,13 +135,13 @@ Only a cost model notices. Verified by running the CLI at two scales with the sa
 whole claim.
 
 The reasoning is [ADR-0005](adr/0005-statistics-and-the-cost-model.md); the reader's view is
-[chapter 6](guide/06-the-planner.md).
+[chapter 6](docs/under-the-hood/the-planner.mdx).
 
 ## Where things are written down
 
-- [`docs/guide/`](guide/README.md) — how to use it, in order.
-- [`docs/adr/`](adr/README.md) — why it is like this, one file per decision, never renumbered.
-- [`skills/`](../skills/README.md) — how an *agent* drives it. Authored once at the repository root and reached
+- [`docs/`](docs/) — how to use it, in order.
+- [`adr/`](adr/README.md) — why it is like this, one file per decision, never renumbered.
+- [`skills/`](skills/README.md) — how an *agent* drives it. Authored once at the repository root and reached
   through a symlink from inside the package, so `vitruvio skills install` ships exactly what is under version
   control.
 - `.claude/skills/` — skills for agents working *on* this repository, which is a different audience. Every one is

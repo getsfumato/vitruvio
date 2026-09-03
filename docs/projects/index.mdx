@@ -1,0 +1,49 @@
+---
+title: "Projects"
+description: "One project, many brains: what they share, how each is named, and where each one publishes."
+---
+
+A brain is the unit of *publication*. If somebody might want one subject without the other four, those are five
+brains — each publishable, installable and droppable on its own.
+
+What a project adds is the part they share: one actor, one retention policy, one embedder, one registry account.
+
+```console
+vitruvio project init facultad --actor you@example.com
+vitruvio project add algebra --description "apuntes de algebra"
+vitruvio project add analisis-ii
+vitruvio project add fisica-i
+vitruvio project show
+```
+
+```toml
+[project]
+name = "facultad"
+
+[actor]
+id = "you@example.com"
+
+[brains.algebra]
+path = "./brains/algebra"
+description = "apuntes de algebra"
+
+[brains.analisis-ii]
+path = "./brains/analisis-ii"
+```
+
+A project answers two questions the rest of this section takes in turn: [which brain a command means](/projects/selecting-a-brain), and [where each brain publishes](/projects/publishing-a-project).
+
+## Names are repository components
+
+`analisis-ii`, not `Análisis II`. Lowercase letters, digits and single separators. Checked when the file is read
+rather than when the artifact is pushed — a registry rejecting the name after a pack gives an error that says nothing
+about which of the two names was wrong.
+
+## Removing
+
+```console
+vitruvio project remove analisis-ii
+```
+
+Unregisters it and prints where the layout still is. It never deletes: "remove it from this project" and "destroy it"
+are different requests, and a brain may be the only copy of what it holds.

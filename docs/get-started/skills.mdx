@@ -1,0 +1,65 @@
+---
+title: "Skills for your agent"
+description: "Install the skills that teach an agent how to drive vitruvio: npx skills add getsfumato/vitruvio, or vitruvio skills install."
+---
+
+The knowledge of *how to drive a brain* ships as **skills**, so an agent learns the contract rather than guessing
+at it. The paper treats a skill as one of a brain's access contracts, alongside the CLI itself: the knowledge of
+how to drive this travels with the brain rather than living only in vitruvio's docs.
+
+```bash
+npx skills add getsfumato/vitruvio
+```
+
+That installs them into your agent's skills directory. The CLI carries the same set and can install it itself —
+which is the one to use when the skills must match the exact binary they drive:
+
+```bash
+vitruvio skills list
+vitruvio skills install                      # into .claude/skills/
+vitruvio skills install --into path --force
+```
+
+An existing skill directory is left alone unless `--force`, because a consumer may have edited one and silently
+overwriting local edits is not something a copy command should do.
+
+## What ships
+
+Ten skills, layered rather than exhaustive. `vitruvio` is the entry point and the others are reached from it, so
+install the set rather than one of them.
+
+| skill | covers |
+|---|---|
+| `vitruvio` | the entry point: what a brain is, the envelope, the exit codes, the five modules |
+| `vitruvio-onboarding` | the first brain: standalone or in a project, governed or ungoverned, and confirming it works before anything else |
+| `vitruvio-cli` | the command surface: every group, every command, the flag that decides the outcome |
+| `vitruvio-query` | searching, and reading a bundle without over-claiming |
+| `vitruvio-compound` | composing several brains of one project into one query, and reading the cross-brain evidence |
+| `vitruvio-ingest` | the propose → validate → commit loop, and pulling from declared sources |
+| `vitruvio-retention` | the five removal mechanisms, and which one you actually want |
+| `vitruvio-dist` | publishing and installing |
+| `vitruvio-reconcile` | joining a history somebody else advanced, and deciding what did not apply |
+| `vitruvio-sync` | telling behind, ahead and diverged apart, and getting local and remote back in step without losing either side |
+
+Ask your agent to set up a brain and the `vitruvio-onboarding` skill walks it through the same steps as the
+[Onboarding](/onboarding) section of these docs — including stopping to ask you whether the brain is governed.
+
+## The four habits the skills teach
+
+1. Always `--json`, and branch on `ok` then `error.code`.
+2. Read `warnings` **even when `ok` is true** — a degraded answer that looks clean is the failure the design is arranged
+   to prevent.
+3. The brain returns evidence; you write the prose. There is no answer field.
+4. Never invent a `block_id`.
+
+## Where they are authored
+
+The files live at [`skills/`](https://github.com/getsfumato/vitruvio/tree/main/skills) in the repository root and
+ship inside the wheel, which ties a skill to the version of the CLI it documents. The command reference the entry
+skill carries is generated from the command declarations, and CI fails if it is stale — a stale reference is worse
+than none, because an agent that trusts a flag which no longer exists spends its next turn recovering from a usage
+error.
+
+## Next
+
+[Create your first brain](/onboarding).

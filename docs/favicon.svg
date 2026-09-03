@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <rect width="16" height="16" fill="#0b0908"/>
+  <!-- pixel V on the same 2px grid as sfumato's S, so the two favicons read as a
+       pair in a tab strip. Twelve units wide and twelve tall, symmetric about x=8;
+       the apex is one block so it stays a point rather than a notch at 16px -->
+  <g fill="#cba053">
+    <rect x="2"  y="1"  width="2" height="2"/>
+    <rect x="12" y="1"  width="2" height="2"/>
+    <rect x="3"  y="3"  width="2" height="2"/>
+    <rect x="11" y="3"  width="2" height="2"/>
+    <rect x="4"  y="5"  width="2" height="2"/>
+    <rect x="10" y="5"  width="2" height="2"/>
+    <rect x="5"  y="7"  width="2" height="2"/>
+    <rect x="9"  y="7"  width="2" height="2"/>
+    <rect x="6"  y="9"  width="2" height="2"/>
+    <rect x="8"  y="9"  width="2" height="2"/>
+    <rect x="7"  y="11" width="2" height="2"/>
+  </g>
+</svg>

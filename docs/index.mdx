@@ -1,0 +1,47 @@
+---
+title: "Introduction"
+description: "Vitruvio is the runtime for a Boltzmann brain: portable, verifiable, model-agnostic knowledge that any model can read and none of them owns."
+---
+
+Vitruvio runs a **[Boltzmann brain](/concepts/what-is-a-boltzmann-brain)**: a store of content-addressed, typed
+blocks — the evidence you registered, what happened and when, the facts and procedures derived from it, and the
+provenance tying each derivation to its source — arranged so that every version can be verified, published,
+installed and reconciled with a copy somebody else advanced. The brain conserves, validates and retrieves
+knowledge; an interchangeable model interprets it. **The brain returns evidence, never prose.**
+
+```bash
+curl -fsSL https://vitruvio.sh/install.sh | sh
+vitruvio --version
+```
+
+<CardGroup cols={2}>
+  <Card title="Install" icon="download" href="/get-started/install">
+    One command, then check the version, pick extras, and keep it current.
+  </Card>
+  <Card title="Skills for your agent" icon="robot" href="/get-started/skills">
+    `npx skills add getsfumato/vitruvio` teaches an agent the contract instead of letting it guess.
+  </Card>
+  <Card title="Create your first brain" icon="seedling" href="/onboarding">
+    Standalone or inside a project, governed or ungoverned, and how to confirm it works.
+  </Card>
+  <Card title="What is a Boltzmann brain" icon="book-open" href="/concepts/what-is-a-boltzmann-brain">
+    The paper, and how the protocol works in plain words.
+  </Card>
+</CardGroup>
+
+## Operating a brain
+
+- [Working with a brain](/brain/searching) — searching, browsing, ingesting, removing, publishing, migrating.
+- [Sources](/sources/registering-evidence) — registering evidence, declaring where material comes from, writing a source kind.
+- [Projects](/projects) — one project, many brains, one repository each.
+- [Reconciliation](/reconciliation/behind-ahead-diverged) — when the local brain and its published copy disagree.
+- [Authenticity](/authenticity/signing-and-trust-roots) — signing, trust roots, pins and the audit views.
+- [Compound](/compound/searching-several-brains) — one question across several brains of one project.
+- [Catalog](/catalog/classifying-evidence) — portable classifications over canonical evidence.
+
+## For contributors
+
+The architecture, the contributing guide and the decision records live in the repository:
+[`ARCHITECTURE.md`](https://github.com/getsfumato/vitruvio/blob/main/ARCHITECTURE.md),
+[`CONTRIBUTING.md`](https://github.com/getsfumato/vitruvio/blob/main/CONTRIBUTING.md) and
+[`adr/`](https://github.com/getsfumato/vitruvio/tree/main/adr).

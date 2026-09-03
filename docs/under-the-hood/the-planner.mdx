@@ -1,4 +1,7 @@
-# 6. The query planner
+---
+title: "The query planner"
+description: "Cost in microseconds, recall in the objective, and how to read explain."
+---
 
 ```bash
 vitruvio query explain "TEXT"              # the plan, the alternatives, and why
@@ -65,7 +68,3 @@ There is no memo structure, because the combinatorial explosion that justifies o
 there are no joins here. Exhaustive search over a few hundred plans per scope buys a property worth more than the
 saved microseconds: **adding an index can never worsen the chosen plan**, because the new space is a strict superset
 and both are searched completely. It is asserted as a property test.
-
-## Next
-
-[7. Embeddings and the vector index](07-embeddings-and-vectors.md)

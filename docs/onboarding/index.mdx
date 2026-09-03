@@ -1,0 +1,49 @@
+---
+title: "Your first brain"
+description: "From an installed vitruvio to a working brain: two decisions that cannot be changed later, one command, and the checks that tell you it worked."
+---
+
+{/* Mirrors skills/vitruvio-onboarding/SKILL.md. Change the flow in both places. */}
+
+Creating a brain is one command. Two things about that command cannot be changed afterwards, so onboarding is
+mostly about deciding them on purpose — and vitruvio refuses to decide either one for you.
+
+| | ungoverned | governed |
+|---|---|---|
+| **standalone** | `brain init ./brain` | `brain init ./brain --governed --sign-with …` |
+| **in a project** | `project add NAME` | `brain init ./brains/NAME --governed …`, then `project add NAME --path ./brains/NAME --no-create` |
+
+<Steps>
+  <Step title="Decide: governed or ungoverned">
+    Whether a trust root travels with the brain and signatures gate what consumers accept. This lives in the
+    genesis and cannot be added later. [Governed or ungoverned](/onboarding/governed-or-ungoverned).
+  </Step>
+  <Step title="Decide: standalone or in a project">
+    One brain, or several under one configuration with one repository each.
+    [Create a brain](/onboarding/create-a-brain) explains the choice and gives the four recipes.
+  </Step>
+  <Step title="Create it, then check it">
+    One command, then `brain verify` and `auth status`, read separately: integrity and authenticity are different
+    questions.
+  </Step>
+  <Step title="Register evidence and search">
+    `source register`, `index build`, `search`.
+    [First evidence and search](/onboarding/first-evidence-and-search).
+  </Step>
+</Steps>
+
+## Or let your agent drive
+
+Install the [skills](/get-started/skills) and ask your agent to set up a brain. The `vitruvio-onboarding` skill
+runs this same flow, and it is written to stop and ask you both decisions before it creates anything — the CLI's
+defaults are never taken as your answer.
+
+```bash
+npx skills add getsfumato/vitruvio
+```
+
+## What you have at the end
+
+A directory that is an OCI image layout, a `vitruvio.toml` beside it (or the project's, one level up), one snapshot
+with zero blocks, and an actor recorded for every write to come. `vitruvio brain state --json` shows all of it,
+and is the command to run first in any new session from now on.
