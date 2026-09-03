@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-stats"
-version = "0.10.1"
+version = "0.10.2"
 description = "The statistics catalogue vitruvio indices produce and the query planner costs against"
 readme = "README.md"
 license = {text = "MIT"}
