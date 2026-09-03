@@ -407,6 +407,22 @@ class TestOpeningInTheDesktop:
         assert desktop.scratch("apuntes/clase-3.pdf", "sha256:abc").name == "clase-3.pdf"
         assert desktop.scratch(None, "sha256:abc").name == "sha256-abc"
 
+    def test_descriptive_origin_still_ends_in_a_dispatchable_extension(self) -> None:
+        """Prose after a dotted name is not a suffix the desktop can associate with an application."""
+        from vitruvio.cli.render import desktop
+
+        origin = "yield-driver.html — Yield Arquitectura, Driver, componente 02 (2026-08-31)"
+
+        assert desktop.filename(origin, "sha256:abc", "text/html") == f"{origin}.html"
+        assert desktop.filename(origin, "sha256:abc") == origin
+
+    def test_plausible_existing_extensions_are_left_alone(self) -> None:
+        from vitruvio.cli.render import desktop
+
+        assert desktop.filename("report.jsonl", "sha256:abc", "application/jsonl") == "report.jsonl"
+        assert desktop.filename("archive.tar.gz", "sha256:abc", "application/gzip") == "archive.tar.gz"
+        assert desktop.filename("database.sqlite3", "sha256:abc", "application/vnd.sqlite3") == "database.sqlite3"
+
     def test_a_block_with_no_origin_is_still_named_for_its_media_type(self) -> None:
         """A handler is chosen by *suffix*, so this is the difference between opening a PDF and opening a text
         editor full of `%PDF-1.7`.

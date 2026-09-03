@@ -19,10 +19,11 @@ and looking at what is in there, which is a different question and has a differe
 `search` ranks. The planner picks indices, fuses their results and returns an Evidence Bundle with a score on
 every match. That is what you want when you know what you are looking for.
 
-`inspect blocks` lists a module in **its own order**, one line per block, and consults no index. There is no
-score column because nothing was ranked. `--contains` filters the rows that were read — a substring over the
-title, the detail, the subject, the tags and the identity — and it is bounded by the same `--limit` an unfiltered
-page is.
+`inspect blocks` lists a module in **its own order**, one line per block, and consults no retrieval index or
+planner. There is no score column because nothing was ranked. It does use provenance's structural subject index
+to recover origins and authorship without making their correctness depend on where a record falls in the ledger.
+`--contains` filters the rows that were read — a substring over the title, the detail, the subject, the tags and
+the identity — and it is bounded by the same `--limit` an unfiltered page is.
 
 The distinction is worth keeping straight, because a filter that looked like retrieval would be a second and much
 worse retrieval path sitting next to the one with a cost model behind it. In the interface it is two different

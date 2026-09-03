@@ -30,7 +30,7 @@ from boltzmann.query.planner import QueryPlanner
 from boltzmann.store.oci_layout import OciLayoutStore
 
 from vitruvio.ingest import bootstrap as bootstrap_pipelines
-from vitruvio.kernel import BrainNotFoundError, ResolvedConfig, is_layout
+from vitruvio.kernel import BrainNotFoundError, IndexSpec, ResolvedConfig, is_layout
 
 
 class Capability(IntEnum):
@@ -78,6 +78,8 @@ def build_indices(config: ResolvedConfig, capability: Capability) -> dict[Memory
             for spec in config.project.indices
             if spec.memory_type is MemoryType.PROVENANCE and spec.kind is IndexKind.HASH_MAP
         ]
+        if not specs:
+            specs = [IndexSpec(memory_type=MemoryType.PROVENANCE, kind=IndexKind.HASH_MAP)]
         return build_selected(specs, home=indices_home(config))
 
     # Imported here, not at module scope: this is the line that pulls in usearch and the index engines, and an
