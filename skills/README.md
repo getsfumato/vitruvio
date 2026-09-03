@@ -12,6 +12,7 @@ vitruvio skills install --into DIR --skill vitruvio-cli --force
 | skill | covers |
 |---|---|
 | `vitruvio` | the entry point: what a brain is, the envelope, the exit codes, the five modules |
+| `vitruvio-onboarding` | the first brain: standalone or in a project, governed or ungoverned, and confirming it works before anything else |
 | `vitruvio-cli` | the command surface: every group, every command, the flag that decides the outcome |
 | `vitruvio-query` | searching, and reading a bundle without over-claiming |
 | `vitruvio-compound` | composing several brains of one project into one query, and reading the cross-brain evidence |

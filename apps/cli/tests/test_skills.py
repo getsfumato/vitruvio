@@ -29,11 +29,14 @@ EXPECTED = {
     "vitruvio-dist",
     "vitruvio-reconcile",
     "vitruvio-compound",
+    "vitruvio-sync",
+    "vitruvio-onboarding",
 }
 
 CREATION_SKILLS = (
     Path(__file__).resolve().parents[3] / "skills" / "vitruvio" / "SKILL.md",
     Path(__file__).resolve().parents[3] / "skills" / "vitruvio-cli" / "SKILL.md",
+    Path(__file__).resolve().parents[3] / "skills" / "vitruvio-onboarding" / "SKILL.md",
 )
 
 PULL_SKILLS = (
@@ -275,3 +278,55 @@ class TestThePackagingOfSkills:
         """So that editing a skill and running `skills install` installs what was just edited, rather than whatever
         the last `uv sync` happened to place in site-packages."""
         assert skills_command.SOURCE.resolve() == (self.ROOT / "skills").resolve()
+
+
+class TestSkillsAreListedAndAligned:
+    """Two things nothing else pins: that every shipped skill is reachable from the places that enumerate skills, and
+    that the onboarding skill and the onboarding pages describe one creation flow rather than two."""
+
+    ROOT = Path(__file__).resolve().parents[3]
+    LISTINGS = (
+        ROOT / "skills" / "README.md",
+        ROOT / "docs" / "get-started" / "skills.mdx",
+        ROOT / "skills" / "vitruvio" / "SKILL.md",
+    )
+    ONBOARDING = ROOT / "skills" / "vitruvio-onboarding" / "SKILL.md"
+    ONBOARDING_PAGES = (
+        ROOT / "docs" / "onboarding" / "governed-or-ungoverned.mdx",
+        ROOT / "docs" / "onboarding" / "create-a-brain.mdx",
+    )
+    CREATION_SURFACE = (
+        "brain init",
+        "--governed",
+        "--sign-with",
+        "--trust-root",
+        "--govern-quorum",
+        "--policy",
+        "project init",
+        "project add",
+        "--no-create",
+        "auth keys",
+        "brain verify",
+        "auth status",
+        "--no-governed",
+    )
+
+    def test_every_shipped_skill_is_listed(self) -> None:
+        """A skill nobody lists is one an agent never routes to and a reader never finds, and the failure is silent."""
+        missing: list[str] = []
+        for skill in skills_command._available():
+            for listing in self.LISTINGS:
+                if skill.name == "vitruvio" and listing.name == "SKILL.md":
+                    continue  # the entry skill routes to the others; it does not list itself
+                if f"`{skill.name}`" not in listing.read_text(encoding="utf-8"):
+                    missing.append(f"{skill.name} in {listing.relative_to(self.ROOT)}")
+        assert not missing, "shipped skills absent from a listing:\n  " + "\n  ".join(missing)
+
+    def test_the_onboarding_skill_and_pages_offer_the_same_creation_surface(self) -> None:
+        """A flag that appears in one and not the other is a recipe that works for a person and fails for their
+        agent, or the reverse."""
+        skill = self.ONBOARDING.read_text(encoding="utf-8")
+        pages = "\n".join(page.read_text(encoding="utf-8") for page in self.ONBOARDING_PAGES)
+        missing = [f"skill lacks {token}" for token in self.CREATION_SURFACE if token not in skill]
+        missing += [f"docs lack {token}" for token in self.CREATION_SURFACE if token not in pages]
+        assert not missing, missing

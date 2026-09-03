@@ -194,6 +194,7 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 
 ## Where to go next
 
+- `vitruvio-onboarding` — a person's first brain: standalone or in a project, governed or ungoverned, created only after both are decided, then confirmed.
 - `vitruvio-cli` — the command surface: which group owns a task, and which flag decides the outcome.
 - `vitruvio-query` — searching, and how to read an evidence bundle without over-claiming.
 - `vitruvio-compound` — one question across several brains of one project: choosing the project and the brains with the user, and reading what two brains agree on.
