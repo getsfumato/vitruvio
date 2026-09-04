@@ -19,7 +19,7 @@ npx skills add getsfumato/vitruvio
 
 ## Documentation
 
-[docs.vitruvio.sh](https://docs.vitruvio.sh)
+[vitruvio.sh/docs](https://vitruvio.sh/docs)
 
 ## License
 
