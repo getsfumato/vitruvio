@@ -1,0 +1,57 @@
+---
+title: "Searching"
+description: "Filters versus hints, and reading a bundle without over-claiming."
+---
+
+```bash
+vitruvio search "descomponer una funcion periodica en senos"
+vitruvio query search "TEXT" --memory-type semantic --subject fourier --limit 10
+vitruvio query resolve <BLOCK_ID>
+vitruvio query prove <BLOCK_ID> --memory-type semantic
+```
+
+## Filters bound, hints suggest
+
+`--memory-type`, `--subject`, `--tag`, `--since` and `--until` restrict what is *eligible*. They are the difference
+between a useful answer and a ranking where "what happened in May" competes with "define a Fourier series".
+
+`--mode` is a hint. It narrows the admissible plans; it never selects one. `--mode semantic` still admits a term scan,
+because no index in this protocol is authoritative and a hint must not become a way to make one so.
+
+One filter rule is inherited from the protocol and surprises people: **a block with no `occurred_at` fails a time
+window**. Not "passes by default" — fails. `--since` over a module of undated semantic blocks returns nothing, and
+that is correct.
+
+## What comes back is an evidence bundle
+
+```
+3 matches
+verified against  canonical sha256:fd522c4afb  semantic sha256:95fd781b61
+
+[1] 1.00  semantic   sha256:9fcecd9c57
+      Serie de Fourier
+      source: sha256:fe6f2cdb9c #lines:1-5
+```
+
+The roots line is not decoration: quoting a block without the root it verified against is quoting something nobody
+can check later.
+
+Read these four fields before citing anything:
+
+- **`score`** is agreement between retrieval strategies. Not a probability, not a confidence. A string in the JSON, at
+  the protocol's precision — the ordering was decided on the full float before rendering, so two matches showing
+  `1.00` are not tied.
+- **`truncated`** is `true` whenever a candidate that passed every filter was discarded, *including* one cut by a
+  generator's `k`. Check it before ever saying "the brain does not contain X".
+- **`superseded_by`** means something replaced it. Cite the successor, or say you are quoting a superseded claim.
+- **`resolvable: false`** means redacted or not installed — **not** corrupt. The block is still a verifiable member.
+
+Verification failures never appear as a flag. A block that fails membership, its inclusion proof, or its store hash is
+**discarded**, and the discard is recorded as a degradation — because returning corruption with `verified: false`
+makes it look like a low-quality result.
+
+## The CLI will never write your answer
+
+There is no `answer` field, and there will not be one. The brain returns evidence; synthesising prose is the caller's
+job. A CLI that summarised for you would have quietly become the model, and the summary would carry none of the
+verification the bundle exists to provide.

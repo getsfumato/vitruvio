@@ -1,0 +1,94 @@
+---
+title: "Migrating legacy brains"
+description: "The temporary compatibility command, dry runs, backups, identity preservation and the boundaries of a one-way migration."
+---
+
+`brain migrate` is a temporary compatibility command for recreating a brain written before the pyboltzmann 0.9
+identity, catalog and authenticity rules. It is deliberately one-way: the source is opened read-only, the destination
+must not exist, work happens in a temporary sibling directory, and only a completed migration is moved into place.
+
+Keep the old brain as the immutable archive. The command preserves current accessible knowledge, not historical
+authorship.
+
+## 1. Prepare and back up
+
+Copy or snapshot both the brain directory and its `vitruvio.toml` using the backup mechanism you already trust. Do
+not use the destination as that backup. Then select the source explicitly and verify it:
+
+```console
+vitruvio --config ./vitruvio.toml --brain ./brain-v08 brain verify
+vitruvio --config ./vitruvio.toml --brain ./brain-v08 brain state --json
+```
+
+Fix integrity failures before migration. The migrator will refuse a source that does not verify.
+
+The actor used for new provenance must be canonical: either a lowercase address such as `alex@example.org` or a
+lowercase namespaced name such as `openai/codex`. Legacy free-form identifiers remain readable but cannot author new
+blocks. Pass the replacement explicitly if the old configuration is not valid:
+
+```console
+vitruvio --config ./vitruvio.toml --brain ./brain-v08 \
+  --actor alex@example.org brain migrate --to ./brain-v09 --dry-run --report migration-plan.json
+```
+
+The dry-run report includes module counts, catalog declarations, legacy actor ids and every block whose content or
+evidence cannot be reproduced. It creates no destination.
+
+## 2. Choose the new trust root
+
+The destination is governed by default. Load the intended Ed25519 key into `ssh-agent`, inspect its fingerprint and
+pass it explicitly:
+
+```console
+ssh-add ~/.ssh/id_ed25519
+vitruvio auth keys
+vitruvio --config ./vitruvio.toml --brain ./brain-v08 \
+  --actor alex@example.org brain migrate --to ./brain-v09 \
+  --sign-with SHA256:REPLACE_WITH_FINGERPRINT \
+  --report migration-report.json
+```
+
+Repeat `--sign-with` and use `--govern-quorum` for a multi-key root, or pass an audited TOML/JSON document with
+`--trust-root`. Explicit signers sign both the governed genesis and the final migrated head. Use `--no-governed` only
+when the new brain is intentionally unsigned; it gives up the clean genesis opportunity and is not the default.
+
+## 3. Understand what carries across
+
+The migrator re-registers accessible canonical evidence with its original registration metadata and normalization
+pipeline where reproducible. It recommits derived blocks in evidence dependency order, rebuilds catalog declarations,
+and checks that content-addressed knowledge block ids remain identical. The final report lists `preserved_ids` and
+every `skipped` item.
+
+These properties do **not** carry across:
+
+- old snapshot digests or the old snapshot chain;
+- old provenance block identities or cryptographic continuity with unsigned history;
+- dropped, inaccessible, tombstoned or otherwise non-current content;
+- index files, which are derived and should be rebuilt;
+- legacy actor spellings as new authenticated identities.
+
+Missing content, a non-reproducible normalization pipeline or an evidence edge to an omitted block makes the default
+migration fail atomically. `--allow-partial` changes that contract: it skips those blocks and records each reason. Use
+it only after reviewing the dry run and accepting that the destination is incomplete.
+
+## 4. Verify before publishing
+
+Open the new path explicitly and perform all checks before changing any deployment or registry tag:
+
+```console
+vitruvio --brain ./brain-v09 brain verify
+vitruvio --brain ./brain-v09 auth status
+vitruvio --brain ./brain-v09 auth attribution
+vitruvio --brain ./brain-v09 auth pin --source out_of_band
+vitruvio --brain ./brain-v09 index build
+```
+
+Compare the report counts with the source inventory and inspect any skipped entries. Publish the new brain under a
+new tag or repository first; do not overwrite the only known-good artifact during the acceptance window.
+
+Rollback means switching consumers back to the untouched source or its previous published tag. It does not mean
+running the migration backwards. pyboltzmann 0.9 also refuses installing an ancestor head by default; when reverting a
+consumer to a deliberately selected ancestor, `dist pull --allow-rollback` makes that destructive choice explicit.
+
+Once every consumer is on the new brain and the archive retention period has passed, the compatibility command may
+be removed from Vitruvio. The migration report and old brain should remain together for audit.

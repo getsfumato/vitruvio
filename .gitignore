@@ -29,6 +29,10 @@ htmlcov/
 # A brain itself is data, not source. Commit vitruvio.toml, publish the brain to a registry.
 brain/
 *.brain/
+# `brain/` is unanchored, so it matches a directory of that name at any depth -- including docs/brain,
+# where the six pages on working with a brain live. They were silently never committed and the whole
+# group 404ed on the published site. Documentation is source; only brain data is not.
+!docs/brain/
 
 # Secrets. There is no field for one in vitruvio.toml, but a .env next to it is a supported way to set the
 # environment, and it must never be committed.
