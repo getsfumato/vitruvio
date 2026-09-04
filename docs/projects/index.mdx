@@ -9,40 +9,40 @@ brains — each publishable, installable and droppable on its own.
 What a project adds is the part they share: one actor, one retention policy, one embedder, one registry account.
 
 ```console
-vitruvio project init facultad --actor you@example.com
-vitruvio project add algebra --description "apuntes de algebra"
-vitruvio project add analisis-ii
-vitruvio project add fisica-i
+vitruvio project init coursework --actor you@example.com
+vitruvio project add optics --description "optics notes"
+vitruvio project add acoustics-ii
+vitruvio project add dynamics
 vitruvio project show
 ```
 
 ```toml
 [project]
-name = "facultad"
+name = "coursework"
 
 [actor]
 id = "you@example.com"
 
-[brains.algebra]
-path = "./brains/algebra"
-description = "apuntes de algebra"
+[brains.optics]
+path = "./brains/optics"
+description = "optics notes"
 
-[brains.analisis-ii]
-path = "./brains/analisis-ii"
+[brains.acoustics-ii]
+path = "./brains/acoustics-ii"
 ```
 
 A project answers two questions the rest of this section takes in turn: [which brain a command means](/projects/selecting-a-brain), and [where each brain publishes](/projects/publishing-a-project).
 
 ## Names are repository components
 
-`analisis-ii`, not `Análisis II`. Lowercase letters, digits and single separators. Checked when the file is read
+`acoustics-ii`, not `Acoustics II`. Lowercase letters, digits and single separators. Checked when the file is read
 rather than when the artifact is pushed — a registry rejecting the name after a pack gives an error that says nothing
 about which of the two names was wrong.
 
 ## Removing
 
 ```console
-vitruvio project remove analisis-ii
+vitruvio project remove acoustics-ii
 ```
 
 Unregisters it and prints where the layout still is. It never deletes: "remove it from this project" and "destroy it"

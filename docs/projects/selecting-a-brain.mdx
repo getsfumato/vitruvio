@@ -31,14 +31,14 @@ by the very next command.
 ## Selecting a brain by name
 
 ```console
-vitruvio --brain algebra ingest run apuntes.md
-vitruvio --brain algebra search "que es una base"
+vitruvio --brain optics ingest run notes.md
+vitruvio --brain optics search "what is refraction"
 ```
 
-The name is tried before the path, so a stray `./algebra` directory cannot shadow the project member. Working on the
+The name is tried before the path, so a stray `./optics` directory cannot shadow the project member. Working on the
 wrong brain in silence is the failure that ordering exists to prevent.
 
-`$VITRUVIO_BRAIN=algebra` works the same way, which is how a container or a CI job picks a subject without editing a
+`$VITRUVIO_BRAIN=optics` works the same way, which is how a container or a CI job picks a subject without editing a
 file. A project holding exactly one brain needs no flag at all.
 
 ## Selecting the project too, from anywhere
@@ -46,23 +46,23 @@ file. A project holding exactly one brain needs no flag at all.
 `project init` registers the project's name on this machine, so `--project` reaches it from any directory:
 
 ```console
-vitruvio --project facultad --brain analisis-numerico search "criterio de convergencia"
-vitruvio --project eticompass --brain metrica-a search "sesgo de seleccion"
+vitruvio --project coursework --brain mechanics search "conservation of momentum"
+vitruvio --project benchmarks --brain metric-a search "selection bias"
 ```
 
 Those two commands share no mutable state, so they can run **at the same time, in different terminals**. That is the
 point: one invocation states its whole context — project and brain — and nothing about it depends on the working
 directory or on anything another terminal did. Three agents, three projects, three subjects.
 
-`$VITRUVIO_PROJECT=facultad` is the same answer from a shell profile or a container, and pairs with
-`$VITRUVIO_BRAIN=analisis-numerico`. Exporting both once is how one agent's session pins itself to one subject.
+`$VITRUVIO_PROJECT=coursework` is the same answer from a shell profile or a container, and pairs with
+`$VITRUVIO_BRAIN=mechanics`. Exporting both once is how one agent's session pins itself to one subject.
 
 Managing the registry:
 
 ```console
 vitruvio project list                 # every project --project accepts, and their brains
 vitruvio project register             # make the project in this directory addressable (for a clone)
-vitruvio project forget eticompass    # drop the name; touches no files at all
+vitruvio project forget benchmarks    # drop the name; touches no files at all
 ```
 
 It is a registry of **names**: every entry is a path to a committed `vitruvio.toml`, and everything about a project is
@@ -73,12 +73,12 @@ still read from there. Nothing is configured in it, so losing it costs the `--pr
 `vitruvio brain use` still exists, and it is now scoped to **one project**:
 
 ```console
-vitruvio --project facultad brain use analisis-numerico
-vitruvio --project facultad search "..."            # that brain, by default
-vitruvio --project eticompass search "..."          # still asks: metrica-a or metrica-b?
+vitruvio --project coursework brain use mechanics
+vitruvio --project coursework search "..."            # that brain, by default
+vitruvio --project benchmarks search "..."            # still asks: metric-a or metric-b?
 ```
 
-A choice made in `facultad` reaches no other project. This used to be a single machine-wide pointer, which had two
+A choice made in `coursework` reaches no other project. This used to be a single machine-wide pointer, which had two
 problems: two terminals could not disagree about which brain they were on, and worse, a pointer left behind in one
 project answered for a *different* project whose brains were all addressed by name — a write into the wrong subject,
 in silence, with no undo.
@@ -90,5 +90,5 @@ A project that declares brains therefore asks by name instead of guessing:
 
 ```
 error: this project holds 2 brains and none was selected
-hint: pass --brain with one of: algebra, analisis-ii
+hint: pass --brain with one of: optics, acoustics-ii
 ```

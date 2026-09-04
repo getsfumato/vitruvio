@@ -55,17 +55,17 @@ would be unrecoverable.
 ### In a project, ungoverned
 
 ```bash
-mkdir facultad && cd facultad
-vitruvio --actor you@example.com project init facultad --namespace docker.io/you
-vitruvio project add algebra --description "apuntes de algebra"
+mkdir coursework && cd coursework
+vitruvio --actor you@example.com project init coursework --namespace docker.io/you
+vitruvio project add optics --description "optics notes"
 vitruvio project show
 ```
 
-`project init` writes the `vitruvio.toml` and registers the project's name on this machine, so `--project facultad`
+`project init` writes the `vitruvio.toml` and registers the project's name on this machine, so `--project coursework`
 reaches it from any directory afterwards. Start in a fresh directory: if a `vitruvio.toml` already exists above the
 working directory, `project init` adds the project to that file instead of creating a new one. `--namespace` is where the brains will publish; leave it out if you do not
 know yet, and the account you log in to later is used instead. `project add` creates the layout at
-`./brains/algebra` and declares it.
+`./brains/optics` and declares it.
 
 ### In a project, governed
 
@@ -73,11 +73,11 @@ know yet, and the account you log in to later is used instead. `project add` cre
 inside a project, create the genesis with `brain init` and then declare it with `--no-create`:
 
 ```bash
-mkdir facultad && cd facultad
-vitruvio --actor you@example.com project init facultad
-vitruvio --actor you@example.com brain init ./brains/algebra \
+mkdir coursework && cd coursework
+vitruvio --actor you@example.com project init coursework
+vitruvio --actor you@example.com brain init ./brains/optics \
   --governed --sign-with SHA256:REPLACE_WITH_FINGERPRINT
-vitruvio project add algebra --path ./brains/algebra --no-create
+vitruvio project add optics --path ./brains/optics --no-create
 vitruvio project show
 ```
 
@@ -94,7 +94,7 @@ vitruvio project show          # in a project: every brain, and where each publi
 
 Read the first two separately. `brain verify` passing says the bytes are intact; `auth status` says whether an
 authorized signature supports the head. On an ungoverned brain `auth status` reports exactly that — ungoverned, no
-trust root — and that is a description, not a failure. In a project, add `--brain algebra` to address one brain.
+trust root — and that is a description, not a failure. In a project, add `--brain optics` to address one brain.
 
 ## Next
 

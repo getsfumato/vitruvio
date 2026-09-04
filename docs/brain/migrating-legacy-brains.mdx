@@ -22,13 +22,13 @@ vitruvio --config ./vitruvio.toml --brain ./brain-v08 brain state --json
 
 Fix integrity failures before migration. The migrator will refuse a source that does not verify.
 
-The actor used for new provenance must be canonical: either a lowercase address such as `alex@example.org` or a
+The actor used for new provenance must be canonical: either a lowercase address such as `you@example.com` or a
 lowercase namespaced name such as `openai/codex`. Legacy free-form identifiers remain readable but cannot author new
 blocks. Pass the replacement explicitly if the old configuration is not valid:
 
 ```console
 vitruvio --config ./vitruvio.toml --brain ./brain-v08 \
-  --actor alex@example.org brain migrate --to ./brain-v09 --dry-run --report migration-plan.json
+  --actor you@example.com brain migrate --to ./brain-v09 --dry-run --report migration-plan.json
 ```
 
 The dry-run report includes module counts, catalog declarations, legacy actor ids and every block whose content or
@@ -43,7 +43,7 @@ pass it explicitly:
 ssh-add ~/.ssh/id_ed25519
 vitruvio auth keys
 vitruvio --config ./vitruvio.toml --brain ./brain-v08 \
-  --actor alex@example.org brain migrate --to ./brain-v09 \
+  --actor you@example.com brain migrate --to ./brain-v09 \
   --sign-with SHA256:REPLACE_WITH_FINGERPRINT \
   --report migration-report.json
 ```

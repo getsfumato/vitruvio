@@ -11,12 +11,12 @@ vitruvio project show
 ```
 
 ```
-project     facultad
+project     coursework
 publishes   docker.io/you  (from your registry login)
 
-  algebra            docker.io/you/facultad-algebra
-  analisis-ii        docker.io/you/facultad-analisis-ii
-  fisica-i           docker.io/you/facultad-fisica-i
+  optics             docker.io/you/coursework-optics
+  acoustics-ii       docker.io/you/coursework-acoustics-ii
+  dynamics           docker.io/you/coursework-dynamics
 ```
 
 Each brain derives `<namespace>/<project>-<brain>`. Nobody writes a registry reference per subject, and adding a
@@ -36,9 +36,9 @@ vitruvio dist push --all --tag v1
 ```
 
 ```
-ok    algebra            docker.io/you/facultad-algebra:v1
-ok    analisis-ii        docker.io/you/facultad-analisis-ii:v1
-skip  fisica-i           nothing committed yet
+ok    optics             docker.io/you/coursework-optics:v1
+ok    acoustics-ii       docker.io/you/coursework-acoustics-ii:v1
+skip  dynamics           nothing committed yet
 ```
 
 An empty brain is **skipped, not failed**: a subject you have not started yet is the ordinary state of a project. A
@@ -50,9 +50,9 @@ the protocol's manifest shape; the next registry is the one that refuses.
 ## Overriding one brain
 
 ```toml
-[brains.tesis]
-path = "./brains/tesis"
-reference = "ghcr.io/you/tesis"     # this one goes somewhere else entirely
+[brains.thesis]
+path = "./brains/thesis"
+reference = "ghcr.io/you/thesis"     # this one goes somewhere else entirely
 ```
 
 ## A brain you did not author
@@ -66,12 +66,12 @@ Declare it instead of remembering it:
 ```toml
 [brains.common]
 path = "./brains/common"
-reference = "ghcr.io/ethicompass/ethicompass-brain"   # where it really lives
-publish = false                                        # `dist push` refuses this brain
+reference = "ghcr.io/acme/acme-brain"   # where it really lives
+publish = false                         # `dist push` refuses this brain
 ```
 
 ```console
-vitruvio project add common --no-publish --reference ghcr.io/ethicompass/ethicompass-brain
+vitruvio project add common --no-publish --reference ghcr.io/acme/acme-brain
 vitruvio --brain common dist push          # exit 6, before anything is packed
 vitruvio dist push --all                   # skips it, and says so
 ```

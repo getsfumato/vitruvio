@@ -5,10 +5,10 @@ description: "One question across several brains of one project: why the result 
 ---
 
 ```bash
-vitruvio compound search "sesgo de seleccion" --brains metrica-a --brains metrica-b
-vitruvio compound search "sesgo de seleccion" --brains metrica-a,metrica-b --fuse
-vitruvio compound search "sesgo de seleccion" --all
-vitruvio compound explain "sesgo de seleccion" --all
+vitruvio compound search "selection bias" --brains metric-a --brains metric-b
+vitruvio compound search "selection bias" --brains metric-a,metric-b --fuse
+vitruvio compound search "selection bias" --all
+vitruvio compound explain "selection bias" --all
 ```
 
 A project is several brains under one configuration -- a subject per brain, a client per brain, a metric per brain
@@ -21,8 +21,8 @@ same question in one invocation, and composes what they return.
 this project does not declare:
 
 ```
-error: this project has no brain called './brains/metrica-a'
-hint: a compound takes brain names from this project only; known: metrica-a, metrica-b, metrica-c
+error: this project has no brain called './brains/metric-a'
+hint: a compound takes brain names from this project only; known: metric-a, metric-b, metric-c
 ```
 
 That is the whole scoping rule. A compound composes *this* project's brains, and the vocabulary it accepts is the
@@ -49,15 +49,15 @@ brains pays three rebuilds: about what three separate searches would.
 ```
 4 matches across 2 brains
 
-metrica-a
+metric-a
 2 matches
 verified against  canonical sha256:151df9b233  semantic sha256:7e77a9fd08
 
  #   score   memory     block               identity
- 1    1.00   semantic   sha256:4ec8c0ba55   Sesgo de seleccion
- 2    0.98   semantic   sha256:dc7f65edbf   Muestreo
+ 1    1.00   semantic   sha256:4ec8c0ba55   Selection bias
+ 2    0.98   semantic   sha256:dc7f65edbf   Sampling
 
-metrica-b
+metric-b
 ...
 ```
 
@@ -73,8 +73,8 @@ a strong second-in-brain. Grouped output claims nothing the brains did not.
 
 ```
  #   score   brains                   memory     block               identity
- 1    1.00   metrica-a#1  metrica-b#1   semantic   sha256:4ec8c0ba55   Sesgo de seleccion
- 2    0.61   metrica-a#2                semantic   sha256:dc7f65edbf   Muestreo
+ 1    1.00   metric-a#1  metric-b#1   semantic   sha256:4ec8c0ba55   Selection bias
+ 2    0.61   metric-a#2               semantic   sha256:dc7f65edbf   Sampling
 ```
 
 Reciprocal-rank fusion across brains -- the same rule the planner uses across generators inside one brain
@@ -84,7 +84,7 @@ comparable across brains where scores are not: rank 1 means "the best this brain
 
 **A block two brains hold is one block.** A block's identity is the hash of its content -- no actor, no time, no
 task in it -- so the same paragraph ingested into two brains is the same block, and under `--fuse` it accumulates
-from both and rises. `brains` on the match says so: `metrica-a#1  metrica-b#1` is two subjects agreeing, and that
+from both and rises. `brains` on the match says so: `metric-a#1  metric-b#1` is two subjects agreeing, and that
 agreement is what a compound exists to surface.
 
 The fused score is still a string, still agreement rather than probability, and now agreement between brains as

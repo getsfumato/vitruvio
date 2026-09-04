@@ -10,7 +10,7 @@ vitruvio browse --memory-type semantic       # open on a module
 vitruvio inspect blocks canonical            # the same reading, as text
 vitruvio inspect blocks semantic --contains fourier
 vitruvio inspect content <DIGEST>            # what the bytes are
-vitruvio inspect content <DIGEST> --out apunte.pdf
+vitruvio inspect content <DIGEST> --out notes.pdf
 vitruvio inspect links <BLOCK_ID>            # where it came from
 ```
 
@@ -51,10 +51,10 @@ provenance would turn the absence of a second provenance layer into a false warn
 ```
 ┌────────────┬─────────────────────────┬──────────────────────────┐
 │ memory     │ filter …                │ preview payload links    │
-│  canonical│ block title creator auth│ authorship          proof│
-│ catalog    │ sha…  apunte… alex…  ✓  │ apunte.pdf               │
-│  discipline│                         │                           │
-│ …          │ sha256… pizarr… png     │ [the page, drawn]        │
+│  canonical │ block title creator auth│ authorship          proof│
+│ catalog    │ sha…  notes… you…  ✓    │ notes.pdf                │
+│  discipline│                         │                          │
+│ …          │ sha256… diagra… png     │ [the page, drawn]        │
 └────────────┴─────────────────────────┴──────────────────────────┘
 ```
 
@@ -84,9 +84,9 @@ block's, and content this brain does not hold — a selective install — is rep
 replacing it.
 
 **Which brain am I looking at?** Several layers select one and only `--brain` is visible in the command you typed,
-so the header names the brain and the layer that chose it (`facultad/analisis-numerico by flag`, `demo/brain by
+so the header names the brain and the layer that chose it (`coursework/mechanics by flag`, `demo/brain by
 state`), and `i` prints the whole path, the snapshot, which modules are installed and who writes are attributed
-to. The project is part of the short form because two projects each holding a `metrica-a` is the ordinary case,
+to. The project is part of the short form because two projects each holding a `metric-a` is the ordinary case,
 and the path alone does not say which one you got. `vitruvio brain state` answers the same question outside the
 interface.
 
@@ -98,8 +98,8 @@ inside a project, so moving the project cursor refills the brains beside it.
 ```
 ┌────────────────────────┬────────────────────────────────────────┐
 │    project     brains  │    brain             state  description│
-│ *  eticompass  2       │ *  metrica-a                …          │
-│    facultad    3       │    metrica-b                …          │
+│ *  benchmarks  2       │ *  metric-a                 …          │
+│    coursework  3       │    metric-b                 …          │
 └────────────────────────┴────────────────────────────────────────┘
 ```
 

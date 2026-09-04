@@ -22,7 +22,7 @@ command obeys.
 Everything vitruvio derives — indices, statistics, the embedding cache — lives under `.vitruvio/` beside the
 layout. Deleting it costs time, never knowledge: the blocks are the brain, and everything else is rebuilt from them.
 
-Every command needs to know **which brain** it means. Inside a project that is a name, `--brain algebra`; alone it
+Every command needs to know **which brain** it means. Inside a project that is a name, `--brain optics`; alone it
 is the nearest `vitruvio.toml`. The full resolution order is on [Selecting a brain](/projects/selecting-a-brain).
 
 ## One output contract
@@ -82,7 +82,7 @@ of the provenance module is that it does not.
 
 Reads never need one: inspecting someone else's brain is legitimate and attributes nothing.
 
-New writes accept exactly two stable actor-id forms: a lowercase address (`alex@example.org`) or a lowercase
+New writes accept exactly two stable actor-id forms: a lowercase address (`you@example.com`) or a lowercase
 namespaced name (`openai/codex`). Vitruvio refuses uppercase, whitespace and free-form display names rather than
 normalizing them, because the bytes enter provenance block identities. `name` remains the display label.
 

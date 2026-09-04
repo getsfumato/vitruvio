@@ -24,11 +24,11 @@ vitruvio source kinds        # directory (built-in), plus anything you installed
 ## Writing a source
 
 ```console
-vitruvio source scaffold aulasvirtuales     # writes ~/.config/vitruvio/sources/aulasvirtuales.py
-$EDITOR ~/.config/vitruvio/sources/aulasvirtuales.py
-vitruvio --project facultad --brain algebra source add aula \
-  --kind aulasvirtuales --option course_id=77
-vitruvio --project facultad --brain algebra source pull aula
+vitruvio source scaffold courseware     # writes ~/.config/vitruvio/sources/courseware.py
+$EDITOR ~/.config/vitruvio/sources/courseware.py
+vitruvio --project coursework --brain optics source add course \
+  --kind courseware --option course_id=77
+vitruvio --project coursework --brain optics source pull course
 ```
 
 Two methods: `list()` returns what is on offer without fetching any of it, and `fetch(item)` returns one item's

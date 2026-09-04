@@ -69,8 +69,8 @@ Then it will go on and finish the job, but only when doing so decides nothing on
 **The brain has to declare a strategy.**
 
 ```toml
-[brains.algebra]
-path = "./brains/algebra"
+[brains.optics]
+path = "./brains/optics"
 reconcile = "merge"        # merge | rebase | squash
 ```
 
@@ -85,17 +85,17 @@ refuses every ordinary write on the brain until it is resolved, which is far too
 command they ran to look. Nothing is lost by waiting, because the plan is recomputed rather than stored.
 
 ```console
-$ vitruvio dist fetch demo/algebra --tag v1
-fetched      demo/algebra:v1
+$ vitruvio dist fetch demo/optics --tag v1
+fetched      demo/optics:v1
 their head   sha256:9f2c1ade4b…
 new blocks   40
 reconciled   merge -- clean
 snapshot     sha256:71bd0c8f22…
 
-$ vitruvio dist fetch demo/algebra --tag v2
+$ vitruvio dist fetch demo/optics --tag v2
 warning: 3 blocks did not apply, and 1 of yours would leave; nothing was written and no
          reconciliation was opened
-fetched      demo/algebra:v2
+fetched      demo/optics:v2
 new blocks   12
 reconciled   no -- not clean
 open questions  3

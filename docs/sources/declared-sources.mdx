@@ -27,19 +27,19 @@ normalize_with = "pdf-text"
 [brain.sources.papers.options]
 glob = "*.pdf"
 
-[brains.algebra]
-path = "./brains/algebra"
+[brains.optics]
+path = "./brains/optics"
 
-[brains.algebra.sources.aula]
-kind = "aulasvirtuales"        # a plugin you wrote
+[brains.optics.sources.course]
+kind = "courseware"        # a plugin you wrote
 options = { course_id = 77 }
 
-[brains.simulacion]
-path = "./brains/simulacion"
+[brains.statics]
+path = "./brains/statics"
 
-[brains.simulacion.sources.aula]
-kind = "aulasvirtuales"        # the same kind and source name, different brain defaults
-options = { course_id = 30030 }
+[brains.statics.sources.course]
+kind = "courseware"        # the same kind and source name, different brain defaults
+options = { course_id = 202 }
 ```
 
 Sources are brain configuration, not project configuration. A single-brain project declares them under
@@ -52,13 +52,13 @@ To migrate an older declaration, move the whole source table under its destinati
 
 ```toml
 # before
-[sources.aula]
-kind = "aulasvirtuales"
-brain = "simulacion"
+[sources.course]
+kind = "courseware"
+brain = "statics"
 
 # after
-[brains.simulacion.sources.aula]
-kind = "aulasvirtuales"
+[brains.statics.sources.course]
+kind = "courseware"
 ```
 
 ## Defaults in the declaration, overrides on one pull
@@ -67,10 +67,10 @@ kind = "aulasvirtuales"
 override them for that invocation without rewriting `vitruvio.toml`:
 
 ```console
-vitruvio --project facultad --brain simulacion source pull aula \
-  --option course_id=30030 --option 'sections=Teoría|Bibliografía' --dry-run
-vitruvio --project facultad --brain fisica source pull aula \
-  --option course_id=30110 --option 'sections=Teoría|Bibliografía' --dry-run
+vitruvio --project coursework --brain statics source pull course \
+  --option course_id=101 --option 'sections=Theory|Bibliography' --dry-run
+vitruvio --project coursework --brain dynamics source pull course \
+  --option course_id=202 --option 'sections=Theory|Bibliography' --dry-run
 ```
 
 The kind receives the merged values through `self.options`; command-line values win. Its constructor validates the
@@ -127,8 +127,8 @@ Select a brain before inspecting, adding, removing, or pulling its sources. `--a
 that selected brain; it never crosses into another brain:
 
 ```console
-vitruvio --project facultad --brain algebra source pull --all
-# ok    aula               4 registered
+vitruvio --project coursework --brain optics source pull --all
+# ok    course             4 registered
 # ok    papers             12 registered, 3 skipped
 ```
 
@@ -142,9 +142,9 @@ selected brain refuses every source command before it can acquire or register an
 ## Where a pull can go wrong
 
 ```console
-vitruvio --project facultad --brain algebra source status
+vitruvio --project coursework --brain optics source status
 # ok  papers        directory        ~/Downloads/arxiv
-# --  aula          aulasvirtuales   aulasvirtuales is not on PATH
+# --  course        courseware       courseware is not on PATH
 ```
 
 `status` reports an unusable source as a row rather than failing, because one broken declaration must not hide the
