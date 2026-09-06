@@ -1,6 +1,6 @@
 ---
 name: vitruvio-query
-description: Search a Boltzmann brain and read the result honestly. Use when retrieving knowledge from a brain, when a search returns too much or too little, when a score or a ranking needs interpreting, or when asked why the planner chose the plan it did.
+description: Search a Boltzmann brain and read the result honestly. Use when retrieving knowledge from a brain, when a search returns too much or too little, when tempted to list a module's blocks instead of searching it, when a score or a ranking needs interpreting, or when asked why the planner chose the plan it did.
 allowed-tools: Bash(vitruvio:*), Read
 ---
 
@@ -13,6 +13,17 @@ vitruvio query explain "TEXT" --json          # which plan, why, and what it rej
 vitruvio query resolve <BLOCK_ID> --json      # one block, in full
 vitruvio query prove <BLOCK_ID> --memory-type semantic --json
 ```
+
+## Search first
+
+`search` is the read path of a brain. The planner chooses among the derived indices — BM25 postings, the vector
+index, the relation graph, facet bitmaps, ordered ranges, hash lookups — fuses their results, discards anything
+that fails verification, and returns a ranked, cited bundle. Nothing else in the CLI ranks, and nothing else
+consults an index on your behalf. Every question about what a brain knows starts here, including "is there
+anything on X": a listing cannot tell you what is relevant, and reading a module block by block is exactly the
+work the indices exist to make unnecessary.
+
+`inspect blocks` has a place — the last rung of the ladder under *When a search disappoints*, never the first.
 
 ## Filters bound; hints suggest
 
@@ -44,7 +55,15 @@ A search returns an **evidence bundle**. Before citing anything from it:
 
 ## When a search disappoints
 
-Run `vitruvio query explain "TEXT" --json` and read three fields:
+Escalate in this order. Each rung is cheap, and jumping to the last one throws away the ranking you came for.
+
+**1. Read the bundle you have.** `truncated: true` means candidates that passed every filter were cut: raise
+`--limit`. A filter restricts eligibility, so an empty result under `--since`, `--tag`, `--subject` or `--class`
+says nothing about the brain without it — drop the filter and search again. Rephrase in the vocabulary the sources
+use: the language they were written in, the exact term, a synonym. Try `--memory-type` if the kind of memory is
+obvious and was not stated.
+
+**2. Ask the planner why.** Run `vitruvio query explain "TEXT" --json` and read three fields:
 
 - `indices_available` vs `indices_consulted`. The most common complaint is "why did it not use the vector
   index", and the answer is one of exactly four: it is absent, it is stale, its model tag does not match, or it
@@ -59,10 +78,20 @@ large divergence on one operator is the honest way to find out the cost model is
 no command that refits it: the constants are measured defaults, and `[planner]` in `vitruvio.toml` overrides them by
 hand.
 
-## When the question is not a query
+**3. Repair the indices and search again.** `vitruvio index list --json` says what is registered per module and
+whether it is usable; `vitruvio index build --json` rebuilds what is absent, stale or built for another model. Then
+repeat the search. Do not fall through to reading because the first search ran against a brain with no usable
+index — that is a search that never happened.
 
-"What is in this brain" is not a retrieval problem and `search` is the wrong tool for it: a search ranks against a
-query, so anything the query does not reach comes back looking absent. Read the module instead:
+**4. Read the module.** Only now, and only as described in the next section.
+
+## Reading a module is the last resort
+
+`inspect blocks` lists a module in its own order, one row per block. It consults no retrieval index, ranks nothing,
+and returns no score column because nothing was scored. Reach for it in exactly two situations: the ladder above is
+exhausted and retrieval has demonstrably failed, or the user asks literally for an inventory — "what files are
+registered", "show me everything in canonical". A question about *content* is never one of those two, however it
+is phrased.
 
 ```bash
 vitruvio inspect blocks canonical --json          # every block, in the module's own order
@@ -70,13 +99,14 @@ vitruvio inspect blocks semantic --contains fourier --limit 50 --json
 vitruvio catalog --json                           # canonical sources in their portable class hierarchy
 ```
 
-No score column, because nothing was ranked. `--contains` filters rows that were already read — it names no index
-and cannot rank — so never present its rows as relevance. `inspect content DIGEST --out FILE` gets the bytes a
-canonical block names, and `inspect links BLOCK_ID` gets the provenance records about a block.
+`--contains` filters rows that were already read — it names no index and cannot rank — so never present its rows
+as relevance, and say plainly that what you are quoting was read rather than retrieved. `inspect content DIGEST
+--out FILE` gets the bytes a canonical block names, and `inspect links BLOCK_ID` gets the provenance records about
+a block.
 
 Catalog navigation is also not retrieval: `catalog --json` is the structured inventory of canonical sources by
-scheme/class and includes unclassified evidence. Its creator verification fields are historical signature evidence,
-not a relevance or truth score.
+scheme/class and includes unclassified evidence. Its use in retrieval is to pick a `--class` that bounds a search.
+Its creator verification fields are historical signature evidence, not a relevance or truth score.
 
 ## A small brain legitimately scans
 

@@ -81,3 +81,5 @@ adding a command forces the prose to be corrected rather than letting it quietly
    arranged to prevent.
 3. The brain returns evidence; you write the prose. There is no `answer` field.
 4. Never invent a `block_id`.
+5. Search first. `search` runs the planner over the indices and is the only read that ranks; `inspect blocks` is
+   an unranked inventory and the last resort, after `query explain` and a rebuilt index have not helped.

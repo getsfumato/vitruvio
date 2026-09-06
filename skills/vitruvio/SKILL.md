@@ -46,13 +46,30 @@ actually returned.
    guess, and the refusal names them — pass one, rather than running `brain use`, which changes state other
    sessions read.
 
-4. **To see what a brain holds, read it rather than searching it.** `vitruvio inspect blocks <module> --json`
-   lists a module in its own order, one row per block, with what each one says — and for canonical evidence, the
-   origin it was registered from. That is the answer to "what is in here", which a search cannot give you: a
-   search ranks against a query, so anything the query does not reach looks absent.
+4. **Search first. The indices are the point of a brain.** `vitruvio search "TEXT" --json` runs the planner over
+   the derived indices — BM25 postings, the vector index, the relation graph, facet bitmaps, ordered ranges, hash
+   lookups — fuses what they return, discards anything that fails verification, and hands back an evidence bundle
+   with a score, a source and provenance per match. That is how knowledge is retrieved from a brain, and it is the
+   only read that can rank. Lead with it for every question about what a brain knows, including "does it have
+   anything on X". Pass `--memory-type` when the kind of memory is obvious, so that episodic events do not compete
+   with semantic claims in one ranking.
 
-   `--contains TEXT` filters those rows. It is a substring over rows already read, not retrieval: no index is
-   consulted and nothing is ranked. When relevance is what you want, that is `search`.
+   When the bundle does not satisfy you, escalate in this order, and do not skip a rung:
+
+   1. **Read the bundle you have.** `truncated: true` means candidates were cut, so raise `--limit`. A filter you
+      added restricts eligibility, so an empty result under one says nothing about the brain without it: drop it and
+      search again. Rephrase in the vocabulary the sources use — their language, the exact term, a synonym.
+   2. **Ask the planner why.** `vitruvio query explain "TEXT" --json`: compare `indices_available` with
+      `indices_consulted` and read `statistics`. An index that is absent, stale or built for another embedding
+      model is the usual reason a search misses. `vitruvio index list --json` says which, `vitruvio index build
+      --json` repairs it, and then you search again.
+   3. **Only then read the module.** `vitruvio inspect blocks <module> --json` lists a module in its own order, one
+      row per block, with what each one says — and for canonical evidence, the origin it was registered from. It
+      consults no index and ranks nothing: it is an inventory, and the last resort, for when retrieval has
+      demonstrably failed after the two rungs above, or when the user asks literally for a listing ("what files
+      are registered", "show me everything in canonical"). `--contains TEXT` is a substring over rows already
+      read, not retrieval, so never present its rows as relevance — and say plainly that what you are quoting was
+      read, not retrieved.
 
    `vitruvio inspect content <DIGEST> --out FILE --json` writes the bytes a block names — pass the row's `blob`,
    which is a content address and not a block id. Never draw a PDF or an image into your own output: the terminal
@@ -62,9 +79,9 @@ actually returned.
    `vitruvio inspect links <BLOCK_ID> --json` gives the provenance records naming a block: where it came from, and
    what has been done to it since.
 
-   For canonical sources, run `vitruvio catalog --json` before searching when the catalog may answer where evidence
-   belongs. It returns schemes as a hierarchy of classes and source rows, plus unclassified sources; use the stable
-   `block_id`, never a displayed filename, in later commands.
+   For canonical sources, `vitruvio catalog --json` returns schemes as a hierarchy of classes and source rows, plus
+   unclassified sources. It says where evidence is filed, not what it says: use it to pick a `--class` that bounds a
+   search, and use the stable `block_id`, never a displayed filename, in later commands.
 
    (`vitruvio browse` opens the same reads as a terminal interface. It shows each block's creator and verification
    state, exposes the catalog as folders, and lets a person press `c` on a canonical source to add an existing class.

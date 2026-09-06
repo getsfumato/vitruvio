@@ -150,6 +150,10 @@ policy controls permitted removals, and registry credentials control who can pub
 
 `vitruvio search TEXT` is a top-level alias for `query search`.
 
+This group is the read path. `search` is the one command that consults the indices and ranks; every question about
+what a brain knows starts with it, and `query explain` is the second step when it disappoints. `inspect blocks` is
+not a substitute — it is the last resort, and `vitruvio-query` says when that point has been reached.
+
 ### `catalog` — canonical metadata
 | command | for |
 |---|---|
@@ -280,7 +284,9 @@ you are parsing. `VITRUVIO_NO_UPDATE_CHECK=1` turns it off entirely.
 | `inspect prove BLOCK` | an inclusion proof |
 
 `inspect blocks` is **not** retrieval. It lists a module in its own order and `--contains` filters rows that were
-already read: no index is consulted and nothing is ranked. When relevance is what you want, that is `search`.
+already read: no index is consulted and nothing is ranked. When relevance is what you want, that is `search` — and
+reading a module comes only after `search` and `query explain` have failed to surface what you need, or when the
+user asks literally for an inventory.
 
 ### `browse` — the interactive interface
 | command | for |

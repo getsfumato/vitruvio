@@ -44,13 +44,15 @@ install the set rather than one of them.
 Ask your agent to set up a brain and the `vitruvio-onboarding` skill walks it through the same steps as the
 [Onboarding](/onboarding) section of these docs — including stopping to ask you whether the brain is governed.
 
-## The four habits the skills teach
+## The five habits the skills teach
 
 1. Always `--json`, and branch on `ok` then `error.code`.
 2. Read `warnings` **even when `ok` is true** — a degraded answer that looks clean is the failure the design is arranged
    to prevent.
 3. The brain returns evidence; you write the prose. There is no answer field.
 4. Never invent a `block_id`.
+5. Search first. `search` runs the planner over the indices and is the only read that ranks; `inspect blocks` is an
+   unranked inventory and the last resort, after `query explain` and a rebuilt index have not helped.
 
 ## Where they are authored
 
