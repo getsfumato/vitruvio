@@ -275,6 +275,113 @@ class TestFailures:
         assert int(ExitCode.USAGE) == 2
         assert int(ExitCode.CONFIG) == 3
 
+    def test_a_failure_before_the_command_ran_still_names_the_operation(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """`command` is the stable operation name on failure as on success.
+
+        A brain that does not exist fails in the launcher, before the command body could name itself, and used to
+        report as `cli` -- which told a caller correlating failures with the requests that produced them nothing.
+        """
+        absent = str(tmp_path / "absent")
+        code, payload = envelope(capsys, "--brain", absent, "brain", "state")
+        assert code == ExitCode.NOT_FOUND
+        assert payload["error"]["code"] == "BRAIN_NOT_FOUND"
+        assert payload["command"] == "brain.state"
+
+        _, payload = envelope(capsys, "--brain", absent, "query", "search", "anything")
+        assert payload["command"] == "query.search"
+
+    def test_a_top_level_alias_reports_the_operation_it_stands_for(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """`vitruvio search` *is* `query search` and says so on failure too -- with meta options after the command."""
+        _, payload = envelope(capsys, "search", "anything", "--brain", str(tmp_path / "absent"))
+        assert payload["command"] == "query.search"
+
+    def test_a_line_that_names_no_command_still_reports_cli(self, capsys: pytest.CaptureFixture[str]) -> None:
+        code, payload = envelope(capsys, "--typo")
+        assert code == ExitCode.USAGE
+        assert payload["command"] == "cli"
+
+    def test_an_unknown_subcommand_reports_the_group_it_was_looked_up_in(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """As much of the operation as was recognised: a usage error on `brain`, rather than on nothing."""
+        code, payload = envelope(capsys, "brain", "nope")
+        assert code == ExitCode.USAGE
+        assert payload["command"] == "brain"
+
+class TestOperationNames:
+    """The name a failure reports is derived from the command line, and the alias table behind it must not rot.
+
+    An alias naming a command that no longer exists would fall back to a wrong name without a sound; an alias
+    pointing at a name no command emits would make success and failure disagree, which is the one thing the
+    stable-operation contract forbids.
+    """
+
+    @staticmethod
+    def _emitted_names() -> tuple[set[str], set[str]]:
+        """Every string literal in the command modules, and every literal prefix of an f-string.
+
+        The success envelope's name is a literal in the command body -- `console.emit("brain.state", ...)` -- except
+        where one body serves several commands and builds it, as `f"reconcile.{strategy}"` does. The prefix is what
+        that construction spells out, and is what an argv-derived name can be checked against.
+        """
+        import ast
+
+        from vitruvio.cli import commands
+
+        literals: set[str] = set()
+        prefixes: set[str] = set()
+        for path in Path(commands.__file__).parent.glob("*.py"):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    literals.add(node.value)
+                elif isinstance(node, ast.JoinedStr) and node.values and isinstance(node.values[0], ast.Constant):
+                    head = node.values[0].value
+                    if isinstance(head, str) and head.endswith("."):
+                        prefixes.add(head)
+        return literals, prefixes
+
+    @staticmethod
+    def _leaves() -> list[tuple[str, ...]]:
+        from vitruvio.cli.main import app
+
+        def walk(node: object, path: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+            children = getattr(node, "_commands", None) or {}
+            real = [(name, child) for name, child in children.items() if not name.startswith("-")]
+            if not real:
+                return [path]
+            found: list[tuple[str, ...]] = []
+            for name, child in real:
+                found.extend(walk(child, (*path, name)))
+            return found
+
+        return [leaf for leaf in walk(app) if leaf]
+
+    def test_every_alias_names_a_real_command(self) -> None:
+        from vitruvio.cli.main import _OPERATION_ALIASES, app
+
+        for chain in _OPERATION_ALIASES:
+            found, _, unused = app.meta.parse_commands(list(chain))
+            assert tuple(found) == chain, f"{chain} is not a command path"
+            assert not unused, f"{chain} left {unused} unparsed, so it is a prefix rather than a command"
+
+    def test_every_leaf_derives_a_name_some_command_emits(self) -> None:
+        """The derivation is the dotted join unless the alias table says otherwise, and either way the result must
+        be a name that appears in a command body -- so a new command whose emit name is not its path forces an
+        alias here rather than a quiet disagreement between its success and its failure envelopes."""
+        from vitruvio.cli.main import _operation
+
+        literals, prefixes = self._emitted_names()
+        unexplained = []
+        for leaf in self._leaves():
+            name = _operation(list(leaf))
+            if name not in literals and not any(name.startswith(prefix) for prefix in prefixes):
+                unexplained.append(f"{' '.join(leaf)} -> {name}")
+        assert not unexplained, "no command emits these names:\n  " + "\n  ".join(unexplained)
+
 
 class TestConfigCommands:
     def test_show_works_with_no_configuration_at_all(self, capsys: pytest.CaptureFixture[str]) -> None:

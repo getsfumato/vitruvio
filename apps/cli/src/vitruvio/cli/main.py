@@ -130,6 +130,54 @@ def _console(tokens: list[str]) -> Console:
     return Console(json_mode="--json" in tokens)
 
 
+_OPERATION_ALIASES: dict[tuple[str, ...], str] = {
+    ("search",): "query.search",
+    ("history",): "brain.history",
+    ("auth", "trust-root"): "auth.trust_root",
+    ("auth", "plan-rotate"): "auth.plan_rotate",
+    ("catalog", "scheme"): "catalog.apply",
+    ("catalog", "class"): "catalog.apply",
+    ("catalog", "place"): "catalog.apply",
+}
+"""Command paths whose operation name is not the path joined with dots.
+
+Three kinds. The top-level aliases `search` and `history` are the same operations as `query search` and
+`brain history`, and report as such. `auth trust-root` and `auth plan-rotate` emit underscored names, because the
+operation name is a Python-ish identifier and the command name is a shell-ish one. `catalog scheme`, `class` and
+`place` are sugar over one `catalog apply` of a declaration they build, and report as the operation that ran.
+Everything else joins exactly -- `dist plan-pull` is `dist.plan-pull` -- and a test asserts both that every entry
+here names a real command and that every command's derived name is one some command body emits.
+"""
+
+
+def _operation(tokens: list[str]) -> str:
+    """
+    The operation a command line names, whether or not it got as far as running.
+
+    Every command body reports its own dotted name when it emits, so a success envelope always says `brain.state`.
+    A failure raised *before* the body ran -- the brain does not exist, the config is malformed, a flag was mistyped
+    -- used to be reported as `cli`, which told a caller correlating failures with requests nothing. The command
+    line still says what was asked; this reads it back the same way the dispatcher would.
+
+    Reads the command chain with cyclopts' own parser, so meta options anywhere in the line are skipped and an
+    unknown subcommand yields as much of the path as was recognised: `brain nope` reports as `brain`, a usage
+    error on the group rather than on nothing. `cli` remains for a line that names no command at all.
+
+    Args:
+        tokens (list[str]): The argument list, as the launcher received it.
+
+    Returns:
+        str: A dotted operation name, or ``cli`` when the line does not reach one.
+    """
+    try:
+        chain, _, _ = app.meta.parse_commands(tokens)
+    except Exception:
+        return "cli"
+    if not chain:
+        return "cli"
+    return _OPERATION_ALIASES.get(tuple(chain), ".".join(chain))
+
+
 def _notify_of_update(tokens: list[str]) -> None:
     """
     Say once a day that a newer vitruvio exists, on stderr, after the command has already done its work.
@@ -195,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     except VitruvioError as error:
         from vitruvio.cli.context import current
 
-        return int(current().console.fail("cli", error))
+        return int(current().console.fail(_operation(tokens), error))
     except CycloptsError:
         # cyclopts has already rendered the error to stderr -- its formatting is better than anything worth
         # reimplementing here. What it would do next is exit 1, and exit 1 in this CLI means "a bug in
@@ -207,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         # output.py rules out. Human mode stays silent, because cyclopts already wrote the better message.
         console = _console(tokens)
         if console.json_mode:
-            return int(console.fail("cli", UsageError("the command line could not be parsed")))
+            return int(console.fail(_operation(tokens), UsageError("the command line could not be parsed")))
         return int(ExitCode.USAGE)
     except SystemExit as exit_request:
         # --help and --version are implemented by cyclopts as an exit. In-process callers, including the test
@@ -228,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
                 f"internal error: {type(error).__name__}: {error}",
                 hint=f"this is a bug in vitruvio -- please report it at {ISSUES_URL}",
             )
-            return int(console.fail("cli", wrapped))
+            return int(console.fail(_operation(tokens), wrapped))
         print(f"internal error: {type(error).__name__}: {error}", file=sys.stderr)
         print(f"hint: this is a bug in vitruvio -- please report it at {ISSUES_URL}", file=sys.stderr)
         return int(ExitCode.INTERNAL)
