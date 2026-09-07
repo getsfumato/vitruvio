@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from boltzmann.query.request import Query
+from boltzmann.query.request import Query, RetrievalMode
 
 from vitruvio.kernel import ResolvedConfig, UsageError, VitruvioError
 from vitruvio.runtime import wire
@@ -21,6 +21,33 @@ from vitruvio.runtime.coerce import block_id
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
+
+
+def _retrieval_mode(value: str | None, default: RetrievalMode) -> RetrievalMode:
+    """
+    The retrieval mode a caller asked for, or the configured default.
+
+    An unknown name is a usage error and says so. ``RetrievalMode(value)`` raises ``ValueError``, which crossed the
+    translation boundary as ``INTERNAL`` -- exit 1, "a bug in vitruvio" -- for what is a mistyped flag, and an agent
+    reading that code is told to report a bug rather than to rephrase.
+
+    Args:
+        value (str | None): What ``--mode`` said, if anything.
+        default (RetrievalMode): What an unqualified query means, from the configuration.
+
+    Returns:
+        RetrievalMode: The mode to plan with.
+
+    Raises:
+        UsageError: When ``value`` names no mode; the hint lists the ones that exist.
+    """
+    if not value:
+        return default
+    try:
+        return RetrievalMode(value)
+    except ValueError:
+        accepted = ", ".join(mode.value for mode in RetrievalMode)
+        raise UsageError(f"{value!r} is not a retrieval mode", hint=f"one of: {accepted}") from None
 
 
 class RetrievalOps:
@@ -64,7 +91,7 @@ class RetrievalOps:
             Query: The query. It names no index, by protocol: which to consult is the planner's decision.
         """
         from boltzmann.catalog import Catalog
-        from boltzmann.query.request import Query, QueryFilters, QueryHints, RetrievalMode
+        from boltzmann.query.request import QueryFilters, QueryHints
 
         brain = self.session.brain(Capability.RETRIEVE)
         with translated():
@@ -93,7 +120,7 @@ class RetrievalOps:
                     include_superseded=include_superseded,
                 ),
                 hints=QueryHints(
-                    mode=RetrievalMode(mode) if mode else self.config.project.planner.mode_default,
+                    mode=_retrieval_mode(mode, self.config.project.planner.mode_default),
                     limit=limit,
                     expand_depth=expand_depth,
                 ),

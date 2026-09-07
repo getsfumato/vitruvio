@@ -347,6 +347,22 @@ class TestFailures:
         assert payload["error"]["code"] == "REGISTRY_FAILED"
         assert payload["error"]["retryable"] is True
 
+    def test_an_unknown_mode_is_a_usage_error_not_a_crash(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """`--mode hybrid` raised `ValueError` inside the runtime and came out as INTERNAL -- exit 1, "a bug in
+        vitruvio" -- for a mistyped flag. It is a usage error, and the hint names the modes that do exist."""
+        brain = tmp_path / "brain"
+        envelope(capsys, "--brain", str(brain), "--actor", "tester@example.com", "brain", "init")
+
+        code, payload = envelope(capsys, "--brain", str(brain), "query", "search", "x", "--mode", "hybrid")
+        assert code == ExitCode.USAGE
+        assert payload["command"] == "query.search"
+        assert payload["error"]["code"] == "USAGE"
+        assert payload["error"]["retryable"] is False
+        assert "associative" in payload["error"]["hint"]
+
+
 class TestOperationNames:
     """The name a failure reports is derived from the command line, and the alias table behind it must not rot.
 
