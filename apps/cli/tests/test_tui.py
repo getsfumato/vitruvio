@@ -1026,6 +1026,50 @@ class TestTheInterface:
         assert handed[0].suffix == ".pdf", f"{handed[0].name} would open in a text editor"
         assert handed[0].read_bytes().startswith(b"%PDF")
 
+    async def test_markup_opens_on_its_extracted_text_and_says_what_was_cut(self, html_brain: Path) -> None:
+        """An HTML page's source is the wrapper and its text is the content, so the pane opens on the text --
+        capped, with a footer saying how much there is and which key shows the tags. Selecting a long page used
+        to hand the whole source to the highlighter on the event loop, which read as a hang."""
+        app = BrainBrowser(service_for(html_brain), brain=str(html_brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert app.selected is not None
+            pane = _pane(app, "preview")
+            assert "Parrafo 0 sobre colas de espera." in pane
+            assert "<div" not in pane
+            assert "Parrafo 2999" not in pane, "the whole text was laid out, so no cap applied"
+            assert "showing " in pane
+            assert f" of {theme.filesize(app.selected['normalized_view']['size'])}" in pane
+            assert "t original bytes" in pane
+
+    async def test_t_shows_the_source_and_t_again_the_text(self, html_brain: Path) -> None:
+        app = BrainBrowser(service_for(html_brain), brain=str(html_brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            await pilot.press("t")
+            await _settle(pilot)
+            source = _pane(app, "preview")
+            assert "<div" in source
+            assert "t text view" in source
+            await pilot.press("t")
+            await _settle(pilot)
+            again = _pane(app, "preview")
+            assert "<div" not in again
+            assert "t original bytes" in again
+
+
+@pytest.fixture
+def html_brain(tmp_path: Path) -> Path:
+    """A brain holding one HTML page long enough to pass every preview cap, with the text view the default
+    pipeline extracts from it."""
+    root = tmp_path / "html"
+    assert main(["--brain", str(root), "--actor", "t@e.st", "brain", "init"]) == ExitCode.OK
+    page = tmp_path / "clase.html"
+    body = "".join(f"<div><p>Parrafo {i} sobre colas de espera.</p></div>" for i in range(3000))
+    page.write_text(f"<html><body>{body}</body></html>", encoding="utf-8")
+    assert main(["--brain", str(root), "source", "register", str(page), "--media-type", "text/html"]) == ExitCode.OK
+    return root
+
 
 DRAWING = b"trayectoria dibujada: una elipse alrededor del equilibrio"
 """What the derived block's named bytes say, distinctive enough to be asserted on in a rendered pane."""

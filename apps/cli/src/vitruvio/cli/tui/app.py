@@ -505,12 +505,17 @@ class BrainBrowser(App[None]):
         """
         Make a row the selected block and load its detail.
 
+        Markup opens on its extracted text rather than on its source, when it has one. An HTML page's source is
+        the wrapper and its text is the content; a reader who wants the tags presses ``t``. Everything else
+        opens on its bytes, which for a PDF or an image is the only view a terminal can draw.
+
         Args:
             row (dict[str, Any]): The row.
         """
         self.selected = row
         self.pdf_page = 0
-        self.normalized = False
+        view = row.get("normalized_view") or {}
+        self.normalized = render.media.prefers_text(str(row.get("media_type", ""))) and bool(view.get("blob"))
         self._set("preview", render.empty("reading..."))
         self.load_detail(row)
 
@@ -590,31 +595,38 @@ class BrainBrowser(App[None]):
                 data = self.opened.content(str(view["blob"]))
             except Exception as error:
                 return Group(head, "", Text(str(error), style="bad"))
-            return Group(head, "", render.media.preview(data, str(view.get("media_type", "text/plain")), width=width))
+            shown = render.media.preview(
+                data,
+                str(view.get("media_type", "text/plain")),
+                width=width,
+                limit=render.media.PREVIEW_TEXT_BYTES,
+                max_lines=render.media.PREVIEW_TEXT_LINES,
+                hint=self._keys(row, normalized=True),
+            )
+            return Group(head, "", shown)
 
         if blob := row.get("blob"):
-            return self._blob_preview(row, str(blob), view, head=head, width=width)
+            return self._blob_preview(row, str(blob), head=head, width=width)
 
         if content := row.get("content"):
             return self._content_preview(row, content, head=head, width=width)
 
         return Group(head, "", self._reading(row))
 
-    def _blob_preview(
-        self, row: dict[str, Any], blob: str, view: dict[str, Any], *, head: RenderableType, width: int
-    ) -> RenderableType:
+    def _blob_preview(self, row: dict[str, Any], blob: str, *, head: RenderableType, width: int) -> RenderableType:
         """
         A canonical block's bytes, drawn. The block *is* its bytes, so they are the whole preview.
 
         Args:
             row (dict[str, Any]): The selected row.
             blob (str): The content address.
-            view (dict[str, Any]): The row's normalized view, for the hint that ``t`` would show it.
             head (RenderableType): The metadata block above the drawing.
             width (int): Cells available.
 
         Returns:
-            RenderableType: The rendering.
+            RenderableType: The rendering, with the keys that act on it named underneath: text carries them in
+            its own footer beside whatever was cut, a PDF names its page instead, and a drawing gets them as a
+            line of their own.
         """
         from rich.console import Group
 
@@ -623,13 +635,22 @@ class BrainBrowser(App[None]):
             data = self.opened.content(blob)
         except Exception as error:
             return Group(head, "", Text(str(error), style="bad"))
-        body = render.media.preview(data, media_type, width=width, page=self.pdf_page)
+        keys = self._keys(row, normalized=False)
+        body = render.media.preview(
+            data,
+            media_type,
+            width=width,
+            page=self.pdf_page,
+            limit=render.media.PREVIEW_TEXT_BYTES,
+            max_lines=render.media.PREVIEW_TEXT_LINES,
+            hint=keys,
+        )
         hint = None
         if render.media.is_pdf(media_type):
             pages = render.media.pdf_pages(data)
             hint = Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")
-        elif view.get("blob"):
-            hint = Text("t shows the normalized text view of these bytes", style="muted")
+        elif not render.media.is_text(media_type):
+            hint = Text(keys, style="muted")
         return Group(head, "", body, *(("", hint) if hint is not None else ()))
 
     def _content_preview(
@@ -660,11 +681,41 @@ class BrainBrowser(App[None]):
             # still fully readable without them. The missing datum is reported under the text, not instead of it.
             return Group(head, "", self._reading(row), "", Text(str(error), style="bad"))
         parts: list[RenderableType] = [head, "", self._reading(row), ""]
-        parts.append(render.media.preview(data, media_type, width=width, page=self.pdf_page))
+        parts.append(
+            render.media.preview(
+                data,
+                media_type,
+                width=width,
+                page=self.pdf_page,
+                limit=render.media.PREVIEW_TEXT_BYTES,
+                max_lines=render.media.PREVIEW_TEXT_LINES,
+                hint="o open, e export",
+            )
+        )
         if render.media.is_pdf(media_type):
             pages = render.media.pdf_pages(data)
             parts += ["", Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")]
         return Group(*parts)
+
+    def _keys(self, row: dict[str, Any], *, normalized: bool) -> str:
+        """
+        The keys that act on what the preview is showing, as the line under it names them.
+
+        Args:
+            row (dict[str, Any]): The selected row.
+            normalized (bool): Whether the pane is showing the normalized view rather than the bytes.
+
+        Returns:
+            str: ``t`` first when it has somewhere to go -- back to the bytes, or on to the text view the row
+            names -- then ``o`` and ``e``, which every row with bytes answers.
+        """
+        keys: list[str] = []
+        if normalized:
+            keys.append("t original bytes")
+        elif (row.get("normalized_view") or {}).get("blob"):
+            keys.append("t text view")
+        keys += ["o open", "e export"]
+        return ", ".join(keys)
 
     def _reading(self, row: dict[str, Any]) -> RenderableType:
         """
