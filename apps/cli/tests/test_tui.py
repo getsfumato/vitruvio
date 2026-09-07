@@ -1407,10 +1407,10 @@ async def _settle(pilot: Any, ticks: int = 25) -> None:
     pane that had not been filled yet. Polled rather than slept on a fixed duration, because the duration
     depends on how fast the store is.
 
-    The filter is the one thing that is neither immediate nor a worker: typing arms a debounce timer, and the
-    reload it triggers only becomes a worker when the timer fires. Settling has to outlast the timer too, or a key
-    pressed after "filtering" acts on the rows the filter was about to hide -- which is what an export of the wrong
-    block looked like.
+    The filter and the selection are neither immediate nor a worker: typing or moving the cursor arms a debounce
+    timer, and the read it triggers only becomes a worker when the timer fires. Settling has to outlast the timers
+    too, or a key pressed after "filtering" acts on the rows the filter was about to hide -- which is what an export
+    of the wrong block looked like -- and a pane read after selecting still says "reading...".
 
     Args:
         pilot (Any): Textual's pilot.
@@ -1418,7 +1418,7 @@ async def _settle(pilot: Any, ticks: int = 25) -> None:
     """
     for _ in range(ticks):
         await pilot.pause(0.05)
-        debouncing = getattr(pilot.app, "_filter_timer", None) is not None
+        debouncing = any(getattr(pilot.app, name, None) is not None for name in ("_filter_timer", "_select_timer"))
         idle = not pilot.app.workers or all(not worker.is_running for worker in pilot.app.workers)
         if idle and not debouncing:
             await pilot.pause(0.05)

@@ -26,6 +26,7 @@ the same thing.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -278,6 +279,7 @@ class BrainBrowser(App[None]):
         self.catalog_context: str | None = None
         self.catalog_rows: list[dict[str, Any]] = []
         self._filter_timer: Any = None
+        self._select_timer: Any = None
 
     @property
     def opened(self) -> BrainService:
@@ -517,7 +519,28 @@ class BrainBrowser(App[None]):
         view = row.get("normalized_view") or {}
         self.normalized = render.media.prefers_text(str(row.get("media_type", ""))) and bool(view.get("blob"))
         self._set("preview", render.empty("reading..."))
-        self.load_detail(row)
+        # Debounced, for the same reason the filter is: holding an arrow key crosses a row every few dozen
+        # milliseconds, and each one read and laid out a block nobody was going to look at. The worker below is
+        # exclusive, so the reads were already cancelled -- but a thread is cancelled by flag and runs on until
+        # it checks, so the stale reads still happened. Now they mostly never start.
+        if self._select_timer is not None:
+            self._select_timer.stop()
+        self._select_timer = self.set_timer(0.12, lambda: self._load_selected(row))
+
+    def _load_selected(self, row: dict[str, Any]) -> None:
+        """
+        The debounce firing: read the row that was still selected when the cursor stopped.
+
+        Not while the application is shutting down. An app-level timer outlives the screens -- Textual prunes
+        those first and closes its own message pump last -- so a ``q`` pressed within the debounce started a
+        worker against a DOM that no longer had a preview pane, and the worker's failure was the exit's.
+
+        Args:
+            row (dict[str, Any]): The row that armed the timer.
+        """
+        self._select_timer = None
+        if self.selected is row and self.is_running:
+            self.load_detail(row)
 
     @work(thread=True, exclusive=True, group="detail")
     def load_detail(self, row: dict[str, Any]) -> None:
@@ -528,12 +551,15 @@ class BrainBrowser(App[None]):
         already in the store, and loading them lazily would mean a visible pause every time somebody pressed
         a tab -- which is most of what browsing *is*.
 
+        Nothing is painted for a row that is no longer the selection. The worker is exclusive, so a newer
+        selection cancels this one, but a thread worker is cancelled by flag and runs on until it checks -- and
+        the paint it was about to do would land over the newer row's "reading...". Each paint is guarded rather
+        than the whole read, because the alternative is a preview of the wrong block.
+
         Args:
             row (dict[str, Any]): The selected row.
         """
-        identity = row["block_id"]
         width = max(20, self.query_one("#preview", Static).size.width or 80)
-
         try:
             preview = self._preview(row, width=width)
         except Exception as error:
@@ -543,34 +569,55 @@ class BrainBrowser(App[None]):
             # reports its own failure, and the preview draws arbitrary registered bytes, so it is the one most
             # able to meet something unexpected. It reports too.
             preview = Text(f"{type(error).__name__}: {error}", style="bad")
+        if self.selected is not row:
+            return
         self.call_from_thread(self._set, "preview", preview)
+        self._load_tabs(row)
 
-        try:
-            payload = self.opened.resolve(identity)["payload"]
-            self.call_from_thread(self._set, "payload", render.payload(payload))
-        except Exception as error:
-            self.call_from_thread(self._set, "payload", Text(str(error), style="bad"))
+    def _load_tabs(self, row: dict[str, Any]) -> None:
+        """
+        The payload, links, authorship and proof tabs, read in that order on the detail worker's thread.
 
-        try:
-            self.call_from_thread(self._set, "links", render.records(self.opened.related(identity)))
-        except Exception as error:
-            self.call_from_thread(self._set, "links", Text(str(error), style="bad"))
+        Args:
+            row (dict[str, Any]): The selected row. Each tab is painted only while this is still the selection;
+                the first one that finds the selection moved ends the read.
+        """
+        identity = row["block_id"]
+        tabs: tuple[tuple[str, Callable[[], RenderableType | list[RenderableType]]], ...] = (
+            ("payload", lambda: render.payload(self.opened.resolve(identity)["payload"])),
+            ("links", lambda: render.records(self.opened.related(identity))),
+            ("authorship", lambda: render.authorship(row.get("authorship"))),
+            ("proof", lambda: self._proof(identity, row["memory_type"])),
+        )
+        for target, read in tabs:
+            try:
+                view = read()
+            except Exception as error:
+                view = Text(str(error), style="bad")
+            if self.selected is not row:
+                return
+            self.call_from_thread(self._set, target, view)
 
-        self.call_from_thread(self._set, "authorship", render.authorship(row.get("authorship")))
+    def _proof(self, identity: str, memory_type: str) -> RenderableType:
+        """
+        The proof tab: the block's Merkle inclusion proof, already checked against the module root.
 
-        try:
-            proof = self.opened.prove(identity, row["memory_type"])
-            view = render.fields(
-                [
-                    ("root", render.digest(proof["root"], full=True)),
-                    ("leaf index", f"{proof['leaf_index']} of {proof['tree_size']}"),
-                    ("audit path", f"{len(proof['audit_path'])} hashes"),
-                    ("verified", render.verdict(proof["verified"], no="NO")),
-                ]
-            )
-            self.call_from_thread(self._set, "proof", view)
-        except Exception as error:
-            self.call_from_thread(self._set, "proof", Text(str(error), style="bad"))
+        Args:
+            identity (str): The block identity.
+            memory_type (str): The module it is proven in.
+
+        Returns:
+            RenderableType: The label-and-value block.
+        """
+        proof = self.opened.prove(identity, memory_type)
+        return render.fields(
+            [
+                ("root", render.digest(proof["root"], full=True)),
+                ("leaf index", f"{proof['leaf_index']} of {proof['tree_size']}"),
+                ("audit path", f"{len(proof['audit_path'])} hashes"),
+                ("verified", render.verdict(proof["verified"], no="NO")),
+            ]
+        )
 
     def _preview(self, row: dict[str, Any], *, width: int) -> RenderableType:
         """
