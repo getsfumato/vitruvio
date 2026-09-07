@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -28,7 +28,7 @@ dev = [
     { name = "import-linter", specifier = ">=2.0" },
     { name = "mypy", specifier = ">=1.8.0" },
     { name = "pre-commit", specifier = ">=3.5.0" },
-    { name = "pyboltzmann", extras = ["conformance", "authenticity"], specifier = "==0.9.0" },
+    { name = "pyboltzmann", extras = ["conformance", "authenticity"], specifier = "==0.9.1" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.23.0" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
@@ -585,7 +585,7 @@ name = "cuda-bindings"
 version = "13.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder" },
+    { name = "cuda-pathfinder", marker = "python_full_version < '3.15'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/51/6b/457ca12dad3ee9bfcc9a545cfd6b64b359ba49de40f776f6e028e678f262/cuda_bindings-13.3.1-cp311-cp311-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c5879712accf6e14bb01aa5e67440eb84998b8d104b509cc7a6dc0b8f656a474", size = 6053539, upload-time = "2026-05-29T23:11:43.19Z" },
@@ -618,43 +618,43 @@ wheels = [
 
 [package.optional-dependencies]
 cublas = [
-    { name = "nvidia-cublas", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cublas", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 cudart = [
-    { name = "nvidia-cuda-runtime", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cuda-runtime", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 cufft = [
-    { name = "nvidia-cufft", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cufft", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 cufile = [
-    { name = "nvidia-cufile", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cufile", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 cupti = [
-    { name = "nvidia-cuda-cupti", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cuda-cupti", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 curand = [
-    { name = "nvidia-curand", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-curand", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 cusolver = [
-    { name = "nvidia-cublas", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "nvidia-cusolver", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "nvidia-cusparse", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cublas", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cusolver", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-cusparse", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 cusparse = [
-    { name = "nvidia-cusparse", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cusparse", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 nvjitlink = [
-    { name = "nvidia-nvjitlink", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-nvjitlink", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 nvrtc = [
-    { name = "nvidia-cuda-nvrtc", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-cuda-nvrtc", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 nvtx = [
-    { name = "nvidia-nvtx", marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "nvidia-nvtx", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
 ]
 
 [[package]]
@@ -1043,7 +1043,7 @@ name = "importlib-metadata"
 version = "9.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp" },
+    { name = "zipp", marker = "python_full_version < '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
 wheels = [
@@ -2104,15 +2104,15 @@ wheels = [
 
 [[package]]
 name = "pyboltzmann"
-version = "0.9.0"
+version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "rfc8785" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/e2/5f3d42406b8ccd63bd1dc86b470de560b01cb74d7fcbecdba0f91cd82f64/pyboltzmann-0.9.0.tar.gz", hash = "sha256:97784b23cf3c1e23bc130e242211920fc12407e9987c3c827128b9e077b156c6", size = 329425, upload-time = "2026-08-31T17:55:35.238Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6c/39/8d0445b4de7c52e387b731d590be6e5af0a36f06fb6e4990b4c1a24939e6/pyboltzmann-0.9.1.tar.gz", hash = "sha256:6a0d93dcc32bf43f528e17ef54168b14449c83645cf94a681a28753271bbe67b", size = 331278, upload-time = "2026-09-07T23:08:55.725Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/45/04/a827612297db6e62860f7e7bfaa5dbffadc08e6c160a8570397947cd3d19/pyboltzmann-0.9.0-py3-none-any.whl", hash = "sha256:057c9abdc642f7c9a79f8eb22c29ea2b79b2f8cf508421d93ed8361cce2710d0", size = 396825, upload-time = "2026-08-31T17:55:33.752Z" },
+    { url = "https://files.pythonhosted.org/packages/62/f8/9ae23ba1b84ce01285a55681817c005398cdae7cdb8b046bc2bbd0178ae0/pyboltzmann-0.9.1-py3-none-any.whl", hash = "sha256:277964511e63c547e93f09022f274a3e7a0b1090da67e82f5687b8b1fee15342", size = 398816, upload-time = "2026-09-07T23:08:54.383Z" },
 ]
 
 [package.optional-dependencies]
@@ -2946,7 +2946,7 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" } },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7a/97/5a3609c4f8d58b039179648e62dd220f89864f56f7357f5d4f45c29eb2cc/scipy-1.17.1.tar.gz", hash = "sha256:95d8e012d8cb8816c226aef832200b1d45109ed4464303e997c5b13122b297c0", size = 30573822, upload-time = "2026-02-23T00:26:24.851Z" }
 wheels = [
@@ -3021,7 +3021,7 @@ resolution-markers = [
     "python_full_version >= '3.12' and python_full_version < '3.15'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" } },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a7/25/c2700dfaf6442b4effaa91af24ebce5dc9d31bb4a69706313aae70d72cd0/scipy-1.18.0.tar.gz", hash = "sha256:67b2ad2ad54c72ca6d04975a9b2df8c3638c34ddd5b28738e94fc2b57929d378", size = 30774447, upload-time = "2026-06-19T15:01:43.456Z" }
 wheels = [
@@ -3584,7 +3584,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pyboltzmann", specifier = "==0.9.0" },
+    { name = "pyboltzmann", specifier = "==0.9.1" },
     { name = "vitruvio-indices", editable = "packages/indices" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
     { name = "vitruvio-planner", editable = "packages/planner" },
@@ -3620,7 +3620,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'api'", specifier = ">=0.27.0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", marker = "extra == 'vision'", specifier = ">=10.0.0" },
-    { name = "pyboltzmann", specifier = "==0.9.0" },
+    { name = "pyboltzmann", specifier = "==0.9.1" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
     { name = "pypdfium2", marker = "extra == 'vision'", specifier = ">=4.30.0" },
     { name = "sentence-transformers", marker = "extra == 'local-text'", specifier = ">=3.0.0" },
@@ -3650,7 +3650,7 @@ dependencies = [
 requires-dist = [
     { name = "msgspec", specifier = ">=0.18.0" },
     { name = "numpy", specifier = ">=1.26" },
-    { name = "pyboltzmann", specifier = "==0.9.0" },
+    { name = "pyboltzmann", specifier = "==0.9.1" },
     { name = "pyroaring", specifier = ">=1.0.0" },
     { name = "snowballstemmer", specifier = ">=2.2.0" },
     { name = "usearch", specifier = ">=2.12.0" },
@@ -3679,7 +3679,7 @@ vision = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", marker = "extra == 'api'", specifier = ">=0.27.0" },
-    { name = "pyboltzmann", specifier = "==0.9.0" },
+    { name = "pyboltzmann", specifier = "==0.9.1" },
     { name = "pypdfium2", marker = "extra == 'vision'", specifier = ">=4.30.0" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
 ]
@@ -3701,7 +3701,7 @@ dependencies = [
 requires-dist = [
     { name = "filelock", specifier = ">=3.13.0" },
     { name = "packaging", specifier = ">=23.0" },
-    { name = "pyboltzmann", specifier = "==0.9.0" },
+    { name = "pyboltzmann", specifier = "==0.9.1" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
 ]
@@ -3719,7 +3719,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pyboltzmann", specifier = "==0.9.0" },
+    { name = "pyboltzmann", specifier = "==0.9.1" },
     { name = "vitruvio-indices", editable = "packages/indices" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
     { name = "vitruvio-stats", editable = "packages/stats" },
@@ -3747,7 +3747,7 @@ keyring = [
 [package.metadata]
 requires-dist = [
     { name = "keyring", marker = "extra == 'keyring'", specifier = ">=25.0.0" },
-    { name = "pyboltzmann", extras = ["oci", "authenticity"], specifier = "==0.9.0" },
+    { name = "pyboltzmann", extras = ["oci", "authenticity"], specifier = "==0.9.1" },
     { name = "vitruvio-embeddings", editable = "packages/embeddings" },
     { name = "vitruvio-indices", editable = "packages/indices" },
     { name = "vitruvio-ingest", editable = "packages/ingest" },
@@ -3769,7 +3769,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "pyboltzmann", specifier = "==0.9.0" },
+    { name = "pyboltzmann", specifier = "==0.9.1" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
 ]
