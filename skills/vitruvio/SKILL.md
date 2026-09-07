@@ -98,10 +98,15 @@ actually returned.
 5. **Never invent a `block_id`.** Not in a citation, not in an `evidence` list, not to fill a gap. If you need
    one and do not have it, search for it or say you cannot cite.
 
-6. **Use canonical actor identities for writes.** They are lowercase addresses (`alex@example.org`) or namespaced
-   names (`openai/codex`), and are refused rather than normalized because they enter block identities. When another
-   model or service assisted the configured actor, pass `--assisted-by` explicitly; assistance is provenance, not
-   authorship inferred after the fact.
+6. **The actor comes from `vitruvio.toml`, and so do the assistants.** Actor ids are lowercase addresses
+   (`alex@example.org`) or namespaced names (`openai/codex`), refused rather than normalized because they enter block
+   identities. Once the file declares `[actor] id`, every write is attributed to it and a different `--actor` is
+   refused (`ACTOR_OVERRIDE_REFUSED`); only `brain init`, `project init` and `brain migrate` may name one. Each brain
+   declares under `assisted_by` which agents may be recorded as assisting it; with no flag every declared agent is
+   recorded, `--assisted-by` selects among them, and an undeclared agent is refused (`COLLABORATOR_NOT_DECLARED`).
+   If you are not declared for the brain you are writing into, stop and ask the user to declare you; never write
+   unattributed and never pass `--actor-kind agent` as a substitute for the human actor. Assistance is provenance,
+   not authorship inferred after the fact.
 
 7. **Keep integrity and authenticity separate.** `brain verify` checks hashes and roots. `auth status` additionally
    evaluates SSH signatures, trust-root authority and the consumer's pin. Intact unsigned data is not corrupt, and it

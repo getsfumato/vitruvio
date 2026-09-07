@@ -84,37 +84,49 @@ because it is shorter. A trust root must include at least one active `govern` ho
 reachable. Expect the CLI to warn when the quorum equals the number of `govern` holders — losing one key would then
 freeze governance permanently — and relay that warning rather than swallowing it.
 
-## 4. Decision three: actor and policy
+## 4. Decision three: who writes, who assists, and the policy
 
-Every write is attributed, so `brain init` and `project init` need `--actor`: a lowercase address
-(`ana@example.org`) or a lowercase namespaced name (`openai/codex`). Ask which one identifies the user; do not
-invent one.
+Every write is attributed, and the declaration in `vitruvio.toml` is what it is attributed to. Two questions,
+both mandatory, both answered by the user and never inferred:
+
+1. **Which email is the actor.** A lowercase address (`ana@example.org`) that identifies the person; it is hashed
+   into every block and cannot be normalized or changed afterwards. Ask for it in so many words. Do not take it
+   from git config, `$USER`, a previous project, or your own identity, and do not offer a namespaced name here:
+   the actor is the person, and you are an assistant.
+2. **Which agents will assist this brain.** One canonical namespaced id per agent that will write into *this* brain
+   (`anthropic/claude-code`, `openai/codex`), optionally with a display name and model. Name yourself if you will
+   be one of them. They are declared per brain, so a project with several brains answers this once per brain.
+
+Both are written into `vitruvio.toml` by the commands below and become the only accepted values afterwards: a later
+`--actor` naming somebody else is refused, and a `--assisted-by` naming an undeclared agent is refused. State both
+back to the user before creating anything.
 
 `brain init --policy` takes `conservative` (the default), `permissive` or `archival`. Unlike governance, leaving the
 default is acceptable when the user has no opinion — say that the default was taken.
 
 ## 5. Create — four recipes
 
-Always with `--json` and `--actor ACTOR`. Replace the placeholders with what the user answered.
+Always with `--json` and `--actor ACTOR`, and with one `--assisted-by AGENT` per declared agent on the command that
+creates the brain. Replace the placeholders with what the user answered.
 
 Standalone, ungoverned:
 
 ```bash
-vitruvio --json --actor ACTOR brain init PATH
+vitruvio --json --actor ACTOR --assisted-by AGENT brain init PATH
 ```
 
 Standalone, governed:
 
 ```bash
-vitruvio --json --actor ACTOR brain init PATH --governed --sign-with FINGERPRINT --govern-quorum N
-vitruvio --json --actor ACTOR brain init PATH --trust-root root.toml          # distinct subjects or scopes
+vitruvio --json --actor ACTOR --assisted-by AGENT brain init PATH --governed --sign-with FINGERPRINT --govern-quorum N
+vitruvio --json --actor ACTOR --assisted-by AGENT brain init PATH --trust-root root.toml   # distinct subjects or scopes
 ```
 
 In a project, ungoverned — `project init` only if step 1 found no project:
 
 ```bash
 vitruvio --json --actor ACTOR project init NAME --namespace HOST/ACCOUNT     # --namespace only if they know where it publishes
-vitruvio --json --project NAME project add BRAIN --description "..."
+vitruvio --json --project NAME --assisted-by AGENT project add BRAIN --description "..."
 ```
 
 In a project, governed. `project add` has no governance flags and **always creates an ungoverned brain**, so the
@@ -122,9 +134,14 @@ genesis comes from `brain init` and `project add` only declares it:
 
 ```bash
 vitruvio --json --actor ACTOR project init NAME
-vitruvio --json --project NAME --actor ACTOR brain init ./brains/BRAIN --governed --sign-with FINGERPRINT
-vitruvio --json --project NAME project add BRAIN --path ./brains/BRAIN --no-create
+vitruvio --json --project NAME --actor ACTOR --assisted-by AGENT brain init ./brains/BRAIN --governed --sign-with FINGERPRINT
+vitruvio --json --project NAME --assisted-by AGENT project add BRAIN --path ./brains/BRAIN --no-create
 ```
+
+A brain the user wants no agent in gets no `--assisted-by`; say so explicitly rather than omitting it silently. To
+declare agents for a brain that already exists, `vitruvio --json --project NAME config set 'brains.BRAIN.assisted_by'
+'[{"id":"AGENT","kind":"agent"}]'` writes the same table (and loses comments in the file, which the command warns
+about).
 
 Run inside the project directory, `brain init` finds the project's `vitruvio.toml` and writes no second one; the
 envelope's `data.config_file` is `null` in that case, which is correct.
@@ -142,6 +159,9 @@ vitruvio --json --project NAME project show          # in a project
 `auth status` reporting no trust root is the expected description, not a failure. Then run
 `vitruvio --json --brain PATH inspect doctor` and relay every row whose `severity` is `warn` or `fail`, with its
 `remedy`; a `skip` on the registry is normal, because doctor does not touch the network unless asked.
+
+Also run `vitruvio --json --brain PATH config show` and read the actor and the declared collaborators back to the
+user, word for word. That is the last moment a wrong email or a missing agent is cheap to fix.
 
 ## 7. First evidence
 
@@ -166,6 +186,10 @@ with citations only to block ids the brain returned.
 ## Never
 
 - Run `brain init`, `project add` or `brain migrate` before both decisions are made and stated back to the user.
+- Invent, infer or default the actor's email, or put your own identity in `--actor`.
+- Pass `--actor` to any command other than `brain init`, `project init` or `brain migrate` once `vitruvio.toml`
+  declares one; it is refused, and the declaration is the thing to change.
+- Pass `--assisted-by` for an agent the brain has not declared. Stop and ask the user to declare it instead.
 - Choose the governance, or rename the two choices into friendlier categories.
 - Ask for, read, or pass a private key. Only fingerprints from `auth keys` and public keys ever appear.
 - Run `brain use`; pass `--project` and `--brain` instead.

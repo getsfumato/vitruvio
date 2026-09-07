@@ -26,3 +26,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0015](0015-compound-retrieval.md) | Compound retrieval across a project's brains, and why it fuses by rank |
 | [0016](0016-pyboltzmann-0.9-integration.md) | Catalog, SSH authenticity, actor identities and one-way legacy migration |
 | [0017](0017-auditable-browse-projections.md) | Bounded browse projections and the history audit envelope |
+| [0018](0018-declared-actor-and-collaborators.md) | The declared actor and per-brain collaborators are authoritative |

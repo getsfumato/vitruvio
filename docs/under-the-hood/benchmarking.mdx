@@ -61,6 +61,7 @@ The checks are declared once, in the runtime, and this table is tested against t
 | `env.extra.usearch`, `env.extra.pyroaring` | fail | a dependency of `vitruvio-indices` is missing: the install is broken | reinstall `vitruvio-indices` |
 | `config.invalid` | fail | `vitruvio.toml` could not be loaded, so nothing below could be asked | `vitruvio config validate` names the field |
 | `config.actor` | warn | no actor is configured; every write is attributed, so writes will be refused | `vitruvio config set actor.id …`, or `--actor` |
+| `config.collaborators` | ok | which declared parties a write into the selected brain records as assisting, and where the declaration came from; `--assisted-by` may only select among them | — |
 | `brain.layout` | fail | no brain is selected, or the selected path is not an OCI layout | `--brain PATH`, `vitruvio brain use PATH`, or `vitruvio brain init PATH` |
 | `brain.integrity` | fail | the module roots do not match the blocks | `vitruvio brain verify`; pull again from the origin |
 | `modules.installed` | warn | nothing is installed yet | `vitruvio source register FILE`, or `vitruvio dist pull` |

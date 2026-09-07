@@ -84,22 +84,38 @@ of the provenance module is that it does not.
 
 Reads never need one: inspecting someone else's brain is legitimate and attributes nothing.
 
+The declaration in `vitruvio.toml` is authoritative. Once `[actor] id` is set, every write into the project is
+attributed to it: a `--actor` or `VITRUVIO_ACTOR_ID` naming the same id is a harmless repetition, and one naming a
+different id is refused with `ACTOR_OVERRIDE_REFUSED` (exit 3) rather than obeyed, because provenance must not
+depend on which shell ran the command. Only the commands that create the declaration — `brain init`, `project init`,
+`brain migrate` — may name any actor.
+
 New writes accept exactly two stable actor-id forms: a lowercase address (`you@example.com`) or a lowercase
 namespaced name (`openai/codex`). Vitruvio refuses uppercase, whitespace and free-form display names rather than
 normalizing them, because the bytes enter provenance block identities. `name` remains the display label.
 
-When another agent helped the primary actor, record it instead of replacing the author:
+When another agent helped the primary actor, record it instead of replacing the author. Each brain declares who
+may assist writes into it, and a brain that declares nobody inherits the project's list:
 
 ```toml
-[[assisted_by]]
+[[assisted_by]]                       # the project's default
 id = "openai/codex"
 kind = "agent"
 name = "Codex"
 model = "openai/gpt-5"
+
+[[brains.optics.assisted_by]]         # this brain's own agents, replacing the default for writes into it
+id = "anthropic/claude-code"
+kind = "agent"
 ```
 
-The committed list can be overridden with repeatable global `--assisted-by` flags, or with a JSON array in
-`VITRUVIO_ASSISTED_BY`. Assistance is written into provenance v2 on every new operation.
+With nothing else said, every declared party is recorded on every write. The global `--assisted-by` flags, or a
+JSON array in `VITRUVIO_ASSISTED_BY`, *select* among the declared parties — keeping their declared `kind`, `name`
+and `model` — and a party the brain has not declared is refused with `COLLABORATOR_NOT_DECLARED` (exit 3), because
+a collaborator that appears in provenance without appearing in the committed file is the attribution nobody
+reviewed. `--empty-assisted-by` records no assistance for one invocation. `brain init --assisted-by` and
+`project add --assisted-by` write the declaration; `config show` and `inspect doctor` (`config.collaborators`) show
+it. Assistance is written into provenance v2 on every new operation.
 
 ## Integrity is not authenticity
 

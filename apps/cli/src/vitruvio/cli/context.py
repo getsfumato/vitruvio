@@ -49,7 +49,9 @@ class Context:
     console: Console = field(default_factory=Console)
     verbosity: int = 0
 
-    def service(self, *, require_layout: bool = True, require_brain: bool = True) -> BrainService:
+    def service(
+        self, *, require_layout: bool = True, require_brain: bool = True, declaring: bool = False
+    ) -> BrainService:
         """
         The service layer, over the resolved configuration.
 
@@ -59,21 +61,30 @@ class Context:
         Args:
             require_layout (bool): Whether the selected path must already be a brain.
             require_brain (bool): Whether a brain has to be selected at all. The `project` commands say no.
+            declaring (bool): Whether this command writes the actor and collaborator declarations rather than
+                obeying them. `project add` and `brain migrate` say yes.
 
         Returns:
             BrainService: The service.
         """
         from vitruvio.runtime import BrainService
 
-        return BrainService(self.resolve(require_layout=require_layout, require_brain=require_brain))
+        return BrainService(
+            self.resolve(require_layout=require_layout, require_brain=require_brain, declaring=declaring)
+        )
 
-    def resolve(self, *, require_layout: bool = True, require_brain: bool = True) -> ResolvedConfig:
+    def resolve(
+        self, *, require_layout: bool = True, require_brain: bool = True, declaring: bool = False
+    ) -> ResolvedConfig:
         """
         Merge these options with the environment, the project file and saved state.
 
         Args:
             require_layout (bool): Whether the selected path must already be a brain. ``brain init`` is the
                 one caller that says no, because it is about to create one.
+            require_brain (bool): Whether a brain has to be selected at all.
+            declaring (bool): Whether `--actor` and `--assisted-by` may name anything, because this command is
+                the one writing them into `vitruvio.toml`.
 
         Returns:
             ResolvedConfig: The resolved configuration.
@@ -92,6 +103,7 @@ class Context:
             assisted_by=self.assisted_by,
             require_layout=require_layout,
             require_brain=require_brain,
+            declaring=declaring,
         )
 
     def config_file(self) -> Path | None:
