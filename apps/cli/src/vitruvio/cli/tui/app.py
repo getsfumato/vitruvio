@@ -26,6 +26,7 @@ the same thing.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedContent, TabPane, Tree
 
 from vitruvio.cli import render
@@ -278,6 +280,8 @@ class BrainBrowser(App[None]):
         self.catalog_context: str | None = None
         self.catalog_rows: list[dict[str, Any]] = []
         self._filter_timer: Any = None
+        self._select_timer: Any = None
+        self._land_timer: Any = None
 
     @property
     def opened(self) -> BrainService:
@@ -505,14 +509,40 @@ class BrainBrowser(App[None]):
         """
         Make a row the selected block and load its detail.
 
+        Markup opens on its extracted text rather than on its source, when it has one. An HTML page's source is
+        the wrapper and its text is the content; a reader who wants the tags presses ``t``. Everything else
+        opens on its bytes, which for a PDF or an image is the only view a terminal can draw.
+
         Args:
             row (dict[str, Any]): The row.
         """
         self.selected = row
         self.pdf_page = 0
-        self.normalized = False
+        view = row.get("normalized_view") or {}
+        self.normalized = render.media.prefers_text(str(row.get("media_type", ""))) and bool(view.get("blob"))
         self._set("preview", render.empty("reading..."))
-        self.load_detail(row)
+        # Debounced, for the same reason the filter is: holding an arrow key crosses a row every few dozen
+        # milliseconds, and each one read and laid out a block nobody was going to look at. The worker below is
+        # exclusive, so the reads were already cancelled -- but a thread is cancelled by flag and runs on until
+        # it checks, so the stale reads still happened. Now they mostly never start.
+        if self._select_timer is not None:
+            self._select_timer.stop()
+        self._select_timer = self.set_timer(0.12, lambda: self._load_selected(row))
+
+    def _load_selected(self, row: dict[str, Any]) -> None:
+        """
+        The debounce firing: read the row that was still selected when the cursor stopped.
+
+        Not while the application is shutting down. An app-level timer outlives the screens -- Textual prunes
+        those first and closes its own message pump last -- so a ``q`` pressed within the debounce started a
+        worker against a DOM that no longer had a preview pane, and the worker's failure was the exit's.
+
+        Args:
+            row (dict[str, Any]): The row that armed the timer.
+        """
+        self._select_timer = None
+        if self.selected is row and self.is_running:
+            self.load_detail(row)
 
     @work(thread=True, exclusive=True, group="detail")
     def load_detail(self, row: dict[str, Any]) -> None:
@@ -523,12 +553,15 @@ class BrainBrowser(App[None]):
         already in the store, and loading them lazily would mean a visible pause every time somebody pressed
         a tab -- which is most of what browsing *is*.
 
+        Nothing is painted for a row that is no longer the selection. The worker is exclusive, so a newer
+        selection cancels this one, but a thread worker is cancelled by flag and runs on until it checks -- and
+        the paint it was about to do would land over the newer row's "reading...". Each paint is guarded rather
+        than the whole read, because the alternative is a preview of the wrong block.
+
         Args:
             row (dict[str, Any]): The selected row.
         """
-        identity = row["block_id"]
         width = max(20, self.query_one("#preview", Static).size.width or 80)
-
         try:
             preview = self._preview(row, width=width)
         except Exception as error:
@@ -538,34 +571,55 @@ class BrainBrowser(App[None]):
             # reports its own failure, and the preview draws arbitrary registered bytes, so it is the one most
             # able to meet something unexpected. It reports too.
             preview = Text(f"{type(error).__name__}: {error}", style="bad")
+        if self.selected is not row:
+            return
         self.call_from_thread(self._set, "preview", preview)
+        self._load_tabs(row)
 
-        try:
-            payload = self.opened.resolve(identity)["payload"]
-            self.call_from_thread(self._set, "payload", render.payload(payload))
-        except Exception as error:
-            self.call_from_thread(self._set, "payload", Text(str(error), style="bad"))
+    def _load_tabs(self, row: dict[str, Any]) -> None:
+        """
+        The payload, links, authorship and proof tabs, read in that order on the detail worker's thread.
 
-        try:
-            self.call_from_thread(self._set, "links", render.records(self.opened.related(identity)))
-        except Exception as error:
-            self.call_from_thread(self._set, "links", Text(str(error), style="bad"))
+        Args:
+            row (dict[str, Any]): The selected row. Each tab is painted only while this is still the selection;
+                the first one that finds the selection moved ends the read.
+        """
+        identity = row["block_id"]
+        tabs: tuple[tuple[str, Callable[[], RenderableType | list[RenderableType]]], ...] = (
+            ("payload", lambda: render.payload(self.opened.resolve(identity)["payload"])),
+            ("links", lambda: render.records(self.opened.related(identity))),
+            ("authorship", lambda: render.authorship(row.get("authorship"))),
+            ("proof", lambda: self._proof(identity, row["memory_type"])),
+        )
+        for target, read in tabs:
+            try:
+                view = read()
+            except Exception as error:
+                view = Text(str(error), style="bad")
+            if self.selected is not row:
+                return
+            self.call_from_thread(self._set, target, view)
 
-        self.call_from_thread(self._set, "authorship", render.authorship(row.get("authorship")))
+    def _proof(self, identity: str, memory_type: str) -> RenderableType:
+        """
+        The proof tab: the block's Merkle inclusion proof, already checked against the module root.
 
-        try:
-            proof = self.opened.prove(identity, row["memory_type"])
-            view = render.fields(
-                [
-                    ("root", render.digest(proof["root"], full=True)),
-                    ("leaf index", f"{proof['leaf_index']} of {proof['tree_size']}"),
-                    ("audit path", f"{len(proof['audit_path'])} hashes"),
-                    ("verified", render.verdict(proof["verified"], no="NO")),
-                ]
-            )
-            self.call_from_thread(self._set, "proof", view)
-        except Exception as error:
-            self.call_from_thread(self._set, "proof", Text(str(error), style="bad"))
+        Args:
+            identity (str): The block identity.
+            memory_type (str): The module it is proven in.
+
+        Returns:
+            RenderableType: The label-and-value block.
+        """
+        proof = self.opened.prove(identity, memory_type)
+        return render.fields(
+            [
+                ("root", render.digest(proof["root"], full=True)),
+                ("leaf index", f"{proof['leaf_index']} of {proof['tree_size']}"),
+                ("audit path", f"{len(proof['audit_path'])} hashes"),
+                ("verified", render.verdict(proof["verified"], no="NO")),
+            ]
+        )
 
     def _preview(self, row: dict[str, Any], *, width: int) -> RenderableType:
         """
@@ -590,31 +644,38 @@ class BrainBrowser(App[None]):
                 data = self.opened.content(str(view["blob"]))
             except Exception as error:
                 return Group(head, "", Text(str(error), style="bad"))
-            return Group(head, "", render.media.preview(data, str(view.get("media_type", "text/plain")), width=width))
+            shown = render.media.preview(
+                data,
+                str(view.get("media_type", "text/plain")),
+                width=width,
+                limit=render.media.PREVIEW_TEXT_BYTES,
+                max_lines=render.media.PREVIEW_TEXT_LINES,
+                hint=self._keys(row, normalized=True),
+            )
+            return Group(head, "", shown)
 
         if blob := row.get("blob"):
-            return self._blob_preview(row, str(blob), view, head=head, width=width)
+            return self._blob_preview(row, str(blob), head=head, width=width)
 
         if content := row.get("content"):
             return self._content_preview(row, content, head=head, width=width)
 
         return Group(head, "", self._reading(row))
 
-    def _blob_preview(
-        self, row: dict[str, Any], blob: str, view: dict[str, Any], *, head: RenderableType, width: int
-    ) -> RenderableType:
+    def _blob_preview(self, row: dict[str, Any], blob: str, *, head: RenderableType, width: int) -> RenderableType:
         """
         A canonical block's bytes, drawn. The block *is* its bytes, so they are the whole preview.
 
         Args:
             row (dict[str, Any]): The selected row.
             blob (str): The content address.
-            view (dict[str, Any]): The row's normalized view, for the hint that ``t`` would show it.
             head (RenderableType): The metadata block above the drawing.
             width (int): Cells available.
 
         Returns:
-            RenderableType: The rendering.
+            RenderableType: The rendering, with the keys that act on it named underneath: text carries them in
+            its own footer beside whatever was cut, a PDF names its page instead, and a drawing gets them as a
+            line of their own.
         """
         from rich.console import Group
 
@@ -623,13 +684,22 @@ class BrainBrowser(App[None]):
             data = self.opened.content(blob)
         except Exception as error:
             return Group(head, "", Text(str(error), style="bad"))
-        body = render.media.preview(data, media_type, width=width, page=self.pdf_page)
+        keys = self._keys(row, normalized=False)
+        body = render.media.preview(
+            data,
+            media_type,
+            width=width,
+            page=self.pdf_page,
+            limit=render.media.PREVIEW_TEXT_BYTES,
+            max_lines=render.media.PREVIEW_TEXT_LINES,
+            hint=keys,
+        )
         hint = None
         if render.media.is_pdf(media_type):
             pages = render.media.pdf_pages(data)
             hint = Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")
-        elif view.get("blob"):
-            hint = Text("t shows the normalized text view of these bytes", style="muted")
+        elif not render.media.is_text(media_type):
+            hint = Text(keys, style="muted")
         return Group(head, "", body, *(("", hint) if hint is not None else ()))
 
     def _content_preview(
@@ -660,11 +730,41 @@ class BrainBrowser(App[None]):
             # still fully readable without them. The missing datum is reported under the text, not instead of it.
             return Group(head, "", self._reading(row), "", Text(str(error), style="bad"))
         parts: list[RenderableType] = [head, "", self._reading(row), ""]
-        parts.append(render.media.preview(data, media_type, width=width, page=self.pdf_page))
+        parts.append(
+            render.media.preview(
+                data,
+                media_type,
+                width=width,
+                page=self.pdf_page,
+                limit=render.media.PREVIEW_TEXT_BYTES,
+                max_lines=render.media.PREVIEW_TEXT_LINES,
+                hint="o open, e export",
+            )
+        )
         if render.media.is_pdf(media_type):
             pages = render.media.pdf_pages(data)
             parts += ["", Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")]
         return Group(*parts)
+
+    def _keys(self, row: dict[str, Any], *, normalized: bool) -> str:
+        """
+        The keys that act on what the preview is showing, as the line under it names them.
+
+        Args:
+            row (dict[str, Any]): The selected row.
+            normalized (bool): Whether the pane is showing the normalized view rather than the bytes.
+
+        Returns:
+            str: ``t`` first when it has somewhere to go -- back to the bytes, or on to the text view the row
+            names -- then ``o`` and ``e``, which every row with bytes answers.
+        """
+        keys: list[str] = []
+        if normalized:
+            keys.append("t original bytes")
+        elif (row.get("normalized_view") or {}).get("blob"):
+            keys.append("t text view")
+        keys += ["o open", "e export"]
+        return ", ".join(keys)
 
     def _reading(self, row: dict[str, Any]) -> RenderableType:
         """
@@ -1308,16 +1408,28 @@ class BrainBrowser(App[None]):
         """
         self.query_one("#filter", Input).value = ""
         self.load_rows()
-        self.set_timer(0.4, lambda: self._land(block_id))
+        if self._land_timer is not None:
+            self._land_timer.stop()
+        self._land_timer = self.set_timer(0.4, lambda: self._land(block_id))
 
     def _land(self, block_id: str) -> None:
         """
         Move the cursor onto a row once its page has arrived.
 
+        The timer that schedules this outlives a screen: it can fire while the app is shutting down, or while a
+        modal is up, and then the table it wants is not on the current screen. Landing nowhere is the right answer
+        in both cases; raising would take the interface down, or the test run with it.
+
         Args:
             block_id (str): The row to land on.
         """
-        table = self.query_one("#blocks", DataTable)
+        self._land_timer = None
+        if not self.is_running:
+            return
+        try:
+            table = self.query_one("#blocks", DataTable)
+        except NoMatches:
+            return
         for index, row in enumerate(self.rows):
             if row["block_id"] == block_id:
                 table.move_cursor(row=index)
@@ -1327,24 +1439,6 @@ class BrainBrowser(App[None]):
     def action_help_panel(self) -> None:
         """Show every key binding, including the ones the footer has no room for."""
         self.action_show_help_panel()
-
-
-def _bytes(size: int) -> str:
-    """
-    A byte count a person can read.
-
-    Args:
-        size (int): The count.
-
-    Returns:
-        str: e.g. ``1.4 MiB``.
-    """
-    value = float(size)
-    for unit in ("B", "KiB", "MiB", "GiB"):
-        if value < 1024 or unit == "GiB":
-            return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-        value /= 1024
-    return f"{size} B"  # pragma: no cover -- the loop above always returns
 
 
 def run(service: BrainService, brain: Path | str) -> None:

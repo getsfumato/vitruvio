@@ -246,7 +246,15 @@ def content(
         view=render.stack(
             render.fields([("content", render.digest(digest, full=True)), ("bytes", str(len(data))), ("as", kind)]),
             "",
-            render.media.preview(data, kind, width=width, page=page),
+            render.media.preview(
+                data,
+                kind,
+                width=width,
+                page=page,
+                # Named only when something was cut: the footer is then the one place a reader learns the file
+                # goes on, and the flag that fetches the rest belongs next to that fact.
+                hint="pass --out FILE for all of it" if len(data) > render.media.MAX_TEXT_BYTES else None,
+            ),
         ),
     )
 

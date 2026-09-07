@@ -63,6 +63,22 @@ MAX_TEXT_BYTES = 512 * 1024
 """How much of a text blob to decode. A registered corpus can be a hundred megabytes, and a preview that tries
 to lay all of it out stops being a preview. The cut is reported rather than silent."""
 
+PREVIEW_TEXT_BYTES = 64 * 1024
+"""How much of a text blob the browser's preview pane shows.
+
+Smaller than :data:`MAX_TEXT_BYTES` because the pane lays the text out on the event loop -- once per paint and
+again on every resize -- where the CLI lays it out once into a pipe. Sixty-four kibibytes is a few hundred
+screens of reading; what the pane does not show, ``o`` and ``e`` hand to something that can.
+"""
+
+PREVIEW_TEXT_LINES = 2_000
+"""The most lines the preview pane shows. A byte cap alone lets a file of one-character lines produce sixty
+thousand strips, and Textual builds one per wrapped line."""
+
+TEXT_FIRST_TYPES = ("text/html", "application/xhtml+xml")
+"""Media types whose extracted text is what a reader wants first. Markup is a wrapper around its text, so the
+browser opens such a block on its normalized view when it has one, and ``t`` shows the source."""
+
 
 def is_text(media_type: str) -> bool:
     """
@@ -92,13 +108,59 @@ def is_playable(media_type: str) -> bool:
     return media_type.startswith(("video/", "audio/"))
 
 
-def text(data: bytes, media_type: str) -> RenderableType:
+def prefers_text(media_type: str) -> bool:
+    """
+    Whether a block of this type should open on its normalized text rather than on its bytes.
+
+    Args:
+        media_type (str): The block's media type, with or without parameters.
+
+    Returns:
+        bool: ``True`` for markup, whose source is the wrapper and whose text is the content.
+    """
+    return media_type.split(";", 1)[0].strip().lower() in TEXT_FIRST_TYPES
+
+
+def clip(data: bytes, *, limit: int, max_lines: int | None = None) -> tuple[str, int]:
+    """
+    The head of a text blob, decoded, with how much of it was kept.
+
+    Args:
+        data (bytes): The content.
+        limit (int): The most bytes to keep.
+        max_lines (int | None): The most lines to keep, or ``None`` for no line cap. The cut falls between lines,
+            never inside one.
+
+    Returns:
+        tuple[str, int]: The decoded head and how many bytes it came from, so a caller can say what was cut.
+        Undecodable bytes are replaced rather than raised on: a mislabelled blob is still worth looking at, and
+        the alternative is a preview that fails where a hex dump would have told the reader what happened.
+    """
+    head = data[:limit]
+    if max_lines is not None:
+        parts = head.split(b"\n", max_lines)
+        # More parts than lines means a remainder past the cap. A remainder that is empty is a trailing newline
+        # on exactly `max_lines` lines, and cutting it would report a cut that removed nothing.
+        if len(parts) > max_lines and parts[-1]:
+            head = b"\n".join(parts[:max_lines])
+    return head.decode("utf-8", errors="replace"), len(head)
+
+
+def text(
+    data: bytes,
+    media_type: str,
+    *,
+    limit: int = MAX_TEXT_BYTES,
+    max_lines: int | None = None,
+    highlight: bool = True,
+    hint: str | None = None,
+) -> RenderableType:
     """
     Render bytes that are characters.
 
-    Markdown is rendered as Markdown, the types with a lexer are highlighted, and everything else is shown as
-    it is. Undecodable bytes are replaced rather than raised on: a mislabelled blob is still worth looking at,
-    and the alternative is a preview that fails where a hex dump would have told the reader what happened.
+    Markdown is rendered as Markdown, the types with a lexer are highlighted while that is affordable, and
+    everything else is shown as it is. Whatever the caps cut is reported under the text rather than silently
+    absent, because "the file ends here" and "the preview ends here" are different facts.
 
     Takes no width: wrapping is the console's decision, and a renderable that wrapped itself would wrap to the
     wrong width the moment it was printed into a TUI pane rather than into a terminal.
@@ -106,23 +168,41 @@ def text(data: bytes, media_type: str) -> RenderableType:
     Args:
         data (bytes): The content.
         media_type (str): What the block says it is.
+        limit (int): The most bytes to show. The CLI keeps :data:`MAX_TEXT_BYTES`; the browser passes
+            :data:`PREVIEW_TEXT_BYTES`, because its pane lays the text out on the event loop.
+        max_lines (int | None): The most lines to show, or ``None`` for no line cap.
+        highlight (bool): Whether the types with a lexer may be highlighted. Even then the highlight stops past
+            :data:`~vitruvio.cli.render.theme.HIGHLIGHT_BYTES`; see :func:`~vitruvio.cli.render.theme.code`.
+        hint (str | None): What to say under the text -- the keys that act on it, or the flag that fetches the
+            rest. Joined to the cut report when there is one, shown alone when there is not.
 
     Returns:
-        RenderableType: The rendering.
+        RenderableType: The text alone when all of it is shown and there is no hint; otherwise the text over a
+        muted footer saying what was cut and what to do about it.
     """
+    from rich.console import Group
     from rich.markdown import Markdown
-    from rich.syntax import Syntax
 
-    clipped = data[:MAX_TEXT_BYTES]
-    body = clipped.decode("utf-8", errors="replace")
-    if len(data) > MAX_TEXT_BYTES:
-        body += f"\n\n... clipped at {MAX_TEXT_BYTES // 1024} KiB of {len(data)} bytes"
+    body, shown = clip(data, limit=limit, max_lines=max_lines)
 
+    renderable: RenderableType
     if media_type in MARKDOWN_TYPES:
-        return Markdown(body, hyperlinks=False)
-    if lexer := CODE_LEXERS.get(media_type):
-        return Syntax(body, lexer, theme="ansi_dark", background_color="default", word_wrap=True)
-    return Text(body)
+        renderable = Markdown(body, hyperlinks=False)
+    elif lexer := CODE_LEXERS.get(media_type):
+        renderable = theme.code(body, lexer, highlight=highlight)
+    else:
+        renderable = Text(body)
+
+    footer: str | None = None
+    if shown < len(data):
+        footer = f"showing {theme.filesize(shown)} of {theme.filesize(len(data))}"
+        if hint:
+            footer += f" -- {hint}"
+    elif hint:
+        footer = hint
+    if footer is None:
+        return renderable
+    return Group(renderable, "", Text(footer, style="muted"))
 
 
 def image(data: bytes, *, width: int = 80, height: int | None = None) -> RenderableType:
@@ -314,6 +394,10 @@ def preview(
     width: int = 80,
     height: int | None = None,
     page: int = 0,
+    limit: int = MAX_TEXT_BYTES,
+    max_lines: int | None = None,
+    highlight: bool = True,
+    hint: str | None = None,
 ) -> RenderableType:
     """
     Whatever this content can be shown as, chosen by its media type.
@@ -324,12 +408,16 @@ def preview(
         width (int): Cells across, for the drawings.
         height (int | None): A cap on cells down.
         page (int): Which PDF page.
+        limit (int): The most bytes of text to show; see :func:`text`.
+        max_lines (int | None): The most lines of text to show; see :func:`text`.
+        highlight (bool): Whether text with a lexer may be highlighted; see :func:`text`.
+        hint (str | None): What to say under text; see :func:`text`. The drawings take no footer.
 
     Returns:
         RenderableType: The best available rendering, or a note saying why there is none.
     """
     if is_text(media_type):
-        return text(data, media_type)
+        return text(data, media_type, limit=limit, max_lines=max_lines, highlight=highlight, hint=hint)
     if is_image(media_type):
         return image(data, width=width, height=height)
     if is_pdf(media_type):
@@ -382,6 +470,10 @@ def describe(entry: Mapping[str, Any]) -> RenderableType:
 
 __all__ = [
     "MAX_TEXT_BYTES",
+    "PREVIEW_TEXT_BYTES",
+    "PREVIEW_TEXT_LINES",
+    "TEXT_FIRST_TYPES",
+    "clip",
     "describe",
     "image",
     "is_image",
@@ -390,6 +482,7 @@ __all__ = [
     "is_text",
     "pdf_page",
     "pdf_pages",
+    "prefers_text",
     "preview",
     "text",
     "unsupported",

@@ -27,7 +27,7 @@ import pytest
 from textual.widgets import DataTable, Input, Tree
 
 from vitruvio.cli.main import main
-from vitruvio.cli.render import media, theme
+from vitruvio.cli.render import evidence, media, theme
 from vitruvio.cli.tui import BrainBrowser
 from vitruvio.kernel import ExitCode
 
@@ -255,6 +255,57 @@ class TestTheRenderLayer:
 
         assert isinstance(media.text(b"# Titulo", "text/markdown"), Markdown)
         assert not isinstance(media.text(b"plano", "text/plain"), Markdown)
+
+    def test_a_text_preview_is_cut_at_the_byte_cap_and_says_so(self) -> None:
+        """Where the file ends and where the preview ends are different facts, and the footer tells them apart."""
+        plain = _plain(media.text(b"a" * 300, "text/plain", limit=64))
+        assert "showing 64 B of 300 B" in plain
+
+    def test_the_line_cap_cuts_between_lines_never_inside_one(self) -> None:
+        """Five thousand short lines are a few kibibytes and five thousand strips for a pane to build, which is
+        why a line cap exists beside the byte cap."""
+        plain = _plain(media.text(b"linea\n" * 5000, "text/plain", max_lines=10))
+        assert plain.count("linea") == 10
+        assert "showing" in plain
+
+    def test_exactly_the_cap_in_lines_with_a_trailing_newline_is_not_a_cut(self) -> None:
+        plain = _plain(media.text(b"linea\n" * 10, "text/plain", max_lines=10))
+        assert plain.count("linea") == 10
+        assert "showing" not in plain
+
+    def test_highlighting_stops_past_its_budget_and_the_text_stays(self) -> None:
+        """Pygments lexes at paint time, on the painting thread. A megabyte of HTML read as a hang."""
+        from rich.syntax import Syntax
+        from rich.text import Text
+
+        assert isinstance(media.text(b"<p>x</p>", "text/html"), Syntax)
+        assert isinstance(media.text(b"<p>x</p>" * 8_000, "text/html"), Text)
+
+    def test_the_hint_rides_under_the_text_whether_or_not_it_was_cut(self) -> None:
+        whole = _plain(media.text(b"corto", "text/plain", hint="o open, e export"))
+        assert "o open, e export" in whole
+        assert "showing" not in whole
+        cut = _plain(media.text(b"a" * 300, "text/plain", limit=64, hint="o open, e export"))
+        assert "showing 64 B of 300 B -- o open, e export" in cut
+
+    def test_markup_prefers_its_extracted_text_and_plain_text_does_not(self) -> None:
+        assert media.prefers_text("text/html")
+        assert media.prefers_text("application/xhtml+xml; charset=utf-8")
+        assert not media.prefers_text("text/plain")
+        assert not media.prefers_text("text/markdown")
+
+    def test_a_byte_count_reads_as_a_size(self) -> None:
+        assert theme.filesize(512) == "512 B"
+        assert theme.filesize(65536) == "64.0 KiB"
+
+    def test_a_payload_past_the_highlight_budget_is_printed_plain(self) -> None:
+        """A payload can carry a whole extracted text, and highlighting it costs the same as highlighting the
+        source did."""
+        from rich.syntax import Syntax
+        from rich.text import Text
+
+        assert isinstance(evidence.payload({"label": "corto"}), Syntax)
+        assert isinstance(evidence.payload({"text": "x" * 40_000}), Text)
 
     def test_a_media_type_a_terminal_cannot_show_says_what_to_do_instead(self) -> None:
         note = media.unsupported("video/mp4", 4096)
@@ -975,6 +1026,50 @@ class TestTheInterface:
         assert handed[0].suffix == ".pdf", f"{handed[0].name} would open in a text editor"
         assert handed[0].read_bytes().startswith(b"%PDF")
 
+    async def test_markup_opens_on_its_extracted_text_and_says_what_was_cut(self, html_brain: Path) -> None:
+        """An HTML page's source is the wrapper and its text is the content, so the pane opens on the text --
+        capped, with a footer saying how much there is and which key shows the tags. Selecting a long page used
+        to hand the whole source to the highlighter on the event loop, which read as a hang."""
+        app = BrainBrowser(service_for(html_brain), brain=str(html_brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert app.selected is not None
+            pane = _pane(app, "preview")
+            assert "Parrafo 0 sobre colas de espera." in pane
+            assert "<div" not in pane
+            assert "Parrafo 2999" not in pane, "the whole text was laid out, so no cap applied"
+            assert "showing " in pane
+            assert f" of {theme.filesize(app.selected['normalized_view']['size'])}" in pane
+            assert "t original bytes" in pane
+
+    async def test_t_shows_the_source_and_t_again_the_text(self, html_brain: Path) -> None:
+        app = BrainBrowser(service_for(html_brain), brain=str(html_brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            await pilot.press("t")
+            await _settle(pilot)
+            source = _pane(app, "preview")
+            assert "<div" in source
+            assert "t text view" in source
+            await pilot.press("t")
+            await _settle(pilot)
+            again = _pane(app, "preview")
+            assert "<div" not in again
+            assert "t original bytes" in again
+
+
+@pytest.fixture
+def html_brain(tmp_path: Path) -> Path:
+    """A brain holding one HTML page long enough to pass every preview cap, with the text view the default
+    pipeline extracts from it."""
+    root = tmp_path / "html"
+    assert main(["--brain", str(root), "--actor", "t@e.st", "brain", "init"]) == ExitCode.OK
+    page = tmp_path / "clase.html"
+    body = "".join(f"<div><p>Parrafo {i} sobre colas de espera.</p></div>" for i in range(3000))
+    page.write_text(f"<html><body>{body}</body></html>", encoding="utf-8")
+    assert main(["--brain", str(root), "source", "register", str(page), "--media-type", "text/html"]) == ExitCode.OK
+    return root
+
 
 DRAWING = b"trayectoria dibujada: una elipse alrededor del equilibrio"
 """What the derived block's named bytes say, distinctive enough to be asserted on in a rendered pane."""
@@ -1312,10 +1407,10 @@ async def _settle(pilot: Any, ticks: int = 25) -> None:
     pane that had not been filled yet. Polled rather than slept on a fixed duration, because the duration
     depends on how fast the store is.
 
-    The filter is the one thing that is neither immediate nor a worker: typing arms a debounce timer, and the
-    reload it triggers only becomes a worker when the timer fires. Settling has to outlast the timer too, or a key
-    pressed after "filtering" acts on the rows the filter was about to hide -- which is what an export of the wrong
-    block looked like.
+    The filter and the selection are neither immediate nor a worker: typing or moving the cursor arms a debounce
+    timer, and the read it triggers only becomes a worker when the timer fires. Settling has to outlast the timers
+    too, or a key pressed after "filtering" acts on the rows the filter was about to hide -- which is what an export
+    of the wrong block looked like -- and a pane read after selecting still says "reading...".
 
     Args:
         pilot (Any): Textual's pilot.
@@ -1323,7 +1418,8 @@ async def _settle(pilot: Any, ticks: int = 25) -> None:
     """
     for _ in range(ticks):
         await pilot.pause(0.05)
-        debouncing = getattr(pilot.app, "_filter_timer", None) is not None
+        pending = ("_filter_timer", "_select_timer", "_land_timer")
+        debouncing = any(getattr(pilot.app, name, None) is not None for name in pending)
         idle = not pilot.app.workers or all(not worker.is_running for worker in pilot.app.workers)
         if idle and not debouncing:
             await pilot.pause(0.05)
@@ -1354,23 +1450,31 @@ def _pane(app: BrainBrowser, name: str) -> str:
     Returns:
         str: What it says, without styling.
     """
-    from rich.console import Console
     from textual.widgets import Static
 
-    widget = app.query_one(f"#{name}", Static)
-    console = Console(width=200, no_color=True, theme=theme.THEME)
-    with console.capture() as captured:
-        console.print(widget.content)
-    return captured.get()
+    return _plain(app.query_one(f"#{name}", Static).content)
 
 
 def _screen_pane(app: BrainBrowser, name: str) -> str:
     """Render a Static held by the currently pushed screen."""
-    from rich.console import Console
     from textual.widgets import Static
 
-    widget = app.screen.query_one(f"#{name}", Static)
+    return _plain(app.screen.query_one(f"#{name}", Static).content)
+
+
+def _plain(renderable: Any) -> str:
+    """
+    What a renderable says, without styling.
+
+    Args:
+        renderable (Any): Anything Rich can print.
+
+    Returns:
+        str: Its text, laid out on a wide console under the house theme so that no style name is missing.
+    """
+    from rich.console import Console
+
     console = Console(width=200, no_color=True, theme=theme.THEME)
     with console.capture() as captured:
-        console.print(widget.content)
+        console.print(renderable)
     return captured.get()
