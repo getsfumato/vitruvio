@@ -171,3 +171,37 @@ class TestProbe:
         outcome = self._probe(Client())
         assert outcome["reachable"] is False
         assert "connection refused" in outcome["detail"]
+
+
+class TestAttribution:
+    def test_registered_evidence_and_declared_catalogs_are_attributed(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        source = service.register(source_file, media_type="text/markdown")["block_id"]
+        service.catalog_apply(
+            {
+                "schema": "vitruvio.catalog/v1",
+                "schemes": [{"name": "topic"}],
+                "classes": [{"scheme": "topic", "label": "Science"}],
+                "placements": [{"source": source, "classes": ["topic/Science"]}],
+            }
+        )
+        (item,) = by_code(service.doctor(), "blocks.unattributed")
+        assert item["severity"] == "ok"
+        assert item["data"]["attributed"] == 4
+
+    def test_a_block_no_record_names_is_a_warning_with_the_module_that_holds_it(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """The words a reader gets for such a block are the words a genuinely unknown creator gets."""
+        from boltzmann.blocks.memory_type import MemoryType
+        from boltzmann.catalog import SchemeDeclaration
+
+        service.register(source_file, media_type="text/markdown")
+        with service.session.write() as writable:
+            writable._write(blocks={MemoryType.SEMANTIC: [SchemeDeclaration(scheme="topic").to_block()]}, provenance=[])
+
+        (item,) = by_code(service.doctor(), "blocks.unattributed")
+        assert item["severity"] == "warn"
+        assert item["data"] == {"unattributed": {"semantic": 1}}
+        assert "catalog apply" in item["remedy"]

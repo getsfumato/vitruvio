@@ -186,7 +186,9 @@ class CatalogOps:
         """Validate and atomically apply one ``vitruvio.catalog/v1`` manifest.
 
         Any non-duplicate rejection aborts the whole manifest. Duplicate declarations are
-        harmless and make applying the same file idempotent.
+        harmless and make applying the same file idempotent -- and they are how an older brain is
+        repaired: a declaration that already exists without the provenance a catalog block carries
+        receives it, and ``repaired`` lists those blocks.
         """
         with translated():
             typed = CatalogManifest.model_validate(manifest)
@@ -240,6 +242,7 @@ class CatalogOps:
             "clean": not fatal,
             "dry_run": dry_run,
             "applied": False,
+            "repaired": [],
             "snapshot": str(brain.snapshot().digest),
             "verdicts": [verdict.model_dump(mode="json") for verdict in verdicts],
         }
@@ -252,6 +255,7 @@ class CatalogOps:
                 applied=any(verdict.status is ValidationStatus.VALIDATED for verdict in result.verdicts),
                 snapshot=str(result.commit.snapshot.digest),
                 verdicts=[verdict.model_dump(mode="json") for verdict in result.verdicts],
+                repaired=[str(identity) for identity in result.repaired],
             )
         return payload
 

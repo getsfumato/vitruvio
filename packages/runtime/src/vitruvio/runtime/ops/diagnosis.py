@@ -83,6 +83,11 @@ CHECKS: tuple[Check, ...] = (
         "blocks",
         "nothing to fix: redaction is lawful; `vitruvio inspect resolvability` lists them",
     ),
+    Check(
+        "blocks.unattributed",
+        "attribution",
+        "re-apply the catalog manifest with `vitruvio catalog apply`; `vitruvio inspect blocks MODULE` names them",
+    ),
     Check("indices.unbuilt", "indices", "run `vitruvio index build`"),
     Check("indices.stale", "indices", "run `vitruvio index build`"),
     Check(
@@ -231,6 +236,7 @@ class DiagnosisOps:
                 ("brain.integrity", self._integrity),
                 ("modules.installed", self._modules),
                 ("blocks.missing", self._blocks),
+                ("blocks.unattributed", self._attribution),
                 ("indices.stale", self._indices),
             )
             for code, probe in probes:
@@ -349,6 +355,67 @@ class DiagnosisOps:
                 row("blocks.missing", OK, f"every named block resolves ({resolvable})", data={"resolvable": resolvable})
             )
         return rows
+
+    def _attribution(self) -> list[dict[str, Any]]:
+        """
+        Every block names who created it, or the ledger has a hole a reader will mistake for an answer.
+
+        A creation record is a registration or a derivation naming the block. A block with neither reads as
+        "unknown" in every list and as "no creation provenance names this block" in the audit -- the same words
+        a genuinely unattributed block would get, which is why it is a finding and not a curiosity. Catalog
+        structure committed before pyboltzmann 0.9.1 is the known case, and re-applying the manifest is its remedy.
+        """
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.runtime.assembly import Capability
+        from vitruvio.runtime.authorship import CREATION_RECORDS
+        from vitruvio.runtime.provenance import decode_record
+
+        brain = self.session.brain(Capability.INSPECT)
+        installed = brain.snapshot().installed
+        created: set[str] = set()
+        if MemoryType.PROVENANCE in installed:
+            provenance = brain.module(MemoryType.PROVENANCE)
+            readable = provenance.resolvable()
+            for identity in provenance.block_ids:
+                if not readable.get(identity, True):
+                    continue
+                record = decode_record(provenance.get(identity))
+                if record is None or record.get("record_type") not in CREATION_RECORDS:
+                    continue
+                subject = record.get("block")
+                if isinstance(subject, str):
+                    created.add(subject)
+
+        unattributed: dict[str, int] = {}
+        attributed = 0
+        for memory_type in installed:
+            if memory_type is MemoryType.PROVENANCE:
+                continue
+            module = brain.module(memory_type)
+            readable = module.resolvable()
+            for identity in module.block_ids:
+                if not readable.get(identity, True):
+                    continue
+                if str(identity) in created:
+                    attributed += 1
+                else:
+                    unattributed[memory_type.value] = unattributed.get(memory_type.value, 0) + 1
+
+        if unattributed:
+            total = sum(unattributed.values())
+            detail = (
+                f"{total} blocks name no creator -- no registration or derivation record: {_per_module(unattributed)}"
+            )
+            return [row("blocks.unattributed", WARN, detail, data={"unattributed": unattributed})]
+        return [
+            row(
+                "blocks.unattributed",
+                OK,
+                f"every block names who created it ({attributed})",
+                data={"attributed": attributed},
+            )
+        ]
 
     def _indices(self) -> list[dict[str, Any]]:
         """

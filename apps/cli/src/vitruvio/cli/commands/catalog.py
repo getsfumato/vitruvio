@@ -35,6 +35,7 @@ def _emit_apply(document: dict[str, Any], *, dry_run: bool) -> ExitCode:
             ("snapshot", render.digest(result["snapshot"])),
             ("declarations", len(result["verdicts"])),
             ("not applied", len(rejected)),
+            ("repaired", len(result.get("repaired") or ())),
         ]
     )
     if not result["clean"]:

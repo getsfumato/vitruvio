@@ -34,6 +34,7 @@ def test_a_manifest_is_atomic_navigable_and_idempotent(service: BrainService, so
     applied = service.catalog_apply(manifest(source))
     assert applied["clean"] is True
     assert applied["applied"] is True
+    assert applied["repaired"] == []
     assert service.catalog_browse(["topic/Science"])["sources"] == [source]
     assert service.catalog_path(["topic"], "")["directories"] == ["Mathematics", "Science"]
 
@@ -48,6 +49,41 @@ def test_a_manifest_is_atomic_navigable_and_idempotent(service: BrainService, so
     repeated = service.catalog_apply(manifest(source))
     assert repeated["clean"] is True
     assert repeated["applied"] is False
+    assert repeated["repaired"] == []
+
+
+def test_reapplying_a_manifest_repairs_declarations_committed_without_provenance(
+    service: BrainService, source_file: Path
+) -> None:
+    """The shape a brain written before pyboltzmann 0.9.1 holds: catalog structure with no record naming it."""
+    from boltzmann.blocks.memory_type import MemoryType
+    from boltzmann.catalog import ClassDeclaration, SchemeDeclaration
+
+    service.register(source_file, media_type="text/markdown")
+    scheme = SchemeDeclaration(scheme="topic", exclusive=True)
+    science = ClassDeclaration(scheme="topic", label="Science")
+    with service.session.write() as writable:
+        writable._write(blocks={MemoryType.SEMANTIC: [scheme.to_block(), science.to_block()]}, provenance=[])
+    before = next(row for row in service.blocks("semantic")["rows"] if row["block_id"] == str(science.block_id))
+    assert before["authorship"]["claims"] == []
+
+    structure = {
+        "schema": "vitruvio.catalog/v1",
+        "schemes": [{"name": "topic", "exclusive": True}],
+        "classes": [{"scheme": "topic", "label": "Science"}],
+    }
+    repaired = service.catalog_apply(structure)
+    assert repaired["clean"] is True
+    assert repaired["applied"] is False
+    assert set(repaired["repaired"]) == {str(scheme.block_id), str(science.block_id)}
+
+    after = next(row for row in service.blocks("semantic")["rows"] if row["block_id"] == str(science.block_id))
+    (claim,) = after["authorship"]["claims"]
+    assert claim["record_type"] == "registration"
+    assert claim["actor"]["id"] == "tester@example.com"
+
+    again = service.catalog_apply(structure)
+    assert again["repaired"] == []
 
 
 def test_an_invalid_manifest_commits_nothing(service: BrainService) -> None:
