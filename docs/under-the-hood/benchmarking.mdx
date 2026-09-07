@@ -47,9 +47,39 @@ machine is a hand edit for now.
 
 ## `inspect doctor`
 
-One command that answers "is anything about this brain going to disappoint me": stale indices, missing modules,
-model-tag mismatches, absent embedders, tombstoned blocks, an unreachable registry. Run it after a pull and before a
-publish.
+One command that answers "is anything about this brain going to disappoint me". Run it after a pull and before a
+publish. It reports rather than fixes, exits 0 whatever it finds, and every row carries a stable `code`, a `severity`
+of `ok`, `warn`, `fail` or `skip`, a `detail` for a person and a `remedy` when there is something to do. It never
+loads a model — index sidecars are read by their headers — and it never touches the network unless you pass
+`--registry`, which makes one read-only request; `--local DIR` points that request at a filesystem registry instead.
+
+The checks are declared once, in the runtime, and this table is tested against that declaration:
+
+| code | trips as | means | remedy |
+|---|---|---|---|
+| `env.extra.oras`, `env.extra.sentence_transformers`, `env.extra.pypdfium2`, `env.extra.keyring` | warn | an optional extra is not installed | install `pyboltzmann[oci]`, `vitruvio[local]`, `vitruvio[vision]`, `vitruvio[keyring]` |
+| `env.extra.usearch`, `env.extra.pyroaring` | fail | a dependency of `vitruvio-indices` is missing: the install is broken | reinstall `vitruvio-indices` |
+| `config.invalid` | fail | `vitruvio.toml` could not be loaded, so nothing below could be asked | `vitruvio config validate` names the field |
+| `config.actor` | warn | no actor is configured; every write is attributed, so writes will be refused | `vitruvio config set actor.id …`, or `--actor` |
+| `brain.layout` | fail | no brain is selected, or the selected path is not an OCI layout | `--brain PATH`, `vitruvio brain use PATH`, or `vitruvio brain init PATH` |
+| `brain.integrity` | fail | the module roots do not match the blocks | `vitruvio brain verify`; pull again from the origin |
+| `modules.installed` | warn | nothing is installed yet | `vitruvio source register FILE`, or `vitruvio dist pull` |
+| `modules.partial` | warn | a selective pull left the published modules it did not ask for behind | `vitruvio dist pull` without `--module` |
+| `blocks.missing` | fail | named blocks are absent from the store: a selective install, or corruption | `vitruvio dist pull` |
+| `blocks.tombstoned` | warn | blocks were redacted under policy; they are still verifiable members, and this is lawful | nothing; `vitruvio inspect resolvability` lists them |
+| `indices.unbuilt` | warn | a declared structural index has never been built | `vitruvio index build` |
+| `indices.stale` | warn | a sidecar describes a different composition than the one installed | `vitruvio index build` |
+| `indices.model_mismatch` | fail | a vector sidecar was built with an embedder other than the configured one, read from its header | configure that embedder, or `vitruvio index build --force` |
+| `embedder.unavailable` | fail | the configured embedder cannot be constructed on this machine | install its extra; `vitruvio config embedder list` names it |
+| `embedder.semantic` | warn | the configured embedder is `hashing` or `fake`: it ranks, and carries no meaning | set a real model under `[embedding.text]` |
+| `registry.reference` | warn | no registry is configured | set `[registry].reference` or `namespace` |
+| `registry.credentials` | warn | no credentials for the registry host; resolved offline, as `registry whoami` does | `vitruvio registry login HOST` |
+| `registry.reachable` | skip, or ok / fail with `--registry` | whether one manifest resolves | check host and network; `--insecure` for plain HTTP |
+| `cache.models` | ok | where the model cache is and what it costs | — |
+
+"Missing modules" is exactly two signals: `modules.installed` when the brain holds nothing, and `modules.partial` when
+it was pulled selectively. A vector sidecar that is absent is not reported: a module whose blocks project to nothing
+embeddable has none, and that is not a fault.
 
 ## Determinism, because retrieval bugs hide in iteration order
 

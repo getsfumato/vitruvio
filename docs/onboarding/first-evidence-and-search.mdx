@@ -34,8 +34,9 @@ vitruvio inspect doctor        # anything about this brain that is going to disa
 ```
 
 `browse` is the one command with no `--json`: it is an interface for a person. `brain state` is the one to run
-first in any new session. `inspect doctor` reports stale indices, missing modules, model-tag mismatches and an
-unreachable registry in one pass; run it after a pull and before a publish.
+first in any new session. `inspect doctor` reports stale or unbuilt indices, a partial install, a vector index built
+with another embedder, tombstoned or missing blocks and an embedder this build cannot run, in one offline pass — and
+with `--registry`, whether the registry answers. Run it after a pull and before a publish; every row says what to do.
 
 ## Where next
 

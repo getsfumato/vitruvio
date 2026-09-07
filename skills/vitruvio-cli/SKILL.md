@@ -273,7 +273,7 @@ you are parsing. `VITRUVIO_NO_UPDATE_CHECK=1` turns it off entirely.
 ### `inspect` — read-only questions
 | command | for |
 |---|---|
-| `inspect doctor` | the whole install: config, indices, embedders, what is missing |
+| `inspect doctor` | config, brain, blocks, indices, embedder and registry, each row with a `code`, a `severity` and a `remedy`. Offline; `--registry` probes the registry |
 | `inspect module KIND` | one module's shape and a sample of its blocks |
 | `inspect blocks KIND` | what the blocks *say*, one line each. `--contains`, `--limit`, `--offset` |
 | `inspect block ID` | one block without opening a query path |

@@ -98,7 +98,9 @@ consumer must reject it as firmly as a different model.
 
 A mismatched tag means the index is **never consulted**. Not degraded — *wrong*: the two spaces have no relationship,
 so the cosines would be noise that silently poisons fusion, which is worse than having no index at all. `explain` names
-which field differs.
+which field differs, `index verify` reports the sidecar as `model_mismatch` rather than as empty, and `inspect doctor`
+reads the tag from the sidecar header — so it says so even on a machine that cannot construct the embedder the index
+was built with.
 
 ## The embedding cache is not optional
 
