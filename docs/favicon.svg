@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="vitruvio">
-  <rect width="32" height="32" fill="#0b0908"/>
-  <rect x="3.056" y="5.611" width="25.889" height="25.889" fill="none" stroke="#cba053" stroke-opacity="0.28" stroke-width="1"/>
-  <circle cx="16" cy="16" r="15.5" fill="none" stroke="#cba053" stroke-opacity="0.55" stroke-width="1"/>
-  <path fill="#e9e1d1" d="M3.556 6.111L16 31L28.444 6.111H25.649L16 25.41L6.351 6.111Z"/>
-  <circle cx="16" cy="7.667" r="1.556" fill="#e9e1d1"/>
+  <rect x="3.056" y="5.361" width="25.889" height="25.889" fill="none" stroke="#cba053" stroke-width="1.5"/>
+  <circle cx="16" cy="16" r="15.25" fill="none" stroke="#cba053" stroke-width="1.5"/>
+  <path fill="#cba053" d="M3.806 6.111L16 30.5L28.194 6.111H24.84L16 23.792L7.16 6.111Z"/>
+  <circle cx="16" cy="7.636" r="1.524" fill="#cba053"/>
 </svg>
