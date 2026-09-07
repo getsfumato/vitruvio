@@ -186,7 +186,9 @@ class TestTheReadingCommands:
     def test_inspect_content_exports_the_bytes_a_block_names(
         self, brain: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "md"])
+        # Filtered on the file name rather than on `md`: a canonical row's title is its origin, the absolute path,
+        # and a temporary directory whose name happens to contain `md` matched both rows.
+        main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "apuntes"])
         row = json.loads(capsys.readouterr().out)["data"]["rows"][0]
         target = tmp_path / "salida.md"
         target.write_text("an explicit --out may replace this", encoding="utf-8")
@@ -515,7 +517,7 @@ class TestOpeningInTheDesktop:
 
         monkeypatch.setattr(desktop, "open_path", record)
 
-        main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "md"])
+        main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "apuntes"])
         row = json.loads(capsys.readouterr().out)["data"]["rows"][0]
         target = tmp_path / "abierto.md"
         code = main(
@@ -1306,13 +1308,20 @@ async def _settle(pilot: Any, ticks: int = 25) -> None:
     pane that had not been filled yet. Polled rather than slept on a fixed duration, because the duration
     depends on how fast the store is.
 
+    The filter is the one thing that is neither immediate nor a worker: typing arms a debounce timer, and the
+    reload it triggers only becomes a worker when the timer fires. Settling has to outlast the timer too, or a key
+    pressed after "filtering" acts on the rows the filter was about to hide -- which is what an export of the wrong
+    block looked like.
+
     Args:
         pilot (Any): Textual's pilot.
         ticks (int): How many short pauses to allow.
     """
     for _ in range(ticks):
         await pilot.pause(0.05)
-        if not pilot.app.workers or all(not worker.is_running for worker in pilot.app.workers):
+        debouncing = getattr(pilot.app, "_filter_timer", None) is not None
+        idle = not pilot.app.workers or all(not worker.is_running for worker in pilot.app.workers)
+        if idle and not debouncing:
             await pilot.pause(0.05)
             return
 

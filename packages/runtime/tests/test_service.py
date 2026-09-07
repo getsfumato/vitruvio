@@ -118,6 +118,40 @@ class TestRegistration:
         service.init()
         assert service.verify()["verified"] is True
 
+    def test_markdown_registers_with_the_suggested_view_by_default(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """The documented first-user flow -- register, index, search -- found nothing: `register` ran no pipeline
+        unless named one, while `ingest run` picked the one suggested for the media type. One policy now."""
+        result = service.register(source_file, media_type="text/markdown")
+        assert result["pipeline"] == "markdown"
+        assert service.resolve(result["block_id"])["payload"]["normalized_view"] is not None
+
+    def test_none_registers_the_bytes_without_a_view(self, service: BrainService, source_file: Path) -> None:
+        result = service.register(source_file, media_type="text/markdown", normalize_with="none")
+        assert result["pipeline"] is None
+        assert service.resolve(result["block_id"])["payload"].get("normalized_view") is None
+
+    def test_implicit_and_explicit_pipelines_yield_one_identity(self, service: BrainService, source_file: Path) -> None:
+        first = service.register(source_file, media_type="text/markdown")
+        second = service.register(source_file, media_type="text/markdown", normalize_with="markdown")
+        assert second["block_id"] == first["block_id"]
+        assert second["duplicate"] is True
+
+    def test_a_different_pipeline_is_a_different_block(self, service: BrainService, source_file: Path) -> None:
+        """The view is part of the identity, so the same bytes with no view are a second block, not a duplicate."""
+        with_view = service.register(source_file, media_type="text/markdown")
+        without = service.register(source_file, media_type="text/markdown", normalize_with="none")
+        assert without["block_id"] != with_view["block_id"]
+        assert without["duplicate"] is False
+
+    def test_replace_applies_the_same_default(self, service: BrainService, source_file: Path, tmp_path: Path) -> None:
+        first = service.register(source_file, media_type="text/markdown")
+        newer = tmp_path / "second.md"
+        newer.write_text("# Segunda edicion\n", encoding="utf-8")
+        result = service.replace(newer, supersedes=first["block_id"], media_type="text/markdown")
+        assert result["pipeline"] == "markdown"
+
 
 class TestInspection:
     def test_resolvability_is_intact_for_a_freshly_written_brain(
@@ -150,8 +184,27 @@ class TestSearch:
         service.register(source_file, media_type="text/markdown")
         bundle = service.search("fourier")
         assert "answer" not in bundle
+        assert bundle["matches"], "a bundle with the right shape and no matches is what issue #52 looked like"
         assert bundle["all_verified"] is True
         assert isinstance(bundle["verified_against"], dict)
+
+    def test_registered_markdown_is_found_by_its_content_without_an_index(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """Issue #52: the exhaustive scan is the plan a small brain gets, and it used to read only the media type."""
+        registered = service.register(source_file, media_type="text/markdown")
+        found = {match["block_id"] for match in service.search("fourier")["matches"]}
+        assert registered["block_id"] in found
+
+    def test_registered_markdown_is_found_by_its_content_after_an_index_build(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """Every generator observes the same text, so the answer does not depend on which one the planner picks."""
+        registered = service.register(source_file, media_type="text/markdown")
+        service.index_build()
+        for kwargs in ({}, {"mode": "lexical"}, {"memory_types": ["canonical"]}):
+            found = {match["block_id"] for match in service.search("fourier", **kwargs)["matches"]}
+            assert registered["block_id"] in found, kwargs
 
     def test_no_match_is_an_answer_rather_than_an_error(self, service: BrainService) -> None:
         bundle = service.search("something this brain has never held")

@@ -12,6 +12,7 @@ from typing import Any
 
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import wire
+from vitruvio.runtime.coerce import pipeline as coerce_pipeline
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
 
@@ -53,13 +54,17 @@ class RegistrationOps:
             origin (str | None): Where it came from.
             license_id (str | None): Under what licence it is held.
             retention_policy (str | None): Under what retention policy.
-            normalize_with (str | None): A normalization pipeline to produce a deterministic view.
+            normalize_with (str | None): A normalization pipeline to produce a deterministic view. ``None`` applies
+                the one suggested for the media type; ``none`` registers the bytes with no view. The view is part of
+                the block's identity, so the same bytes under a different pipeline are a different block.
 
         Returns:
-            dict[str, Any]: The block's identity, whether it was a duplicate, and the new version.
+            dict[str, Any]: The block's identity, whether it was a duplicate, the new version, and the pipeline that
+            ran -- ``None`` when no view was produced.
         """
         from boltzmann.ingest.register import RegistrationRequest
 
+        pipeline = coerce_pipeline(normalize_with, media_type)
         with self.session.write() as brain, translated():
             data = path.read_bytes()
             request = RegistrationRequest(
@@ -68,9 +73,9 @@ class RegistrationOps:
                 origin=origin or str(path),
                 license=license_id,
                 retention_policy=retention_policy,
-                normalize_with=normalize_with,
+                normalize_with=pipeline,
             )
-            return wire.registration(brain.register(data, request))
+            return {**wire.registration(brain.register(data, request)), "pipeline": pipeline}
 
     def replace(
         self,
@@ -94,24 +99,27 @@ class RegistrationOps:
             media_type (str): What the bytes are.
             origin (str | None): Where it came from.
             license_id (str | None): Under what licence.
-            normalize_with (str | None): A normalization pipeline.
+            normalize_with (str | None): A normalization pipeline, under the same policy as :meth:`register`: the
+                suggested one when nothing is said, none for ``none``. A newer edition without a view while the old
+                one had one would be a regression of the very thing the view exists for.
 
         Returns:
-            dict[str, Any]: The new block's identity and the version this produced.
+            dict[str, Any]: The new block's identity, the version this produced, and the pipeline that ran.
         """
         from boltzmann.identity.digest import BlockId
         from boltzmann.ingest.register import RegistrationRequest
 
+        pipeline = coerce_pipeline(normalize_with, media_type)
         with self.session.write() as brain, translated():
             request = RegistrationRequest(
                 media_type=media_type,
                 actor=self.config.actor(),
                 origin=origin or str(path),
                 license=license_id,
-                normalize_with=normalize_with,
+                normalize_with=pipeline,
             )
             result = brain.replace(path.read_bytes(), request, BlockId.parse(supersedes))
-            return {**wire.registration(result), "supersedes": supersedes}
+            return {**wire.registration(result), "supersedes": supersedes, "pipeline": pipeline}
 
     def put_content(self, path: Path, *, media_type: str) -> dict[str, Any]:
         """

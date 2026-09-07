@@ -96,9 +96,12 @@ class TestBlocks:
     def test_a_provenance_row_is_named_by_the_record_it_holds(
         self, service: BrainService, registered: dict[str, str]
     ) -> None:
-        """A provenance block has no name of its own: what identifies it is the kind of record it is."""
+        """A provenance block has no name of its own: what identifies it is the kind of record it is.
+
+        Two kinds here: registering a Markdown file also produces its normalized view, and the view is recorded.
+        """
         titles = {row["title"] for row in service.blocks("provenance")["rows"]}
-        assert titles == {"registration"}
+        assert titles == {"registration", "normalization"}
         assert all(row["authorship"]["applicable"] is False for row in service.blocks("provenance")["rows"])
 
     def test_an_unlabelled_semantic_relation_is_named_by_its_predicate(self) -> None:
@@ -268,9 +271,11 @@ class TestRelated:
     ) -> None:
         registration = service.register(source_file, media_type="text/markdown")
         result = service.related(registration["block_id"])
-        assert result["count"] == 1
-        assert result["records"][0]["record"]["record_type"] == "registration"
-        assert result["records"][0]["record"]["block"] == registration["block_id"]
+        # Two records name the block: its registration, and the normalization that produced its view.
+        assert result["count"] == 2
+        by_type = {item["record"]["record_type"]: item["record"] for item in result["records"]}
+        assert set(by_type) == {"registration", "normalization"}
+        assert by_type["registration"]["block"] == registration["block_id"]
         assert result["count_exact"] is True
 
     def test_related_uses_the_subject_index_when_one_is_available(

@@ -25,14 +25,18 @@ from vitruvio.runtime.vouch import VOUCHED_ATTRIBUTE, supported, vouch_travellin
 
 @pytest.fixture
 def populated(tmp_path: Path, source_file: Path) -> BrainService:
-    """A brain holding one committed semantic block, which is the least that projects to a vector."""
+    """A brain holding one committed semantic block, which is the least that projects to a vector.
+
+    The canonical block is registered with no view on purpose: `register` now normalises by media type, and a view is
+    text, and text embeds. These tests are about a canonical module that projects to *nothing*.
+    """
     from boltzmann.blocks.memory_type import MemoryType
     from boltzmann.identity.digest import BlockId
     from boltzmann.ingest.proposer import Candidate, CandidateSet
 
     service = BrainService(resolve(brain=tmp_path / "brain", actor_id="tester@example.com", require_layout=False))
     service.init()
-    registered = service.register(source_file, media_type="text/markdown")
+    registered = service.register(source_file, media_type="text/markdown", normalize_with="none")
 
     brain = service.brain(Capability.WRITE)
     source = BlockId.parse(registered["block_id"])
