@@ -9,6 +9,11 @@
     "dark": "#946712"
   },
   "favicon": "/favicon.svg",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg",
+    "href": "https://vitruvio.sh"
+  },
   "background": {
     "color": {
       "light": "#ffffff",

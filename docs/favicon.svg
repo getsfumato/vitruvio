@@ -1,19 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
-  <rect width="16" height="16" fill="#0b0908"/>
-  <!-- pixel V on the same 2px grid as sfumato's S, so the two favicons read as a
-       pair in a tab strip. Twelve units wide and twelve tall, symmetric about x=8;
-       the apex is one block so it stays a point rather than a notch at 16px -->
-  <g fill="#cba053">
-    <rect x="2"  y="1"  width="2" height="2"/>
-    <rect x="12" y="1"  width="2" height="2"/>
-    <rect x="3"  y="3"  width="2" height="2"/>
-    <rect x="11" y="3"  width="2" height="2"/>
-    <rect x="4"  y="5"  width="2" height="2"/>
-    <rect x="10" y="5"  width="2" height="2"/>
-    <rect x="5"  y="7"  width="2" height="2"/>
-    <rect x="9"  y="7"  width="2" height="2"/>
-    <rect x="6"  y="9"  width="2" height="2"/>
-    <rect x="8"  y="9"  width="2" height="2"/>
-    <rect x="7"  y="11" width="2" height="2"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="vitruvio">
+  <rect width="32" height="32" fill="#0b0908"/>
+  <rect x="3.056" y="5.611" width="25.889" height="25.889" fill="none" stroke="#cba053" stroke-opacity="0.28" stroke-width="1"/>
+  <circle cx="16" cy="16" r="15.5" fill="none" stroke="#cba053" stroke-opacity="0.55" stroke-width="1"/>
+  <path fill="#e9e1d1" d="M3.556 6.111L16 31L28.444 6.111H25.649L16 25.41L6.351 6.111Z"/>
+  <circle cx="16" cy="7.667" r="1.556" fill="#e9e1d1"/>
 </svg>

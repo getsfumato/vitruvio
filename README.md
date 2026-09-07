@@ -1,4 +1,7 @@
-# vitruvio
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/dark.svg">
+  <img alt="vitruvio" src="docs/logo/light.svg" height="48">
+</picture>
 
 Vitruvio is the runtime for a [Boltzmann brain](https://github.com/gaussia-labs/papers): portable, verifiable,
 model-agnostic knowledge that any model can read and none of them owns. The brain keeps the evidence and everything
