@@ -115,6 +115,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
     ),
     OperationDomain("vitruvio.runtime.ops.benchmarking", "BenchmarkOps", "benchmark_ops", ("bench",)),
     OperationDomain("vitruvio.runtime.ops.embedders", "EmbedderOps", "embedder_ops", ("embedders", "test_embedder")),
+    OperationDomain("vitruvio.runtime.ops.diagnosis", "DiagnosisOps", "diagnosis_ops", ("doctor",)),
     OperationDomain(
         "vitruvio.runtime.ops.projects", "ProjectOps", "project_ops", ("project", "add_brain", "remove_brain")
     ),

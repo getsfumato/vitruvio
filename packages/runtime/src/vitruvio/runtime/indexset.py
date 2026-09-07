@@ -17,11 +17,15 @@ so neither is the right place to put it, and having one call the other would be 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.indices.base import Index
 
 from vitruvio.kernel import ResolvedConfig
+
+if TYPE_CHECKING:
+    from vitruvio.indices.format import Header
 
 
 def indices_home(config: ResolvedConfig) -> Path:
@@ -38,14 +42,41 @@ def indices_home(config: ResolvedConfig) -> Path:
     return config.derived / "indices"
 
 
+def sidecar_headers(config: ResolvedConfig) -> list[tuple[Path, Header]]:
+    """
+    Every index sidecar on disk, with its header and nothing else read.
+
+    No embedder is constructed and no model is loaded: the header carries the kind, the module, the root it was built
+    against, the population and the model tag, which is everything needed to answer "would a publish include this",
+    "does this describe the installed composition" and "was this built with the configured embedder". That is why
+    this reads files rather than going through :func:`index_set` -- building the set to answer a question about it
+    would construct the engine the question is trying to avoid, and would refuse the very sidecar a mismatch check
+    wants to report.
+
+    A file that is not a readable sidecar is skipped rather than raised on: the question is about what is there.
+
+    Args:
+        config (ResolvedConfig): The resolved configuration.
+
+    Returns:
+        list[tuple[Path, Header]]: Each sidecar's path and header, in path order.
+    """
+    from vitruvio.indices import format as envelope
+
+    found: list[tuple[Path, Header]] = []
+    for path in sorted(indices_home(config).glob(f"*{envelope.SUFFIX}")):
+        try:
+            read = envelope.read(path)
+        except envelope.IndexFormatError:
+            continue
+        if read is not None:
+            found.append((path, read[0]))
+    return found
+
+
 def travelling_on_disk(config: ResolvedConfig) -> list[str]:
     """
     Which modules have a non-empty vector index persisted, by reading the sidecar headers.
-
-    No embedder is constructed and no model is loaded: the header carries the population and the model tag, which
-    is everything needed to answer "would a publish include this". That is why this reads files rather than going
-    through :func:`index_set` -- building the set to answer a question about it would construct the engine the
-    question is trying to avoid.
 
     Args:
         config (ResolvedConfig): The resolved configuration.
@@ -53,17 +84,9 @@ def travelling_on_disk(config: ResolvedConfig) -> list[str]:
     Returns:
         list[str]: Memory types with a non-empty vector index on disk.
     """
-    from vitruvio.indices import format as envelope
-
-    found: list[str] = []
-    for path in sorted(indices_home(config).glob("*.vector.vidx")):
-        try:
-            read = envelope.read(path)
-        except envelope.IndexFormatError:
-            continue
-        if read is not None and read[0].population:
-            found.append(read[0].memory_type)
-    return found
+    return [
+        header.memory_type for _, header in sidecar_headers(config) if header.kind == "vector" and header.population
+    ]
 
 
 def index_set(config: ResolvedConfig) -> dict[MemoryType, list[Index]]:

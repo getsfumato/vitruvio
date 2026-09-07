@@ -11,6 +11,7 @@ from vitruvio.runtime.ops.benchmarking import BenchmarkOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.catalog import CatalogOps
 from vitruvio.runtime.ops.compound import CompoundOps
+from vitruvio.runtime.ops.diagnosis import DiagnosisOps
 from vitruvio.runtime.ops.embedders import EmbedderOps
 from vitruvio.runtime.ops.indices import IndexOps
 from vitruvio.runtime.ops.inspection import InspectionOps
@@ -649,6 +650,17 @@ class GeneratedFacade:
 
         See :meth:`vitruvio.runtime.ops.embedders.EmbedderOps.test_embedder`."""
         return self.embedder_ops.test_embedder(which=which, text=text)
+
+    @cached_property
+    def diagnosis_ops(self) -> DiagnosisOps:
+        """The DiagnosisOps operations."""
+        return DiagnosisOps(self.session)
+
+    def doctor(self, *, registry: bool = False, local: Path | None = None, anonymous: bool = False) -> dict[str, Any]:
+        """Everything about this environment and this brain that would disappoint somebody, as rows.
+
+        See :meth:`vitruvio.runtime.ops.diagnosis.DiagnosisOps.doctor`."""
+        return self.diagnosis_ops.doctor(registry=registry, local=local, anonymous=anonymous)
 
     @cached_property
     def project_ops(self) -> ProjectOps:
