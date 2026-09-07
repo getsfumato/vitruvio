@@ -185,9 +185,9 @@ registered. What is bounded is the drawing.
 
 To actually read it, in order of usefulness:
 
-- **`t`** — the normalized text view, if the block has one. Real text, reflowable and searchable. A PDF only has
-  one when it was registered with `--normalize-with pdf-text`, or through `ingest run`; a plain
-  `source register file.pdf` stores the bytes and extracts nothing.
+- **`t`** — the normalized text view, if the block has one. Real text, reflowable and searchable. A PDF gets one
+  when `pdf-text` could run — the `[vision]` extra is installed, or `--normalize-with pdf-text` was named; a
+  `source register file.pdf` without either stores the bytes and extracts nothing.
 - **`o`**, or `inspect content DIGEST --open` — hands the bytes to whatever this desktop opens PDFs with, at full
   resolution. Not a web browser: `open`, `xdg-open` or `startfile`, so a video goes to a player and a spreadsheet
   to a spreadsheet program. The temporary file is named after the origin, so the viewer's title bar says

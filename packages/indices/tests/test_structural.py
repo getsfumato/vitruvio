@@ -122,6 +122,17 @@ class TestProjection:
         assert with_reader.embed_text is not None
         assert "Fourier" in with_reader.embed_text
 
+    def test_the_projected_text_is_a_superset_of_the_sdk_searchable_text(
+        self, canonical: CanonicalBlock, content: MemoryContent
+    ) -> None:
+        """What the module docstring claims, asserted: nothing the SDK's scan sees is lost, and the view is added."""
+        from boltzmann.query.scan import searchable_text
+
+        text = project(canonical, content).text
+        for fragment in searchable_text(canonical):
+            assert fragment in text
+        assert "Fourier" in text
+
     def test_an_unreadable_view_does_not_fail_the_projection(
         self, canonical: CanonicalBlock, empty_content: MemoryContent
     ) -> None:

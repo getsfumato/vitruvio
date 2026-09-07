@@ -248,9 +248,9 @@ class TestOrasIsolation:
 def published(tmp_path: Path, source_file: Path) -> tuple[Path, str]:
     """A brain with canonical evidence, derived semantic knowledge, indices, and a published artifact.
 
-    Semantic blocks matter here: a canonical block carries no text until a normalization pipeline produces a view, so
-    a brain of canonical blocks alone has nothing embeddable and no vector index to publish. The interesting
-    assertions are about the index that travels.
+    Semantic blocks matter here: they are derived knowledge, and the interesting assertions are about the index that
+    travels with them. The canonical block embeds too -- `register` produces a Markdown view by default -- but nothing
+    below depends on it.
 
     Module level rather than inside one class, because two classes need it -- and a class-scoped fixture reached from
     a second class fails as "fixture 'published' not found", which reads like a typo rather than like a scope.
@@ -486,8 +486,9 @@ class TestLocalRoundTrip:
         result = consumer.pull(reference, tag="v1", ignore_vector_indices=True, local=registry_root)
 
         assert plan["fetch_vector_indices"] == []
-        assert plan["ignored_vector_indices"] == ["semantic"]
-        assert result["ignored_vector_indices"] == ["semantic"]
+        # Both modules travel a vector index now: the canonical block's Markdown view embeds, as the semantic block does.
+        assert plan["ignored_vector_indices"] == ["canonical", "semantic"]
+        assert result["ignored_vector_indices"] == ["canonical", "semantic"]
         assert result["partial"] is False
         assert consumer.verify()["verified"] is True
         assert set(consumer.state()["installed"]) == {"canonical", "semantic", "provenance"}

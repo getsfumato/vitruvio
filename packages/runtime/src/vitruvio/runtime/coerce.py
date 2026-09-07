@@ -43,6 +43,46 @@ def memory_type(value: str) -> MemoryType:
         raise VitruvioError(f"{value!r} is not a memory type; expected one of: {permitted}") from error
 
 
+NO_NORMALIZATION = "none"
+"""The spelling that asks for no normalized view: ``--normalize-with none``.
+
+A sentinel because ``None`` already means something else -- nothing said, so pick the pipeline that suits the media
+type -- and because the SDK refuses an empty pipeline name rather than reading it as "no pipeline". The word cannot
+collide with a real pipeline: none is registered under it, and none could be, since the SDK's registry rejected the
+name before this constant existed.
+"""
+
+
+def pipeline(value: str | None, media_type: str) -> str | None:
+    """
+    The normalization pipeline a registration should run, from what the caller said and what the bytes are.
+
+    One policy for ``source register``, ``source replace`` and ``ingest run``, which used to disagree: the first two
+    ran no pipeline unless named one, the third picked the one suggested for the media type. A Markdown file
+    registered by the documented first-user flow therefore had no view, and no view is no searchable text -- the
+    evidence was preserved and looked absent.
+
+    Args:
+        value (str | None): What ``--normalize-with`` said. ``None`` means nothing was said; the pipeline suggested
+            for the media type applies (``markdown`` for text/markdown, ``text`` for text/plain, ``pdf-text`` for a
+            PDF when the ``[vision]`` extra is present), and none when none suits, as for a raster image. ``none``,
+            or an empty string, means no view: the original bytes and nothing else. Anything else names a pipeline,
+            and the SDK refuses a name it does not know.
+        media_type (str): What the bytes are.
+
+    Returns:
+        str | None: The pipeline to run, or ``None`` for no view.
+    """
+    if value is None:
+        from vitruvio.ingest import suggest
+
+        return suggest(media_type)
+    spelled = value.strip()
+    if not spelled or spelled.casefold() == NO_NORMALIZATION:
+        return None
+    return spelled
+
+
 def block_id(value: str) -> BlockId:
     """Parse a block identity, reporting a malformed one as a usage error rather than a protocol failure."""
     with translated():

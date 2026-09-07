@@ -74,8 +74,11 @@ def register(
     retention_policy
         Under what retention policy it is held.
     normalize_with
-        A normalization pipeline to produce a deterministic view, e.g. text extraction from a PDF. The view is
-        canonical too: it is still evidence for ingestion, not consolidated knowledge.
+        A normalization pipeline to produce a deterministic view, e.g. text extraction from a PDF. Defaults to the
+        pipeline that suits the media type -- `markdown` for text/markdown, `text` for text/plain, `pdf-text` for a
+        PDF when the `[vision]` extra is installed; `vitruvio ingest pipelines` lists them. Pass `none` to keep only
+        the original bytes. The view is what search reads, and it is part of the block's identity. It is canonical
+        too: still evidence for ingestion, not consolidated knowledge.
     """
     console = current().console
     file = _require_file(path)
@@ -99,6 +102,7 @@ def register(
         [
             ("block", render.digest(result["block_id"], full=True)),
             ("snapshot", render.digest(result["snapshot"])),
+            ("view", result["pipeline"] or "none"),
         ]
     )
     return console.emit("source.register", result, view=view)
@@ -133,7 +137,8 @@ def replace(
     license_id
         Under what licence.
     normalize_with
-        A normalization pipeline.
+        A normalization pipeline. Defaults to the one that suits the media type, as `register` does; pass `none`
+        to keep only the original bytes.
     """
     console = current().console
     file = _require_file(path)
@@ -155,6 +160,7 @@ def replace(
             ("block", render.digest(result["block_id"], full=True)),
             ("supersedes", render.digest(result["supersedes"], full=True)),
             ("snapshot", render.digest(result["snapshot"])),
+            ("view", result["pipeline"] or "none"),
         ]
     )
     return console.emit("source.replace", result, view=view)

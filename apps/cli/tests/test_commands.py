@@ -166,6 +166,23 @@ class TestSource:
         _, block = envelope(capsys, "--brain", str(brain), "inspect", "block", registered["data"]["block_id"])
         assert block["data"]["payload"]["media_type"] == "text/markdown"
 
+    def test_register_defaults_the_pipeline_from_the_media_type(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path
+    ) -> None:
+        """The policy `ingest run` always had: a Markdown file gets the `markdown` view without being asked."""
+        _, registered = envelope(capsys, "--brain", str(brain), "source", "register", str(source))
+        assert registered["data"]["pipeline"] == "markdown"
+        _, block = envelope(capsys, "--brain", str(brain), "inspect", "block", registered["data"]["block_id"])
+        assert block["data"]["payload"]["normalized_view"]["media_type"].startswith("text/")
+
+    def test_none_registers_without_a_view(self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path) -> None:
+        _, registered = envelope(
+            capsys, "--brain", str(brain), "source", "register", str(source), "--normalize-with", "none"
+        )
+        assert registered["data"]["pipeline"] is None
+        _, block = envelope(capsys, "--brain", str(brain), "inspect", "block", registered["data"]["block_id"])
+        assert block["data"]["payload"].get("normalized_view") is None
+
     def test_a_declared_media_type_wins_over_the_guess(
         self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path
     ) -> None:
@@ -460,6 +477,23 @@ class TestSearch:
         assert code == ExitCode.OK
         assert "answer" not in payload["data"]
         assert payload["data"]["all_verified"] is True
+
+    def test_the_documented_first_search_finds_the_file_content(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, tmp_path: Path
+    ) -> None:
+        """Issue #52, end to end, as the onboarding page spells it: register, index, search -- and the match is the
+        file. It returned nothing: no view by default, and a scan that read only the media type anyway."""
+        readme = tmp_path / "README.md"
+        readme.write_text("# Vitruvio\n\nvitruvio runs a Boltzmann brain.\n", encoding="utf-8")
+        _, registered = envelope(capsys, "--brain", str(brain), "source", "register", str(readme))
+        code, built = envelope(capsys, "--brain", str(brain), "index", "build")
+        assert code == ExitCode.OK
+        assert not any("nothing embeddable" in warning for warning in built["warnings"])
+
+        for args in (("vitruvio",), ("Vitruvio",), ("vitruvio", "--mode", "lexical"), ("vitruvio", "-m", "canonical")):
+            _, payload = envelope(capsys, "--brain", str(brain), "search", *args)
+            found = {match["block_id"] for match in payload["data"]["matches"]}
+            assert registered["data"]["block_id"] in found, args
 
     def test_search_is_reachable_both_as_a_group_and_as_a_top_level_alias(
         self, capsys: pytest.CaptureFixture[str], brain: Path

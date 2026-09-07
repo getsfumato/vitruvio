@@ -198,6 +198,99 @@ class TestIR:
         assert any(node.op is Op.GRAPH_EXPAND for plan in enabled_plans for node in plan.nodes)
 
 
+class TestSequentialScanObservesViews:
+    """The exhaustive scan reads the same canonical text the indices were built from.
+
+    The SDK's `searchable_text` returns only the media type for a canonical block, and the scan used it -- so the
+    cheapest plan on a small brain, the one the cost model rightly picks, claimed recall 1.0 while unable to see a
+    word of the evidence. Every search over a freshly registered file returned nothing (issue #52).
+    """
+
+    @staticmethod
+    def _store() -> Any:
+        from vitruvio.indices import MemoryContent
+
+        store = MemoryContent()
+        store.is_resolvable = lambda identity: True  # type: ignore[attr-defined]
+        return store
+
+    @staticmethod
+    def _canonical(store: Any, text: bytes | None) -> Any:
+        from boltzmann.blocks.canonical import CanonicalBlock, NormalizedView
+
+        raw = b"# raw markdown\n\nvitruvio runs a Boltzmann brain.\n"
+        blob = store.add(raw)
+        view = None
+        if text is not None:
+            view = NormalizedView(blob=store.add(text), media_type="text/plain", size=len(text))
+        return CanonicalBlock(blob=blob, media_type="text/markdown", size=len(raw), normalized_view=view)
+
+    @staticmethod
+    def _module(store: Any, block: Any, **indices: Any) -> Any:
+        return cast(
+            Any,
+            SimpleNamespace(
+                memory_type=MemoryType.CANONICAL,
+                block_ids=[block.block_id],
+                get=lambda identity: block,
+                store=store,
+                indices=indices,
+            ),
+        )
+
+    @staticmethod
+    def _executor(module: Any, text: str) -> Executor:
+        return Executor(
+            planner=CostBasedPlanner(PlannerConfig()),
+            modules={MemoryType.CANONICAL: module},
+            query=Query(text=text, filters=QueryFilters(), hints=QueryHints()),
+            intent=classify(text),
+            capabilities=Capabilities(available={}, usable={}),
+        )
+
+    def test_the_scan_finds_text_that_lives_only_in_the_view(self) -> None:
+        from boltzmann.query.scan import searchable_text
+
+        store = self._store()
+        block = self._canonical(store, b"vitruvio runs a Boltzmann brain\n")
+        module = self._module(store, block)
+        assert "vitruvio" not in " ".join(searchable_text(block)).casefold(), "the SDK's own scan cannot see it"
+
+        assert self._executor(module, "vitruvio")._sequential(module) == [(str(block.block_id), 1.0)]
+
+    def test_the_scan_and_the_inverted_index_agree_on_a_normalized_block(self) -> None:
+        """The recall the planner claims for the scan, checked against the generator it competes with."""
+        from vitruvio.indices import InvertedIndex
+
+        store = self._store()
+        block = self._canonical(store, b"vitruvio runs a Boltzmann brain\n")
+        index = InvertedIndex(MemoryType.CANONICAL)
+        index.build([block], store)
+        module = self._module(store, block, inverted=index)
+        executor = self._executor(module, "vitruvio")
+
+        lexical, _ = executor._lexical(module, 10)
+        assert [identity for identity, _ in lexical] == [str(block.block_id)]
+        assert [identity for identity, _ in executor._sequential(module)] == [str(block.block_id)]
+
+    def test_a_block_without_a_view_matches_only_on_its_media_type(self) -> None:
+        """What the qualified recall note says: no view, no text, for the scan exactly as for the indices."""
+        store = self._store()
+        block = self._canonical(store, None)
+        module = self._module(store, block)
+        assert self._executor(module, "vitruvio")._sequential(module) == []
+        assert self._executor(module, "markdown")._sequential(module) == [(str(block.block_id), 1.0)]
+
+    def test_an_unreadable_view_degrades_to_the_media_type(self) -> None:
+        """A view the store no longer holds must not fail the scan; the block is still valid evidence."""
+        store = self._store()
+        block = self._canonical(store, b"vitruvio runs a Boltzmann brain\n")
+        store.blobs.pop(str(block.normalized_view.blob))
+        module = self._module(store, block)
+        assert self._executor(module, "vitruvio")._sequential(module) == []
+        assert self._executor(module, "markdown")._sequential(module) == [(str(block.block_id), 1.0)]
+
+
 class TestExecutorMasks:
     def test_an_unusable_filter_index_is_never_consulted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A stale B-tree excluded by capabilities cannot silently become an execution-time filter."""
@@ -368,6 +461,33 @@ class TestCostModel:
         # point is that the crossover exists and the model finds it, not that it is in any particular place.
         stats = statistics(50, vector=True)
         assert estimate(sequential, stats).total_cost < estimate(vector, stats).total_cost
+
+    def test_a_canonical_scan_is_charged_for_the_views_it_reads_and_names_the_ones_it_cannot(self) -> None:
+        """The scan reads each canonical block's view from the store, so its price says so -- and the recall of 1.0
+        it keeps is qualified by how many blocks have no view to read, which `explain` then shows."""
+        from vitruvio.stats import ColumnStats
+
+        builder = PlanBuilder()
+        scan = builder.add(Op.SEQ_SCAN, scope="canonical", terms=1, selectivity=1.0)
+        plan = builder.finish(builder.add(Op.BUNDLE, inputs=[scan]))
+
+        def stats(**columns: ColumnStats) -> dict[str, ModuleStats]:
+            return {"canonical": ModuleStats(memory_type="canonical", cardinality=10, columns=columns)}
+
+        unknown = estimate(plan, stats())
+        viewed = estimate(
+            plan,
+            stats(
+                has_normalized_view=ColumnStats(
+                    distinct=2, populated_count=10, total_values=10, top=(("yes", 4), ("no", 6))
+                )
+            ),
+        )
+        assert unknown.recall[scan] == viewed.recall[scan] == 1.0
+        assert unknown.cost[scan] > 0
+        assert viewed.cost[scan] < unknown.cost[scan], "six of ten blocks have no view to read, so the scan is cheaper"
+        assert any("6 canonical blocks have no normalized view" in note for note in viewed.notes[scan])
+        assert not any("no normalized view" in note for note in unknown.notes[scan])
 
     def test_a_residual_costs_a_block_read_per_row(self) -> None:
         """The ratio against a bitmap word scan is why pushdown is costed rather than assumed."""

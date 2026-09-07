@@ -12,9 +12,10 @@ vitruvio search "what notes.md is about"
 Three commands, three ideas.
 
 **Register** puts the file into *canonical* memory byte for byte, with its media type, and records that it was
-incorporated — not that it is true. The media type is load-bearing: it decides which normalized views exist and
-therefore what can be searched. [Registering evidence](/sources/registering-evidence) has the details, and
-[Declared sources](/sources/declared-sources) is for material that keeps arriving.
+incorporated — not that it is true. The media type is load-bearing: it decides which normalized view is produced
+(`markdown` for a `.md`, `text` for plain text, `pdf-text` for a PDF with the `[vision]` extra), and that view is
+the text search reads. `--normalize-with none` keeps only the bytes. [Registering evidence](/sources/registering-evidence)
+has the details, and [Declared sources](/sources/declared-sources) is for material that keeps arriving.
 
 **Index** derives the structures the query planner chooses from. Everything it writes lives under `.vitruvio/`, is
 rebuilt from the blocks on demand, and is never knowledge. Run it again after any write; a stale index looks like an

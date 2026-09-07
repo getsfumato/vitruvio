@@ -263,12 +263,12 @@ class TaskOps:
         from boltzmann.ingest.task import ProcessingTask
 
         from vitruvio.ingest import resolve as resolve_proposer
-        from vitruvio.ingest import suggest
         from vitruvio.kernel import CandidatesRejectedError
+        from vitruvio.runtime.coerce import pipeline as coerce_pipeline
 
         engine = resolve_proposer(proposer, **({"subject": subject} if proposer.startswith("structure") else {}))
         types = [coerce_memory_type(item) for item in allowed] if allowed else None
-        pipeline = normalize_with if normalize_with is not None else suggest(media_type)
+        pipeline = coerce_pipeline(normalize_with, media_type)
 
         with self.session.write() as brain, translated():
             data = path.read_bytes()

@@ -12,8 +12,10 @@ in a different place.
 
 Note what is deliberately extended here. ``boltzmann.query.searchable_text`` returns only ``[media_type]`` for a
 canonical block, which is right for the SDK's linear scan -- it holds no ``ContentReader`` and reading blobs would
-turn a cheap pass expensive -- and wrong for an index, which *is* handed a reader for exactly this purpose. So
-vitruvio's results are a strict **superset** of the SDK's, and the conformance tests assert that direction.
+turn a cheap pass expensive -- and wrong for anything handed a reader for exactly this purpose: every index, and
+vitruvio's own exhaustive scan, which has the module store in hand and reads the projection through it so that no
+generator sees a different text from another. So vitruvio's results are a strict **superset** of the SDK's, and
+the structural tests assert that direction.
 """
 
 from __future__ import annotations

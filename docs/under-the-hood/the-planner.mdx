@@ -40,7 +40,10 @@ Three layers, and the stratification is how pruning happens without violating th
 
 1. **A validity rule, never costed.** With two or more scoring generators available, a plan using fewer than two is
    inadmissible. Single-authority plans are structurally inexpressible. (One exemption: a plan whose only generator is
-   an exhaustive scan is a *no*-authority plan, not a single-authority one.)
+   an exhaustive scan is a *no*-authority plan, not a single-authority one.) The scan earns its recall of 1.0 by
+   reading what the indices read: a canonical block's normalized view, through the module store, so every generator
+   observes one text. A block registered with no view matches on its media type alone, for the scan exactly as for the
+   indices, and `explain` says how many such blocks a canonical scan is walking past.
 2. **A recall floor per intent**, as feasibility rather than as a price — 1.00 exact, 0.95 lexical, 0.85 semantic,
    0.80 associative. Capped at the best recall any valid indexed plan actually achieves, and the capping is reported
    as a degradation: an unreachable floor forced a 5.3-second scan over a 600-microsecond probe at 100k blocks.
