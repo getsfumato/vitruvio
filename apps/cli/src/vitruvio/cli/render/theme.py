@@ -104,6 +104,14 @@ def console(*, color: bool = True, stderr: bool = False, width: int | None = Non
 SHORT = 10
 """How many hex characters of a digest to show. Enough to recognise, short enough to scan a column of them."""
 
+HIGHLIGHT_BYTES = 32 * 1024
+"""The most text :func:`code` will syntax-highlight.
+
+Pygments lexes inside ``Syntax.__rich_console__`` -- that is, on whatever thread paints, which in the TUI is the
+event loop, and again on every resize. A megabyte of HTML took long enough to read as a hang. Past this budget
+the same text is shown plain, which is the honest trade: colour is a convenience, and the text is the content.
+"""
+
 
 def short(digest: str | None) -> str:
     """
@@ -292,15 +300,59 @@ def stack(*parts: RenderableType | None) -> list[RenderableType]:
     return [part for part in parts if part is not None]
 
 
+def filesize(size: int) -> str:
+    """
+    A byte count a person can read.
+
+    Args:
+        size (int): The count.
+
+    Returns:
+        str: e.g. ``512 B``, ``64.0 KiB``, ``1.4 MiB``.
+    """
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if value < 1024 or unit == "GiB":
+            return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{size} B"  # pragma: no cover -- the loop above always returns
+
+
+def code(body: str, lexer: str, *, highlight: bool = True) -> RenderableType:
+    """
+    Source text, syntax-highlighted while that is affordable.
+
+    Args:
+        body (str): The text.
+        lexer (str): The Pygments lexer name -- ``json``, ``html``, ``yaml``.
+        highlight (bool): Whether colour is wanted at all. ``False`` skips the lexer regardless of size.
+
+    Returns:
+        RenderableType: A ``Syntax`` when ``highlight`` is set and the body is within :data:`HIGHLIGHT_BYTES`;
+        otherwise the same text plain. The lexer runs at paint time, on the painting thread, so the budget is
+        what keeps a large document from freezing whatever is drawing it.
+    """
+    if highlight and len(body) <= HIGHLIGHT_BYTES:
+        from rich.syntax import Syntax
+
+        # `background_color="default"` keeps the terminal's own background: a syntax block that paints its own is
+        # a block that looks wrong in half the themes people use, and unreadable in the other half.
+        return Syntax(body, lexer, theme="ansi_dark", background_color="default", word_wrap=True)
+    return Text(body)
+
+
 __all__ = [
+    "HIGHLIGHT_BYTES",
     "MEMORY_STYLES",
     "SHORT",
     "THEME",
+    "code",
     "console",
     "count",
     "digest",
     "empty",
     "fields",
+    "filesize",
     "kind",
     "lines",
     "short",

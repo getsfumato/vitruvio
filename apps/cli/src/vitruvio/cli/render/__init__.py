@@ -25,7 +25,19 @@ from vitruvio.cli.render.evidence import (
     short,
     snapshot,
 )
-from vitruvio.cli.render.theme import THEME, count, digest, empty, fields, kind, lines, stack, table, verdict
+from vitruvio.cli.render.theme import (
+    THEME,
+    count,
+    digest,
+    empty,
+    fields,
+    filesize,
+    kind,
+    lines,
+    stack,
+    table,
+    verdict,
+)
 
 __all__ = [
     "THEME",
@@ -39,6 +51,7 @@ __all__ = [
     "divergence",
     "empty",
     "fields",
+    "filesize",
     "graph",
     "history_table",
     "kind",

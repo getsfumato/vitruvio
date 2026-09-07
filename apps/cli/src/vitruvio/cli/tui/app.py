@@ -1329,24 +1329,6 @@ class BrainBrowser(App[None]):
         self.action_show_help_panel()
 
 
-def _bytes(size: int) -> str:
-    """
-    A byte count a person can read.
-
-    Args:
-        size (int): The count.
-
-    Returns:
-        str: e.g. ``1.4 MiB``.
-    """
-    value = float(size)
-    for unit in ("B", "KiB", "MiB", "GiB"):
-        if value < 1024 or unit == "GiB":
-            return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-        value /= 1024
-    return f"{size} B"  # pragma: no cover -- the loop above always returns
-
-
 def run(service: BrainService, brain: Path | str) -> None:
     """
     Open the browser on a brain.

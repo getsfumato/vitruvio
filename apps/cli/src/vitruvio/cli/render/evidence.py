@@ -300,14 +300,11 @@ def payload(value: Any) -> RenderableType:
         value (Any): The value.
 
     Returns:
-        RenderableType: The rendering.
+        RenderableType: The rendering. Highlighted while the document is within :data:`theme.HIGHLIGHT_BYTES`
+        and plain past it -- a payload can carry a whole extracted text, and the lexer runs at paint time.
     """
-    from rich.syntax import Syntax
-
     body = json.dumps(value, indent=2, ensure_ascii=False, default=str)
-    # `background_color="default"` keeps the terminal's own background: a syntax block that paints its own is a
-    # block that looks wrong in half the themes people use, and unreadable in the other half.
-    return Syntax(body, "json", theme="ansi_dark", background_color="default", word_wrap=True)
+    return theme.code(body, "json")
 
 
 def snapshot(data: Mapping[str, Any]) -> list[RenderableType]:
@@ -429,7 +426,7 @@ def rows(result: Mapping[str, Any]) -> list[RenderableType]:
             actor,
             verified,
             Text(str(entry.get("detail", "")), style="muted"),
-            Text(_bytes(size) if isinstance(size, int) else "-", style="muted"),
+            Text(theme.filesize(size) if isinstance(size, int) else "-", style="muted"),
             Text(str(entry.get("media_type") or entry.get("kind") or ""), style="muted"),
         )
     footer = None
@@ -437,24 +434,6 @@ def rows(result: Mapping[str, Any]) -> list[RenderableType]:
         remaining = result.get("matched", 0) - result.get("offset", 0) - len(entries)
         footer = Text(f"... {remaining} more -- raise --limit or pass --offset", style="muted")
     return theme.stack(theme.fields(head), "", table, footer)
-
-
-def _bytes(size: int) -> str:
-    """
-    A byte count a person can read.
-
-    Args:
-        size (int): The count.
-
-    Returns:
-        str: e.g. ``1.4 MiB``.
-    """
-    value = float(size)
-    for unit in ("B", "KiB", "MiB", "GiB"):
-        if value < 1024 or unit == "GiB":
-            return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-        value /= 1024
-    return f"{size} B"  # pragma: no cover -- the loop above always returns
 
 
 def records(result: Mapping[str, Any]) -> list[RenderableType]:
