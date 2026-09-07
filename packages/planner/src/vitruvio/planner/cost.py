@@ -297,7 +297,18 @@ def estimate(  # noqa: PLR0912, PLR0915
             produced = int(cardinality * float(parameters.get("selectivity", 1.0)))
             spent = cardinality * calibration.get_block + cardinality * terms * calibration.substring
             node_recall = 1.0
-            node_notes.append("exhaustive: recall is 1.0 by construction")
+            node_notes.append("exhaustive over every block's projected text: recall is 1.0 over what is observable")
+            if node.scope == "canonical" and stats is not None:
+                # A canonical block's text is its normalized view, which the scan now reads from the store: one more
+                # block-sized read per block that has one. Charged so the scan's price says what it reads, and the
+                # blocks it *cannot* read -- registered without a view -- are named rather than counted as covered.
+                column = stats.column("has_normalized_view")
+                viewed = column.selectivity("yes", cardinality).rows if column.populated_count else cardinality
+                spent += viewed * calibration.get_block
+                if viewed < cardinality:
+                    node_notes.append(
+                        f"{cardinality - viewed} canonical blocks have no normalized view and match only on media type"
+                    )
 
         elif node.op is Op.EXACT_LOOKUP:
             count = int(parameters.get("count", 1))

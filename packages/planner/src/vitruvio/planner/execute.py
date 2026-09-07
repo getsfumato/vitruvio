@@ -281,12 +281,24 @@ class Executor:
 
     def _sequential(self, module: Module) -> list[tuple[str, float]]:
         """
-        The exhaustive fallback: the SDK's own scoring over every block.
+        The exhaustive fallback: the SDK's own scoring over every block's projected text.
 
-        Reusing ``searchable_text`` and ``content_terms`` rather than reimplementing them is what makes the
-        differential test against the scan meaningful -- a divergence here would look like a scoring bug.
+        ``content_terms`` is the SDK's, so the differential test against its scan stays meaningful -- a divergence
+        in *scoring* here would look like a scoring bug. The haystack is not the SDK's for one block type. Its
+        ``searchable_text`` holds no ``ContentReader`` and returns only the media type for a canonical block, which
+        is right for a scan with no store to read from and wrong here, where ``module.store`` is in hand: it made
+        the cheapest plan on a small brain claim recall 1.0 while unable to see a single word of the evidence. A
+        canonical block is read through :func:`vitruvio.indices.project`, the same function the inverted and vector
+        indices were built from, so every generator observes one text and the planner compares like with like. The
+        other block types carry their own text and keep the SDK's reading.
+
+        Matching stays a substring test over the case-folded text, as the SDK's is; ``TermScan`` matches analyzer
+        tokens and stems instead. Same content, different matcher, by design.
         """
+        from boltzmann.blocks.canonical import CanonicalBlock
         from boltzmann.query.scan import content_terms, searchable_text
+
+        from vitruvio.indices import project
 
         terms = content_terms(self.query.text)
         if not terms:
@@ -300,7 +312,11 @@ class Executor:
                 block = module.get(identity)
             except Exception:
                 continue
-            haystack = " ".join(searchable_text(block)).casefold()
+            if isinstance(block, CanonicalBlock):
+                text = project(block, module.store).text
+            else:
+                text = " ".join(searchable_text(block))
+            haystack = text.casefold()
             present = sum(1 for term in terms if term in haystack)
             if present:
                 hits.append((str(identity), present / len(terms)))
