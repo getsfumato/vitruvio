@@ -258,7 +258,7 @@ def published(tmp_path: Path, source_file: Path) -> tuple[Path, str]:
     from boltzmann.blocks.memory_type import MemoryType
     from boltzmann.ingest.proposer import Candidate, CandidateSet
 
-    config = resolve(brain=tmp_path / "producer", actor_id="producer@example.com", require_layout=False)
+    config = resolve(brain=tmp_path / "producer", actor_id="producer@example.com", require_layout=False, declaring=True)
     service = BrainService(config)
     service.init()
     registered = service.register(source_file, media_type="text/markdown")
@@ -298,7 +298,9 @@ class TestLocalRoundTrip:
 
     def test_a_pull_installs_a_verifiable_brain(self, published: tuple[Path, str], tmp_path: Path) -> None:
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="consumer@example.com", require_layout=False)
+        config = resolve(
+            brain=tmp_path / "consumer", actor_id="consumer@example.com", require_layout=False, declaring=True
+        )
         consumer = BrainService(config)
         consumer.init()
 
@@ -308,7 +310,9 @@ class TestLocalRoundTrip:
 
     def test_pull_enforces_the_projects_authenticity_policy(self, published: tuple[Path, str], tmp_path: Path) -> None:
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "strict", actor_id="consumer@example.com", require_layout=False)
+        config = resolve(
+            brain=tmp_path / "strict", actor_id="consumer@example.com", require_layout=False, declaring=True
+        )
         config = config.model_copy(
             update={
                 "project": config.project.model_copy(
@@ -333,7 +337,9 @@ class TestLocalRoundTrip:
         from boltzmann.brain import Brain
 
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="consumer@example.com", require_layout=False)
+        config = resolve(
+            brain=tmp_path / "consumer", actor_id="consumer@example.com", require_layout=False, declaring=True
+        )
         config = config.model_copy(
             update={
                 "project": config.project.model_copy(update={"authenticity": AuthenticitySpec(required_signatures=2)})
@@ -380,13 +386,17 @@ class TestLocalRoundTrip:
     ) -> None:
         registry_root = tmp_path / "registry"
         registry_root.mkdir()
-        producer = BrainService(resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False))
+        producer = BrainService(
+            resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False, declaring=True)
+        )
         producer.init()
         producer.register(source_file, media_type="text/markdown")
 
         pushed = await producer.push_async("demo/async", tag="v1", local=registry_root)
 
-        consumer = BrainService(resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False))
+        consumer = BrainService(
+            resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
+        )
         consumer.init()
         plan = await consumer.plan_pull_async("demo/async", tag="v1", local=registry_root)
         pulled = await consumer.pull_async("demo/async", tag="v1", local=registry_root)
@@ -402,7 +412,9 @@ class TestLocalRoundTrip:
         self, published: tuple[Path, str], tmp_path: Path
     ) -> None:
         registry_root, reference = published
-        consumer = BrainService(resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False))
+        consumer = BrainService(
+            resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
+        )
         consumer.init()
 
         plan = consumer.plan_pull(reference, tag="v1", local=registry_root)
@@ -416,7 +428,7 @@ class TestLocalRoundTrip:
     ) -> None:
         """A canonical layer can be gigabytes, so this has to be answerable without transferring it."""
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
         consumer = BrainService(config)
         consumer.init()
 
@@ -427,7 +439,7 @@ class TestLocalRoundTrip:
 
     def test_pulling_twice_is_a_noop(self, published: tuple[Path, str], tmp_path: Path) -> None:
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
         consumer = BrainService(config)
         consumer.init()
         consumer.pull(reference, tag="v1", local=registry_root)
@@ -437,7 +449,7 @@ class TestLocalRoundTrip:
     def test_a_selective_pull_leaves_the_rest_missing(self, published: tuple[Path, str], tmp_path: Path) -> None:
         """Missing rather than broken, which is what makes selective installation usable."""
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
         consumer = BrainService(config)
         consumer.init()
 
@@ -446,7 +458,7 @@ class TestLocalRoundTrip:
 
     def test_tags_lists_what_was_published(self, published: tuple[Path, str], tmp_path: Path) -> None:
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
         consumer = BrainService(config)
         consumer.init()
         assert consumer.tags(reference, local=registry_root)["tags"] == ["v1"]
@@ -455,7 +467,7 @@ class TestLocalRoundTrip:
         """The ordinary state before a first push. Reporting it as a failure made the CLI exit 1."""
         registry_root = tmp_path / "registry"
         registry_root.mkdir()
-        config = resolve(brain=tmp_path / "brain", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "brain", actor_id="c@example.com", require_layout=False, declaring=True)
         service = BrainService(config)
         service.init()
 
@@ -467,7 +479,7 @@ class TestLocalRoundTrip:
         """The one index a consumer cannot rebuild. If it does not travel, a pulled brain cannot be searched
         semantically -- and the omission is otherwise silent."""
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
         consumer = BrainService(config)
         consumer.init()
 
@@ -478,7 +490,7 @@ class TestLocalRoundTrip:
         self, published: tuple[Path, str], tmp_path: Path
     ) -> None:
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
         consumer = BrainService(config)
         consumer.init()
 
@@ -497,7 +509,7 @@ class TestLocalRoundTrip:
     def test_a_reference_that_names_no_repository_is_a_usage_error(self, tmp_path: Path) -> None:
         """Checked on the remote path: a local layout takes the reference verbatim as a directory name, so there is no
         host to resolve and nothing to validate."""
-        config = resolve(brain=tmp_path / "brain", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "brain", actor_id="c@example.com", require_layout=False, declaring=True)
         service = BrainService(config)
         service.init()
         with pytest.raises(CredentialError, match="names no repository"):
@@ -578,7 +590,7 @@ class TestContainerRegistry:
         self, endpoint: str, tmp_path: Path, source_file: Path
     ) -> None:
         """The question a first push otherwise answers the hard way: is a custom config media type accepted?"""
-        config = resolve(brain=tmp_path / "brain", actor_id="p@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "brain", actor_id="p@example.com", require_layout=False, declaring=True)
         service = BrainService(config)
         service.init()
         service.register(source_file, media_type="text/markdown")
@@ -587,14 +599,16 @@ class TestContainerRegistry:
         assert result["ok"] is True, result
 
     def test_a_full_round_trip_over_http(self, endpoint: str, tmp_path: Path, source_file: Path) -> None:
-        config = resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False, declaring=True)
         producer = BrainService(config)
         producer.init()
         producer.register(source_file, media_type="text/markdown")
         producer.index_build()
         producer.push(f"{endpoint}/demo/brain", tag="v1", anonymous=True, insecure=True)
 
-        consumer_config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        consumer_config = resolve(
+            brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True
+        )
         consumer = BrainService(consumer_config)
         consumer.init()
         consumer.pull(f"{endpoint}/demo/brain", tag="v1", anonymous=True, insecure=True)
@@ -622,7 +636,7 @@ class TestWhatAPullReplaces:
     def consumer(self, published: tuple[Path, str], tmp_path: Path) -> BrainService:
         """A brain that pulled the published version and has committed nothing of its own."""
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False, declaring=True)
         service = BrainService(config)
         service.init()
         service.pull(reference, tag="v1", local=registry_root)
@@ -640,7 +654,7 @@ class TestWhatAPullReplaces:
         """An empty brain has never pulled and has no origin, which is the case that would otherwise be reported as
         "everything you have is at stake" over a brain holding nothing."""
         registry_root, reference = published
-        config = resolve(brain=tmp_path / "fresh", actor_id="c@example.com", require_layout=False)
+        config = resolve(brain=tmp_path / "fresh", actor_id="c@example.com", require_layout=False, declaring=True)
         service = BrainService(config)
         service.init()
         assert service.plan_pull(reference, tag="v1", local=registry_root)["local_work"]["diverged"] is False

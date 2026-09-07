@@ -148,6 +148,27 @@ class ActorIdInvalidError(ConfigError):
     code = "ACTOR_ID_INVALID"
 
 
+class ActorOverrideRefusedError(ConfigError):
+    """A flag or the environment named an actor other than the one ``vitruvio.toml`` declares.
+
+    The declared actor is what every write into the project is attributed to. Letting an invocation swap it would
+    make provenance depend on a shell's history rather than on the reviewed file, so a different id is refused; the
+    same id is a harmless repetition. The commands that *create* the declaration are exempt.
+    """
+
+    code = "ACTOR_OVERRIDE_REFUSED"
+
+
+class CollaboratorNotDeclaredError(ConfigError):
+    """``--assisted-by`` or ``VITRUVIO_ASSISTED_BY`` named a party the brain has not declared.
+
+    A brain declares who may be recorded as assisting a write into it; an invocation selects among them. A party
+    that appears in provenance without appearing in the committed file is exactly the attribution nobody reviewed.
+    """
+
+    code = "COLLABORATOR_NOT_DECLARED"
+
+
 class UsageError(VitruvioError):
     """The invocation contradicts itself, or names something that does not exist.
 

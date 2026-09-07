@@ -10,9 +10,11 @@ from boltzmann.blocks.provenance import ActorKind
 
 from vitruvio.kernel import (
     ActorIdInvalidError,
+    ActorOverrideRefusedError,
     ActorUnknownError,
     BrainNotFoundError,
     BrainNotSelectedError,
+    CollaboratorNotDeclaredError,
     ConfigError,
     Origin,
     find_config_file,
@@ -51,14 +53,63 @@ class TestConfigDiscovery:
         resolved = resolve(brain=brain)
         assert resolved.collaborators()[0].model == "openai/gpt-5"
 
-    def test_assisting_party_flags_override_the_file(self, tmp_path: Path) -> None:
+    def test_assisting_party_flags_select_from_the_file_and_keep_its_metadata(self, tmp_path: Path) -> None:
+        """The file is the universe; a flag narrows it and inherits what the file knows about each party."""
         brain = make_brain(tmp_path)
         config = write_config(
             tmp_path,
-            f'brain.path = "{brain}"\n[[assisted_by]]\nid = "old/assistant"\nkind = "agent"\n',
+            f'brain.path = "{brain}"\n'
+            '[[assisted_by]]\nid = "old/assistant"\nkind = "agent"\nmodel = "openai/gpt-5"\n'
+            '[[assisted_by]]\nid = "other/assistant"\n',
         )
-        resolved = resolve(config=config, assisted_by=["new/assistant"])
-        assert [item.id for item in resolved.collaborators()] == ["new/assistant"]
+        everyone = resolve(config=config)
+        assert [item.id for item in everyone.collaborators()] == ["old/assistant", "other/assistant"]
+        assert everyone.collaborators_origin is Origin.FILE
+
+        chosen = resolve(config=config, assisted_by=["old/assistant"])
+        assert [item.id for item in chosen.collaborators()] == ["old/assistant"]
+        assert chosen.collaborators()[0].model == "openai/gpt-5"
+        assert chosen.collaborators_origin is Origin.FLAG
+
+        assert resolve(config=config, assisted_by=[]).collaborators() == []
+
+    def test_an_undeclared_assisting_party_is_refused_with_a_stable_code(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A party in provenance that is in no reviewed file is the attribution nobody agreed to."""
+        brain = make_brain(tmp_path)
+        config = write_config(tmp_path, f'brain.path = "{brain}"\n[[assisted_by]]\nid = "old/assistant"\n')
+
+        with pytest.raises(CollaboratorNotDeclaredError) as caught:
+            resolve(config=config, assisted_by=["new/assistant"])
+        assert caught.value.code == "COLLABORATOR_NOT_DECLARED"
+        assert "old/assistant" in (caught.value.hint or "")
+
+        monkeypatch.setenv("VITRUVIO_ASSISTED_BY", '["new/assistant"]')
+        with pytest.raises(CollaboratorNotDeclaredError):
+            resolve(config=config)
+        monkeypatch.delenv("VITRUVIO_ASSISTED_BY")
+
+        declaring = resolve(config=config, assisted_by=["new/assistant"], declaring=True)
+        assert [item.id for item in declaring.collaborators()] == ["new/assistant"]
+
+    def test_each_brain_declares_its_own_assisting_parties(self, tmp_path: Path) -> None:
+        """Per brain, because the agents differ per subject; a brain that declares none inherits the project's."""
+        make_brain(tmp_path, "a")
+        make_brain(tmp_path, "b")
+        config = write_config(
+            tmp_path,
+            '[[assisted_by]]\nid = "shared/agent"\n\n'
+            '[brains.a]\npath = "./a"\n[[brains.a.assisted_by]]\nid = "anthropic/claude-code"\n\n'
+            '[brains.b]\npath = "./b"\n',
+        )
+        own = resolve(config=config, brain=Path("a"))
+        assert [item.id for item in own.collaborators()] == ["anthropic/claude-code"]
+        inherited = resolve(config=config, brain=Path("b"))
+        assert [item.id for item in inherited.collaborators()] == ["shared/agent"]
+        with pytest.raises(CollaboratorNotDeclaredError) as caught:
+            resolve(config=config, brain=Path("a"), assisted_by=["shared/agent"])
+        assert "brains.a.assisted_by" in (caught.value.hint or "")
 
     @pytest.mark.parametrize("layer", ["file", "environment", "flag"])
     def test_invalid_assisting_party_has_a_stable_error_code(
@@ -217,12 +268,14 @@ class TestBrainPrecedence:
 
 
 class TestActorResolution:
-    def test_flag_beats_environment_beats_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_flag_beats_environment_when_the_file_declares_no_actor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         make_brain(tmp_path)
-        write_config(tmp_path, '[brain]\npath = "./brain"\n\n[actor]\nid = "file@example.com"\n')
+        write_config(tmp_path, '[brain]\npath = "./brain"\n')
         monkeypatch.chdir(tmp_path)
 
-        assert resolve().project.actor.id == "file@example.com"
+        assert resolve().actor_origin is Origin.DEFAULT
 
         monkeypatch.setenv("VITRUVIO_ACTOR_ID", "env@example.com")
         resolved = resolve()
@@ -232,6 +285,30 @@ class TestActorResolution:
         resolved = resolve(actor_id="flag@example.com")
         assert resolved.project.actor.id == "flag@example.com"
         assert resolved.actor_origin is Origin.FLAG
+
+    def test_the_declared_actor_is_authoritative(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Every write into a project is attributed to the actor its file declares, whatever a shell says."""
+        make_brain(tmp_path)
+        write_config(tmp_path, '[brain]\npath = "./brain"\n\n[actor]\nid = "file@example.com"\n')
+        monkeypatch.chdir(tmp_path)
+
+        assert resolve().project.actor.id == "file@example.com"
+        repeated = resolve(actor_id="file@example.com")
+        assert repeated.project.actor.id == "file@example.com"
+        assert repeated.actor_origin is Origin.FILE
+
+        with pytest.raises(ActorOverrideRefusedError) as caught:
+            resolve(actor_id="other@example.com")
+        assert caught.value.code == "ACTOR_OVERRIDE_REFUSED"
+
+        monkeypatch.setenv("VITRUVIO_ACTOR_ID", "env@example.com")
+        with pytest.raises(ActorOverrideRefusedError):
+            resolve()
+        monkeypatch.delenv("VITRUVIO_ACTOR_ID")
+
+        declaring = resolve(actor_id="other@example.com", declaring=True)
+        assert declaring.project.actor.id == "other@example.com"
+        assert declaring.actor_origin is Origin.FLAG
 
     def test_actor_kind_comes_through_and_defaults_to_human(self, tmp_path: Path) -> None:
         make_brain(tmp_path)

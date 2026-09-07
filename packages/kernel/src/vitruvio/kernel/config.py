@@ -504,6 +504,8 @@ class BrainSpec(BaseModel):
         reconcile (ReconcileStrategy | None): How to record a joined history. See
             :attr:`NamedBrainSpec.reconcile`.
         sources (dict[str, SourceSpec]): Where this brain acquires canonical evidence from.
+        assisted_by (list[CollaboratorSpec]): Who may be recorded as assisting a write into this brain. See
+            :attr:`NamedBrainSpec.assisted_by`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -512,6 +514,7 @@ class BrainSpec(BaseModel):
     publish: bool = True
     reconcile: ReconcileStrategy | None = None
     sources: dict[str, SourceSpec] = Field(default_factory=dict)
+    assisted_by: list[CollaboratorSpec] = Field(default_factory=list)
 
     _source_names = field_validator("sources")(_validate_source_names)
 
@@ -551,6 +554,12 @@ class NamedBrainSpec(BaseModel):
 
             Declaring it is not a licence to reconcile anything: a fetch commits only when the plan is clean,
             so this decides *how* a reconciliation is recorded, never *whether* work of yours may leave.
+        assisted_by (list[CollaboratorSpec]): Who may be recorded as assisting a write into this brain -- the
+            agents that work in it, declared once. An invocation's ``--assisted-by`` selects among these and is
+            refused for a party not listed here; with no flag, every declared party is recorded. A brain that
+            declares none inherits the project's ``[[assisted_by]]``. Per brain rather than per project because
+            the agents differ per subject and per client, and a collaborator recorded into the wrong brain is a
+            provenance record that lies about who was in the room.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -561,6 +570,7 @@ class NamedBrainSpec(BaseModel):
     publish: bool = True
     reconcile: ReconcileStrategy | None = None
     sources: dict[str, SourceSpec] = Field(default_factory=dict)
+    assisted_by: list[CollaboratorSpec] = Field(default_factory=list)
 
     _source_names = field_validator("sources")(_validate_source_names)
 
@@ -613,7 +623,11 @@ class ProjectConfig(BaseModel):
         brain (BrainSpec): The single brain, for a project that has one.
         brains (dict[str, NamedBrainSpec]): The named brains, for a project that has several. A subject per
             brain, a client per brain -- whatever the unit of "someone might want only this one" is.
-        actor (ActorSpec): Who writes.
+        actor (ActorSpec): Who writes. Declared once, and authoritative: an invocation naming a different actor
+            is refused rather than obeyed.
+        assisted_by (list[CollaboratorSpec]): The project's default assisting parties; a brain that declares its
+            own list replaces this one for writes into it. After :func:`vitruvio.kernel.resolve`, the parties one
+            invocation actually records.
         policy (PolicySpec): What may be removed.
         embedding (dict[str, EmbedderSpec]): Keyed ``text`` and ``vision``.
         index (list[IndexSpec]): Which indices to register. Empty means "use the defaults".
@@ -667,6 +681,29 @@ class ProjectConfig(BaseModel):
             return None
         base = self.source.parent if self.source is not None else Path()
         return (base / spec.path).expanduser().resolve()
+
+    def declared_collaborators(self, brain: str | None) -> list[CollaboratorSpec]:
+        """
+        Who may be recorded as assisting a write into one brain.
+
+        The brain's own declaration when it makes one -- ``[[brains.<name>.assisted_by]]`` for a named brain,
+        ``[[brain.assisted_by]]`` for the single one -- and the project's ``[[assisted_by]]`` otherwise. A brain
+        that declares nobody inherits the project's list rather than forbidding assistance, so one declaration
+        can serve a project whose brains all share the same agents.
+
+        Args:
+            brain (str | None): The named brain, or ``None`` for the single ``[brain]`` declaration.
+
+        Returns:
+            list[CollaboratorSpec]: The declared parties, possibly empty.
+        """
+        if brain is not None:
+            spec = self.brains.get(brain)
+            if spec is not None and spec.assisted_by:
+                return list(spec.assisted_by)
+        elif self.brain.assisted_by:
+            return list(self.brain.assisted_by)
+        return list(self.assisted_by)
 
     def sources_for(self, brain: str | None) -> dict[str, SourceSpec]:
         """Return only the sources owned by one brain.
@@ -762,6 +799,8 @@ class ResolvedConfig(BaseModel):
             :attr:`brain_origin` is: an invocation can arrive in a project four ways and only one of them is
             visible in what was typed.
         actor_origin (Origin): Where the actor identity came from.
+        collaborators_origin (Origin): Which layer chose the assisting parties this invocation records: the
+            brain's declaration, or a selection from it made by the environment or a flag.
         config_file (Path | None): The file that was read, if any.
     """
 
@@ -773,6 +812,7 @@ class ResolvedConfig(BaseModel):
     project: ProjectConfig
     project_origin: Origin = Origin.DEFAULT
     actor_origin: Origin = Origin.DEFAULT
+    collaborators_origin: Origin = Origin.DEFAULT
     config_file: Path | None = None
 
     @property
@@ -875,7 +915,8 @@ class ResolvedConfig(BaseModel):
         return Actor(id=parse_actor_id(spec.id, field="actor id"), kind=spec.kind, name=spec.name)
 
     def collaborators(self) -> list[Collaborator]:
-        """The resolved assisting parties to record beside each new write."""
+        """The assisting parties this invocation records beside each new write, already selected among those the
+        selected brain declares."""
         return [spec.build() for spec in self.project.assisted_by]
 
     def policy(self) -> RetentionPolicy:
@@ -884,4 +925,9 @@ class ResolvedConfig(BaseModel):
 
     def origins(self) -> Mapping[str, Origin]:
         """A summary of where the load-bearing values came from, for ``config show``."""
-        return {"project": self.project_origin, "brain": self.brain_origin, "actor": self.actor_origin}
+        return {
+            "project": self.project_origin,
+            "brain": self.brain_origin,
+            "actor": self.actor_origin,
+            "collaborators": self.collaborators_origin,
+        }
