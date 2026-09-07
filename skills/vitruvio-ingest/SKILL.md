@@ -10,6 +10,16 @@ This is the loop the protocol was designed around: **you propose, the protocol g
 write to a Merkle DAG. You produce candidates; a validation gate accepts or rejects each one; only then does
 anything become a block with an identity.
 
+## Who is writing
+
+Every commit is attributed to the actor `vitruvio.toml` declares, and records the assistants the brain declares under
+`assisted_by`. Before proposing anything, check that the brain declares you: `vitruvio --json --project NAME --brain
+BRAIN config show` lists the actor and the declared collaborators. If your id is there, write with no `--actor` and
+no `--assisted-by` (every declared party is recorded) or with `--assisted-by YOUR-ID` to record only yourself. If it
+is not there, **stop and ask the user to declare you** -- `config set 'brains.BRAIN.assisted_by' '[{"id":"YOUR-ID","kind":"agent"}]'`
+-- rather than writing; an undeclared `--assisted-by` is refused, and `--actor-kind agent` is not a substitute for the
+human actor.
+
 ## The loop
 
 ```bash

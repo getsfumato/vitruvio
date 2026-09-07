@@ -67,6 +67,7 @@ CHECKS: tuple[Check, ...] = (
     Check("env.extra.keyring", "keyring (credential store)", "install vitruvio[keyring]"),
     Check("config.invalid", "config", "fix vitruvio.toml; `vitruvio config validate` names the field"),
     Check("config.actor", "actor", "`vitruvio config set actor.id you@example.org`, or pass --actor"),
+    Check("config.collaborators", "collaborators", None),
     Check("brain.layout", "brain", "pass --brain PATH, run `vitruvio brain use PATH`, or `vitruvio brain init PATH`"),
     Check(
         "brain.integrity", "integrity", "run `vitruvio brain verify`; if it fails, pull the brain again from its origin"
@@ -281,7 +282,17 @@ class DiagnosisOps:
     def _actor(self) -> list[dict[str, Any]]:
         actor = self.config.project.actor.id
         detail = actor or "not set -- writes will be refused, because every write is attributed"
-        return [row("config.actor", OK if actor else WARN, detail, data={"actor": actor or None})]
+        rows = [row("config.actor", OK if actor else WARN, detail, data={"actor": actor or None})]
+        # Informational, never a fault: a person writing alone declares nobody. Shown because the declaration is now
+        # the only set of parties a write may record, and an `--assisted-by` outside it is refused.
+        declared = [spec.id for spec in self.config.project.assisted_by]
+        detail = (
+            f"{', '.join(declared)} ({self.config.collaborators_origin.value})"
+            if declared
+            else "none declared -- writes record no assistant; declare agents under assisted_by to record them"
+        )
+        rows.append(row("config.collaborators", OK, detail, data={"collaborators": declared}))
+        return rows
 
     def _brain(self, rows: list[dict[str, Any]]) -> bool:
         """

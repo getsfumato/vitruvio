@@ -10,7 +10,7 @@ What a project adds is the part they share: one actor, one retention policy, one
 
 ```console
 vitruvio project init coursework --actor you@example.com
-vitruvio project add optics --description "optics notes"
+vitruvio --assisted-by anthropic/claude-code project add optics --description "optics notes"
 vitruvio project add acoustics-ii
 vitruvio project add dynamics
 vitruvio project show
@@ -27,9 +27,17 @@ id = "you@example.com"
 path = "./brains/optics"
 description = "optics notes"
 
+[[brains.optics.assisted_by]]
+id = "anthropic/claude-code"
+kind = "agent"
+
 [brains.acoustics-ii]
 path = "./brains/acoustics-ii"
 ```
+
+The actor is the project's and is authoritative: a write naming another one is refused. The assistants are each
+brain's own — `optics` records `anthropic/claude-code`, `acoustics-ii` records whatever the project declares under a
+top-level `[[assisted_by]]`, or nobody — and `--assisted-by` on a write may only select among them.
 
 A project answers two questions the rest of this section takes in turn: [which brain a command means](/projects/selecting-a-brain), and [where each brain publishes](/projects/publishing-a-project).
 

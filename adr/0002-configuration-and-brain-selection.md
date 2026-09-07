@@ -105,6 +105,11 @@ needs to know about hosts.
 command. `kind` defaults to `human`; an agent driving the CLI is expected to pass `--actor-kind agent`, and
 the shipped skills say so.
 
+> **Superseded in part by [ADR-0018](0018-declared-actor-and-collaborators.md).** The "flag beats environment beats
+> file" precedence above no longer applies to the actor once the file declares one: a different `--actor` is refused,
+> and collaborators are declared per brain and selected from, never replaced. The refusal of an unattributed write
+> stands.
+
 ### Comments are lost by `config set`
 
 `vitruvio config set` round-trips the document through a plain dictionary, so comments do not survive. It

@@ -682,12 +682,19 @@ class GeneratedFacade:
         reference: str | None = None,
         create: bool = True,
         publish: bool = True,
+        assisted_by: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         """Register a brain in the project, creating its layout when it does not exist yet.
 
         See :meth:`vitruvio.runtime.ops.projects.ProjectOps.add_brain`."""
         return self.project_ops.add_brain(
-            name, path=path, description=description, reference=reference, create=create, publish=publish
+            name,
+            path=path,
+            description=description,
+            reference=reference,
+            create=create,
+            publish=publish,
+            assisted_by=assisted_by,
         )
 
     def remove_brain(self, name: str) -> dict[str, Any]:

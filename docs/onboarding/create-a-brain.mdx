@@ -19,11 +19,18 @@ existing layout without touching it — so the cheaper mistake is starting stand
 
 Unlike [governance](/onboarding/governed-or-ungoverned), this is a decision vitruvio is happy to see you change.
 
-## The actor
+## The actor, and who assists
 
 Every write is attributed in provenance, so every write needs an actor: a lowercase address (`you@example.com`) or
 a lowercase namespaced name (`openai/codex`). Passing `--actor` to `brain init` or `project init` writes it into
-`vitruvio.toml`, and you never pass it again. Reads never need one.
+`vitruvio.toml`, and from then on it is the actor: a later `--actor` naming somebody else is refused, not obeyed.
+Reads never need one.
+
+Decide at the same time which agents will assist writes into the brain, and declare them with the global
+`--assisted-by ID` flags on `brain init` or `project add` — one canonical id per agent, `anthropic/claude-code`,
+`openai/codex`. They are written under `assisted_by` for that brain and become the only parties a write into it may
+record; an agent that is not declared is refused rather than written down. A brain that declares none inherits the
+project's `[[assisted_by]]`.
 
 ## The retention policy
 
@@ -57,7 +64,7 @@ would be unrecoverable.
 ```bash
 mkdir coursework && cd coursework
 vitruvio --actor you@example.com project init coursework --namespace docker.io/you
-vitruvio project add optics --description "optics notes"
+vitruvio --assisted-by anthropic/claude-code project add optics --description "optics notes"
 vitruvio project show
 ```
 

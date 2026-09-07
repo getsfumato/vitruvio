@@ -119,6 +119,8 @@ def init(
         update_config(target, "registry.namespace", namespace)
     if actor := context.actor_id:
         update_config(target, "actor.id", actor)
+        if context.actor_kind:
+            update_config(target, "actor.kind", context.actor_kind)
 
     # Registered as it is created, so `--project <name>` works from anywhere from the first command onwards.
     # Requiring a second, separate `project register` would make the flag look conditional on ceremony, and the
@@ -385,19 +387,21 @@ def add(
         Refuse `dist push` for this brain. For somebody else's upstream: a pulled brain is a writable working copy
         like any other, so a stray push publishes a fork of it under this project's repository and the two lineages
         diverge with nobody informed. Stops an accident, not an intent.
+
+    The global `--assisted-by ID` flags, repeated, declare which agents may be recorded as assisting writes into
+    this brain; they are written under `[[brains.<name>.assisted_by]]` and become the only ones later invocations
+    may name.
     """
     console = current().console
-    result = (
-        current()
-        .service(require_brain=False)
-        .add_brain(
-            name,
-            path=path,
-            description=description,
-            reference=reference,
-            create=not no_create,
-            publish=not no_publish,
-        )
+    context = current()
+    result = context.service(require_brain=False, declaring=True).add_brain(
+        name,
+        path=path,
+        description=description,
+        reference=reference,
+        create=not no_create,
+        publish=not no_publish,
+        assisted_by=context.assisted_by,
     )
     from pathlib import Path
 
@@ -418,6 +422,7 @@ def add(
     pairs: list[tuple[str, object]] = [
         ("added", result["name"]),
         ("path", f"{result['path']}{'  (created)' if result['created'] else ''}"),
+        ("assisted by", ", ".join(result.get("assisted_by") or ()) or "(none declared -- inherits the project's)"),
     ]
     if not result["publish"]:
         pairs.append(("publish", Text("false -- `dist push` will refuse this brain", style="warn")))

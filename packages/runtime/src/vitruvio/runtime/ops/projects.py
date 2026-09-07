@@ -10,6 +10,7 @@ not a brain this session owns and caching it under this session's key would be w
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from vitruvio.kernel import ResolvedConfig, VitruvioError
@@ -91,6 +92,7 @@ class ProjectOps:
         reference: str | None = None,
         create: bool = True,
         publish: bool = True,
+        assisted_by: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         """
         Register a brain in the project, creating its layout when it does not exist yet.
@@ -103,14 +105,18 @@ class ProjectOps:
             reference (str | None): An explicit repository, when the derived one is not wanted.
             create (bool): Create the layout if it is absent.
             publish (bool): Whether ``dist push`` may publish it. ``False`` for somebody else's upstream.
+            assisted_by (Sequence[str] | None): The agents that may be recorded as assisting writes into this
+                brain, as canonical actor ids. Written under ``[[brains.<name>.assisted_by]]`` and, from then on,
+                the only parties an invocation into this brain may name.
 
         Returns:
             dict[str, Any]: The registered brain.
 
         Raises:
             VitruvioError: If the project has no configuration file to write to, or the name is already taken.
+            ActorIdInvalidError: If a collaborator id is not in a canonical form.
         """
-        from vitruvio.kernel import NamedBrainSpec, is_layout, update_config
+        from vitruvio.kernel import ActorIdInvalidError, CollaboratorSpec, NamedBrainSpec, is_layout, update_config
 
         config_path = self.config.config_file
         if config_path is None:
@@ -125,8 +131,16 @@ class ProjectOps:
             )
 
         # Validated before anything is written, so a rejected name does not leave a half-registered project.
+        try:
+            collaborators = [CollaboratorSpec(id=identity) for identity in assisted_by or ()]
+        except (TypeError, ValueError) as error:
+            raise ActorIdInvalidError(f"--assisted-by contains an invalid collaborator: {error}") from error
         spec = NamedBrainSpec(
-            path=path or f"./brains/{name}", description=description, reference=reference, publish=publish
+            path=path or f"./brains/{name}",
+            description=description,
+            reference=reference,
+            publish=publish,
+            assisted_by=collaborators,
         )
         NamedBrainSpec.model_validate(spec.model_dump())
         from vitruvio.kernel import ProjectConfig
@@ -150,6 +164,12 @@ class ProjectOps:
             update_config(config_path, f"brains.{name}.reference", reference)
         if not publish:
             update_config(config_path, f"brains.{name}.publish", False)
+        if collaborators:
+            update_config(
+                config_path,
+                f"brains.{name}.assisted_by",
+                [item.model_dump(mode="json", exclude_none=True) for item in collaborators],
+            )
 
         return {
             "name": name,
@@ -158,6 +178,7 @@ class ProjectOps:
             "created": created,
             "description": description,
             "publish": publish,
+            "assisted_by": [item.id for item in collaborators],
             "config_file": str(config_path),
         }
 

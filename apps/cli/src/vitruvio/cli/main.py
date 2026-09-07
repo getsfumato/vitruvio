@@ -67,7 +67,13 @@ def launcher(
         ),
     ] = None,
     config: Annotated[Path | None, Parameter(name=["--config"], help="A vitruvio.toml to use verbatim.")] = None,
-    actor: Annotated[str | None, Parameter(name=["--actor"], help="Who to attribute writes to.")] = None,
+    actor: Annotated[
+        str | None,
+        Parameter(
+            name=["--actor"],
+            help="Who to attribute writes to. Once vitruvio.toml declares an actor, only that one is accepted.",
+        ),
+    ] = None,
     actor_kind: Annotated[
         # A plain string, coerced by vitruvio.kernel.parse_actor_kind. Taking the SDK's enum here would make
         # this app import boltzmann, which is the one thing the service-layer boundary forbids.
@@ -78,7 +84,10 @@ def launcher(
         list[str] | None,
         Parameter(
             name=["--assisted-by"],
-            help="Actor id that assisted this invocation. Repeat for several; each flag denotes an agent.",
+            help=(
+                "Record only these declared collaborators for this invocation. Repeat for several; a party the brain "
+                "has not declared under assisted_by is refused. With no flag, every declared party is recorded."
+            ),
         ),
     ] = None,
     json: Annotated[

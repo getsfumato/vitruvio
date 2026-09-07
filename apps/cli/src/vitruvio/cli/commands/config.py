@@ -88,6 +88,24 @@ def _redact(document: dict[str, Any]) -> dict[str, Any]:
     return walked
 
 
+def _collaborators(project: ProjectConfig) -> str:
+    """
+    The declared assisting parties: the project's, then each brain's own list where one declares it.
+
+    Shown because they are now the only parties a write may record, so "who is allowed to assist here" is a
+    question this command has to answer before somebody's ``--assisted-by`` is refused.
+    """
+    shared = ", ".join(spec.id for spec in project.assisted_by) or "(none declared)"
+    own = "; ".join(
+        f"{name}: {', '.join(spec.id for spec in brain.assisted_by)}"
+        for name, brain in sorted(project.brains.items())
+        if brain.assisted_by
+    )
+    if project.brain.assisted_by:
+        own = "; ".join(filter(None, [f"[brain]: {', '.join(spec.id for spec in project.brain.assisted_by)}", own]))
+    return f"{shared}   per brain -- {own}" if own else shared
+
+
 def _describe(project: ProjectConfig, source: Path | None) -> Table:
     """
     Render the configuration for a human.
@@ -131,6 +149,7 @@ def _describe(project: ProjectConfig, source: Path | None) -> Table:
         ("project", addressable),
         ("brain", brains),
         ("actor", f"{actor.id or '(not set)'} [{actor.kind.value}]"),
+        ("assisted by", _collaborators(project)),
         (
             "policy",
             (

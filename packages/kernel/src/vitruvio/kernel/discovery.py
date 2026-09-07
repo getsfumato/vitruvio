@@ -643,32 +643,59 @@ def _actor_from_layers(
     project: ProjectConfig,
     actor_id: str | None,
     actor_kind: str | ActorKind | None,
+    *,
+    declaring: bool = False,
 ) -> tuple[ActorSpec, Origin]:
     """
-    Apply the actor precedence: flag, then environment, then file, then default.
+    Apply the actor precedence: the file, when it declares one, is authoritative; otherwise environment, then flag.
+
+    A declared actor is what every write into the project is attributed to, and the declaration is the reviewed
+    place it lives. An invocation that names a *different* actor is therefore refused rather than obeyed -- a
+    provenance record must not depend on which shell ran the command -- while naming the same actor again is a
+    harmless repetition and leaves the file as the origin. When the file declares nothing, the environment and the
+    flag supply the actor as they always did, which is also how the declaration first gets written.
 
     Args:
         project (ProjectConfig): The loaded configuration.
         actor_id (str | None): The ``--actor`` value.
         actor_kind (str | ActorKind | None): The ``--actor-kind`` value, coerced if it is a string.
+        declaring (bool): Whether this invocation is the one creating the declaration -- ``brain init``,
+            ``project init``, ``brain migrate``. It may name any actor, since that is what it is for.
 
     Returns:
         tuple[ActorSpec, Origin]: The resolved actor and where its identifier came from.
+
+    Raises:
+        ActorOverrideRefusedError: If the file declares an actor and a layer above it names a different one.
     """
+    from vitruvio.kernel.errors import ActorOverrideRefusedError
 
     spec = project.actor
-    origin = Origin.FILE if spec.id else Origin.DEFAULT
+    declared = spec.id or None
+    origin = Origin.FILE if declared else Origin.DEFAULT
+
+    def take(candidate: str, layer: Origin, source: str) -> None:
+        nonlocal spec, origin
+        if declared and not declaring:
+            if candidate != declared:
+                raise ActorOverrideRefusedError(
+                    f"{source} names {candidate!r}, but {project.source or 'vitruvio.toml'} declares the actor "
+                    f"{declared!r}, and every write into this project is attributed to the declared actor",
+                    hint="drop the override, or change the declaration with `vitruvio config set actor.id ...`",
+                )
+            return
+        spec, origin = spec.model_copy(update={"id": candidate}), layer
 
     env_id = os.environ.get(ENV_ACTOR_ID, "").strip()
     if env_id:
-        spec, origin = spec.model_copy(update={"id": env_id}), Origin.ENVIRONMENT
+        take(env_id, Origin.ENVIRONMENT, ENV_ACTOR_ID)
 
     env_kind = parse_actor_kind(os.environ.get(ENV_ACTOR_KIND, "").strip(), source=ENV_ACTOR_KIND)
     if env_kind is not None:
         spec = spec.model_copy(update={"kind": env_kind})
 
     if actor_id:
-        spec, origin = spec.model_copy(update={"id": actor_id}), Origin.FLAG
+        take(actor_id, Origin.FLAG, "--actor")
     flag_kind = parse_actor_kind(actor_kind, source="--actor-kind")
     if flag_kind is not None:
         spec = spec.model_copy(update={"kind": flag_kind})
@@ -676,14 +703,67 @@ def _actor_from_layers(
     return spec, origin
 
 
-def _collaborators_from_layers(project: ProjectConfig, assisted_by: list[str] | None) -> list[CollaboratorSpec]:
-    """Resolve assisting parties from flags, environment, then the project file.
-
-    The environment accepts a JSON array of collaborator objects (or actor-id strings).
-    Repeating ``--assisted-by`` is intentionally the concise form: each named party is an
-    agent unless the committed configuration supplies richer metadata.
+def _collaborators_from_layers(
+    project: ProjectConfig,
+    brain_name: str | None,
+    assisted_by: list[str] | None,
+    *,
+    declaring: bool = False,
+) -> tuple[list[CollaboratorSpec], Origin]:
     """
-    selected = list(project.assisted_by)
+    Resolve the assisting parties one invocation records.
+
+    The brain's declaration is the universe -- ``[[brains.<name>.assisted_by]]``, else ``[[brain.assisted_by]]``,
+    else the project's ``[[assisted_by]]`` -- and with nothing else said, every declared party is recorded. The
+    environment and ``--assisted-by`` *select* from that universe, keeping the declared ``kind``, ``name`` and
+    ``model``; a party the brain has not declared is refused rather than recorded, because a collaborator that
+    appears in provenance without appearing in the committed file is exactly the attribution nobody reviewed. An
+    empty selection (``--empty-assisted-by``) records no assistance for this one invocation.
+
+    When nothing is declared anywhere, or the invocation is the one *declaring* (``brain init``, ``project add``),
+    the environment and flags name parties outright: that is how the first declaration gets written.
+
+    Args:
+        project (ProjectConfig): The loaded configuration.
+        brain_name (str | None): The selected named brain, or ``None`` for the single ``[brain]``.
+        assisted_by (list[str] | None): The ``--assisted-by`` values; ``[]`` means none for this invocation.
+        declaring (bool): Whether this invocation creates the declaration rather than selecting from it.
+
+    Returns:
+        tuple[list[CollaboratorSpec], Origin]: The parties to record and which layer chose them.
+
+    Raises:
+        CollaboratorNotDeclaredError: If a layer named a party the brain has not declared.
+        ActorIdInvalidError: If a named identifier is not in a canonical form.
+    """
+    from vitruvio.kernel.errors import CollaboratorNotDeclaredError
+
+    declared = project.declared_collaborators(brain_name)
+    selected = list(declared)
+    origin = Origin.FILE if declared else Origin.DEFAULT
+
+    def choose(requested: list[CollaboratorSpec], layer: Origin, source: str) -> None:
+        nonlocal selected, origin
+        unique: dict[str, CollaboratorSpec] = {}
+        for spec in requested:
+            unique.setdefault(spec.id, spec)
+        if declared and not declaring:
+            known = {spec.id: spec for spec in declared}
+            unknown = [identity for identity in unique if identity not in known]
+            if unknown:
+                table = f"brains.{brain_name}.assisted_by" if brain_name else "brain.assisted_by"
+                raise CollaboratorNotDeclaredError(
+                    f"{source} names {', '.join(unknown)}, which the brain has not declared as assisting it",
+                    hint=(
+                        f"declared: {', '.join(known) or 'nobody'}; add the party under [[{table}]] in "
+                        f"{project.source or 'vitruvio.toml'}"
+                    ),
+                )
+            selected = [known[identity] for identity in unique]
+        else:
+            selected = list(unique.values())
+        origin = layer
+
     encoded = os.environ.get(ENV_ASSISTED_BY, "").strip()
     if encoded:
         try:
@@ -693,18 +773,20 @@ def _collaborators_from_layers(project: ProjectConfig, assisted_by: list[str] | 
         if not isinstance(values, list):
             raise ConfigError(f"{ENV_ASSISTED_BY} must be a JSON array of actor ids or collaborator objects")
         try:
-            selected = [
+            requested = [
                 CollaboratorSpec(id=value) if isinstance(value, str) else CollaboratorSpec.model_validate(value)
                 for value in values
             ]
         except (ActorIdError, TypeError, ValueError, ValidationError) as error:
             raise ActorIdInvalidError(f"{ENV_ASSISTED_BY} contains an invalid collaborator: {error}") from error
+        choose(requested, Origin.ENVIRONMENT, ENV_ASSISTED_BY)
     if assisted_by is not None:
         try:
-            selected = [CollaboratorSpec(id=value) for value in assisted_by]
+            requested = [CollaboratorSpec(id=value) for value in assisted_by]
         except (ActorIdError, TypeError, ValueError, ValidationError) as error:
             raise ActorIdInvalidError(f"--assisted-by contains an invalid collaborator: {error}") from error
-    return selected
+        choose(requested, Origin.FLAG, "--assisted-by")
+    return selected, origin
 
 
 def select_config_file(
@@ -767,6 +849,7 @@ def resolve(
     start: Path | None = None,
     require_layout: bool = True,
     require_brain: bool = True,
+    declaring: bool = False,
 ) -> ResolvedConfig:
     """
     Merge flags, environment, file and state into one answer.
@@ -785,12 +868,17 @@ def resolve(
         require_brain (bool): Whether a brain must be selected at all. The ``project`` commands pass ``False``:
             they are about the project rather than about any one brain, and a project that holds no brains yet
             is the state ``project show`` most needs to be able to report.
+        declaring (bool): Whether this invocation creates the actor and collaborator declarations rather than
+            obeying them -- ``brain init``, ``project init``, ``project add``, ``brain migrate``. Everything else
+            is refused an actor other than the declared one and a collaborator the brain has not declared.
 
     Returns:
         ResolvedConfig: Everything the runtime needs, with the provenance of each answer.
 
     Raises:
         ConfigError: If the configuration is unreadable or invalid.
+        ActorOverrideRefusedError: If a flag or the environment names an actor other than the declared one.
+        CollaboratorNotDeclaredError: If a flag or the environment names a party the brain has not declared.
         ProjectNotKnownError: If ``--project`` named a project this machine has not registered.
         BrainNotSelectedError: If no layer named a brain.
         BrainNotFoundError: If the named path is not a brain and one was required.
@@ -820,8 +908,10 @@ def resolve(
         # project. A None would ripple an optional through every consumer of ResolvedConfig for one case.
         selected, origin, brain_name = Path.cwd(), Origin.DEFAULT, None
         require_layout = False
-    actor, actor_origin = _actor_from_layers(document, actor_id, actor_kind)
-    collaborators = _collaborators_from_layers(document, assisted_by)
+    actor, actor_origin = _actor_from_layers(document, actor_id, actor_kind, declaring=declaring)
+    collaborators, collaborators_origin = _collaborators_from_layers(
+        document, brain_name, assisted_by, declaring=declaring
+    )
 
     if require_layout and not is_layout(selected):
         detail = "does not exist" if not selected.exists() else "is not an OCI layout"
@@ -837,5 +927,6 @@ def resolve(
         project=document.model_copy(update={"actor": actor, "assisted_by": collaborators}),
         project_origin=project_origin,
         actor_origin=actor_origin,
+        collaborators_origin=collaborators_origin,
         config_file=config_path,
     )

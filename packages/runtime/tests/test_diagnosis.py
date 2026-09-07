@@ -117,7 +117,8 @@ class TestOffline:
         registry_root.mkdir()
         service.push("demo/brain", tag="v1", local=registry_root)
 
-        consumer = BrainService(resolve(brain=tmp_path / "consumer", actor_id="c@example.com", require_layout=False))
+        # Beside the producer's vitruvio.toml, so the consumer inherits its declared actor rather than naming one.
+        consumer = BrainService(resolve(brain=tmp_path / "consumer", require_layout=False))
         consumer.init()
         consumer.pull("demo/brain", tag="v1", modules=["canonical"], local=registry_root)
 

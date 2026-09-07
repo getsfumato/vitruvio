@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from vitruvio.kernel import ResolvedConfig, UsageError, VitruvioError
+from vitruvio.kernel import Origin, ResolvedConfig, UsageError, VitruvioError
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability, open_brain
 from vitruvio.runtime.mapping import translated
@@ -156,6 +156,14 @@ class LifecycleOps:
             if self.config.project.actor.id:
                 update_config(config_path, "actor.id", self.config.project.actor.id)
                 update_config(config_path, "actor.kind", self.config.project.actor.kind.value)
+            if self.config.collaborators_origin is Origin.FLAG and self.config.project.assisted_by:
+                # Only what the flag named. Parties inherited from an enclosing project's declaration are that
+                # project's to keep in one place, not to copy under every brain it creates.
+                update_config(
+                    config_path,
+                    "brain.assisted_by",
+                    [spec.model_dump(mode="json", exclude_none=True) for spec in self.config.project.assisted_by],
+                )
             update_config(config_path, "policy.profile", self.config.project.policy.profile.value)
             wrote_config = True
 

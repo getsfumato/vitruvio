@@ -221,6 +221,7 @@ def init(
         actor_kind=context.actor_kind,
         assisted_by=context.assisted_by,
         require_layout=False,
+        declaring=True,
     )
     if policy:
         try:
@@ -332,7 +333,7 @@ def migrate(
             raise ConfigError(f"migration report {report} already exists", hint="pass --force-report to replace it")
     result = (
         current()
-        .service()
+        .service(declaring=True)
         .migrate(
             to,
             governed=governed,
