@@ -67,6 +67,7 @@ The checks are declared once, in the runtime, and this table is tested against t
 | `modules.partial` | warn | a selective pull left the published modules it did not ask for behind | `vitruvio dist pull` without `--module` |
 | `blocks.missing` | fail | named blocks are absent from the store: a selective install, or corruption | `vitruvio dist pull` |
 | `blocks.tombstoned` | warn | blocks were redacted under policy; they are still verifiable members, and this is lawful | nothing; `vitruvio inspect resolvability` lists them |
+| `blocks.unattributed` | warn | blocks with no registration or derivation record naming them, so nobody is on record as their creator; catalog structure written before pyboltzmann 0.9.1 is the known case | re-apply the catalog manifest with `vitruvio catalog apply`; `vitruvio inspect blocks MODULE` names them |
 | `indices.unbuilt` | warn | a declared structural index has never been built | `vitruvio index build` |
 | `indices.stale` | warn | a sidecar describes a different composition than the one installed | `vitruvio index build` |
 | `indices.model_mismatch` | fail | a vector sidecar was built with an embedder other than the configured one, read from its header | configure that embedder, or `vitruvio index build --force` |
