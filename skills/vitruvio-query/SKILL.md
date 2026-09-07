@@ -31,7 +31,7 @@ work the indices exist to make unnecessary.
 "qué pasó en mayo" from competing with "definí serie de Fourier": the first is episodic, the second semantic, and
 without the filter both compete in one ranking.
 
-`--mode` (`lexical`, `semantic`, `associative`, `hybrid`, `auto`) is a *hint*. It narrows the space of admissible
+`--mode` (`auto`, `exact`, `lexical`, `semantic`, `associative`) is a *hint*. It narrows the space of admissible
 plans; it never picks one. In particular `--mode semantic` still admits a term scan, because no index in this
 protocol is authoritative and a hint must not be usable to make one so.
 
