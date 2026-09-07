@@ -27,7 +27,7 @@ import pytest
 from textual.widgets import DataTable, Input, Tree
 
 from vitruvio.cli.main import main
-from vitruvio.cli.render import media, theme
+from vitruvio.cli.render import evidence, media, theme
 from vitruvio.cli.tui import BrainBrowser
 from vitruvio.kernel import ExitCode
 
@@ -255,6 +255,57 @@ class TestTheRenderLayer:
 
         assert isinstance(media.text(b"# Titulo", "text/markdown"), Markdown)
         assert not isinstance(media.text(b"plano", "text/plain"), Markdown)
+
+    def test_a_text_preview_is_cut_at_the_byte_cap_and_says_so(self) -> None:
+        """Where the file ends and where the preview ends are different facts, and the footer tells them apart."""
+        plain = _plain(media.text(b"a" * 300, "text/plain", limit=64))
+        assert "showing 64 B of 300 B" in plain
+
+    def test_the_line_cap_cuts_between_lines_never_inside_one(self) -> None:
+        """Five thousand short lines are a few kibibytes and five thousand strips for a pane to build, which is
+        why a line cap exists beside the byte cap."""
+        plain = _plain(media.text(b"linea\n" * 5000, "text/plain", max_lines=10))
+        assert plain.count("linea") == 10
+        assert "showing" in plain
+
+    def test_exactly_the_cap_in_lines_with_a_trailing_newline_is_not_a_cut(self) -> None:
+        plain = _plain(media.text(b"linea\n" * 10, "text/plain", max_lines=10))
+        assert plain.count("linea") == 10
+        assert "showing" not in plain
+
+    def test_highlighting_stops_past_its_budget_and_the_text_stays(self) -> None:
+        """Pygments lexes at paint time, on the painting thread. A megabyte of HTML read as a hang."""
+        from rich.syntax import Syntax
+        from rich.text import Text
+
+        assert isinstance(media.text(b"<p>x</p>", "text/html"), Syntax)
+        assert isinstance(media.text(b"<p>x</p>" * 8_000, "text/html"), Text)
+
+    def test_the_hint_rides_under_the_text_whether_or_not_it_was_cut(self) -> None:
+        whole = _plain(media.text(b"corto", "text/plain", hint="o open, e export"))
+        assert "o open, e export" in whole
+        assert "showing" not in whole
+        cut = _plain(media.text(b"a" * 300, "text/plain", limit=64, hint="o open, e export"))
+        assert "showing 64 B of 300 B -- o open, e export" in cut
+
+    def test_markup_prefers_its_extracted_text_and_plain_text_does_not(self) -> None:
+        assert media.prefers_text("text/html")
+        assert media.prefers_text("application/xhtml+xml; charset=utf-8")
+        assert not media.prefers_text("text/plain")
+        assert not media.prefers_text("text/markdown")
+
+    def test_a_byte_count_reads_as_a_size(self) -> None:
+        assert theme.filesize(512) == "512 B"
+        assert theme.filesize(65536) == "64.0 KiB"
+
+    def test_a_payload_past_the_highlight_budget_is_printed_plain(self) -> None:
+        """A payload can carry a whole extracted text, and highlighting it costs the same as highlighting the
+        source did."""
+        from rich.syntax import Syntax
+        from rich.text import Text
+
+        assert isinstance(evidence.payload({"label": "corto"}), Syntax)
+        assert isinstance(evidence.payload({"text": "x" * 40_000}), Text)
 
     def test_a_media_type_a_terminal_cannot_show_says_what_to_do_instead(self) -> None:
         note = media.unsupported("video/mp4", 4096)
@@ -1354,23 +1405,31 @@ def _pane(app: BrainBrowser, name: str) -> str:
     Returns:
         str: What it says, without styling.
     """
-    from rich.console import Console
     from textual.widgets import Static
 
-    widget = app.query_one(f"#{name}", Static)
-    console = Console(width=200, no_color=True, theme=theme.THEME)
-    with console.capture() as captured:
-        console.print(widget.content)
-    return captured.get()
+    return _plain(app.query_one(f"#{name}", Static).content)
 
 
 def _screen_pane(app: BrainBrowser, name: str) -> str:
     """Render a Static held by the currently pushed screen."""
-    from rich.console import Console
     from textual.widgets import Static
 
-    widget = app.screen.query_one(f"#{name}", Static)
+    return _plain(app.screen.query_one(f"#{name}", Static).content)
+
+
+def _plain(renderable: Any) -> str:
+    """
+    What a renderable says, without styling.
+
+    Args:
+        renderable (Any): Anything Rich can print.
+
+    Returns:
+        str: Its text, laid out on a wide console under the house theme so that no style name is missing.
+    """
+    from rich.console import Console
+
     console = Console(width=200, no_color=True, theme=theme.THEME)
     with console.capture() as captured:
-        console.print(widget.content)
+        console.print(renderable)
     return captured.get()
