@@ -83,6 +83,15 @@ class TestIngestRun:
         _, payload = envelope(capsys, "--brain", str(brain), "ingest", "run", str(document), "--dry-run")
         assert payload["data"]["pipeline"] == "markdown"
 
+    def test_none_disables_the_pipeline(self, capsys: pytest.CaptureFixture[str], brain: Path, document: Path) -> None:
+        """The documented opt-out used to be `""`, which the CLI turned into "nothing said" and the runtime into the
+        suggested pipeline -- so it did not opt out. `none` does, and so does the empty string."""
+        for spelling in ("none", ""):
+            _, payload = envelope(
+                capsys, "--brain", str(brain), "ingest", "run", str(document), "--dry-run", "--normalize-with", spelling
+            )
+            assert payload["data"]["pipeline"] is None, repr(spelling)
+
     def test_a_full_run_commits_and_advances_the_snapshot(
         self, capsys: pytest.CaptureFixture[str], brain: Path, document: Path
     ) -> None:

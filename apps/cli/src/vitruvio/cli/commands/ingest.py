@@ -61,8 +61,8 @@ def run(
     allowed
         Which memory types may be proposed. Repeatable. Defaults to episodic, semantic and procedural.
     normalize_with
-        A normalization pipeline. Defaults to whichever one suits the media type; pass a name to override, or
-        `""` to register the original with no view.
+        A normalization pipeline. Defaults to whichever one suits the media type, exactly as `source register`
+        does; pass a name to override, or `none` to register the original with no view.
     subject
         A subject to tag every proposal with. Worth setting: it is what makes a later `--subject` filter select
         this document rather than everything.
@@ -83,7 +83,7 @@ def run(
             media_type=resolved,
             proposer=proposer,
             allowed=allowed,
-            normalize_with=normalize_with or None,
+            normalize_with=normalize_with,
             subject=subject,
             origin=origin,
             dry_run=dry_run,
