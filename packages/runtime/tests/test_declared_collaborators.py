@@ -45,3 +45,21 @@ def test_project_add_declares_a_brains_own_collaborators(tmp_path: Path) -> None
     assert [party.id for party in optics.collaborators()] == ["anthropic/claude-code"]
     acoustics = resolve(config=config, brain=Path("acoustics"))
     assert [party.id for party in acoustics.collaborators()] == ["shared/agent"]
+
+
+def test_project_add_declares_a_brains_own_actor_only_when_it_differs(tmp_path: Path) -> None:
+    """The project's actor restated is not a declaration; a different person is."""
+    from vitruvio.kernel import load_project
+
+    config = tmp_path / "vitruvio.toml"
+    config.write_text('[project]\nname = "coursework"\n\n[actor]\nid = "tester@example.com"\n', encoding="utf-8")
+    service = BrainService(resolve(config=config, require_brain=False, require_layout=False, declaring=True))
+
+    own = service.add_brain("optics", actor="colleague@example.com")
+    assert own["actor"] == "colleague@example.com"
+    same = service.add_brain("acoustics", actor="tester@example.com")
+    assert same["actor"] is None
+
+    assert resolve(config=config, brain=Path("optics")).actor().id == "colleague@example.com"
+    assert resolve(config=config, brain=Path("acoustics")).actor().id == "tester@example.com"
+    assert load_project(config).brains["acoustics"].actor is None

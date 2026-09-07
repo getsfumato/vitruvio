@@ -41,3 +41,12 @@ learns what the file says.
   and which agents will assist each brain, and writes both; an undeclared agent stops and asks rather than writing.
 - ADR-0002's "flag beats file" precedence for the actor and the project-wide collaborator list are superseded by
   this record. Its refusal of an unattributed write stands.
+
+## Amendment: a brain may declare its own actor
+
+The actor was first kept project-wide because a project is what several brains share. The exception that turned
+up immediately is the brain a *different person* keeps inside a shared project. `[brains.<name>.actor]` (and
+`[brain.actor]` for a single-brain file) now declares that person; it must carry an `id`, it replaces the project's
+actor for writes into that brain, and it is authoritative in exactly the same way -- a differing `--actor` or
+`VITRUVIO_ACTOR_ID` is refused, and the refusal names the table to change. `project add --actor` writes it when the
+id differs from the project's. The project's actor stays the default for every brain that declares none.

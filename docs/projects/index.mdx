@@ -35,9 +35,11 @@ kind = "agent"
 path = "./brains/acoustics-ii"
 ```
 
-The actor is the project's and is authoritative: a write naming another one is refused. The assistants are each
-brain's own — `optics` records `anthropic/claude-code`, `acoustics-ii` records whatever the project declares under a
-top-level `[[assisted_by]]`, or nobody — and `--assisted-by` on a write may only select among them.
+The actor is the project's and is authoritative: a write naming another one is refused. A brain a different person
+keeps may declare its own under `[brains.<name>.actor]`, and that one is authoritative for that brain instead. The
+assistants are each brain's own — `optics` records `anthropic/claude-code`, `acoustics-ii` records whatever the
+project declares under a top-level `[[assisted_by]]`, or nobody — and `--assisted-by` on a write may only select
+among them.
 
 A project answers two questions the rest of this section takes in turn: [which brain a command means](/projects/selecting-a-brain), and [where each brain publishes](/projects/publishing-a-project).
 

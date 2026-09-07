@@ -90,6 +90,17 @@ different id is refused with `ACTOR_OVERRIDE_REFUSED` (exit 3) rather than obeye
 depend on which shell ran the command. Only the commands that create the declaration — `brain init`, `project init`,
 `brain migrate` — may name any actor.
 
+A brain kept by a different person inside a shared project declares its own actor, and that declaration is
+authoritative for writes into that brain in the same way:
+
+```toml
+[brains.optics.actor]
+id = "colleague@example.com"
+```
+
+`project add optics --actor colleague@example.com` writes it when the id differs from the project's; a brain that
+declares none is written to by the project's actor.
+
 New writes accept exactly two stable actor-id forms: a lowercase address (`you@example.com`) or a lowercase
 namespaced name (`openai/codex`). Vitruvio refuses uppercase, whitespace and free-form display names rather than
 normalizing them, because the bytes enter provenance block identities. `name` remains the display label.

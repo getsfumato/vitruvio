@@ -92,7 +92,9 @@ both mandatory, both answered by the user and never inferred:
 1. **Which email is the actor.** A lowercase address (`ana@example.org`) that identifies the person; it is hashed
    into every block and cannot be normalized or changed afterwards. Ask for it in so many words. Do not take it
    from git config, `$USER`, a previous project, or your own identity, and do not offer a namespaced name here:
-   the actor is the person, and you are an assistant.
+   the actor is the person, and you are an assistant. In a project, the actor is shared by every brain; if one
+   brain is kept by a different person, ask for that email too and declare it for that brain alone
+   (`project add BRAIN --actor MAIL`, or `[brains.BRAIN.actor] id = "MAIL"`).
 2. **Which agents will assist this brain.** One canonical namespaced id per agent that will write into *this* brain
    (`anthropic/claude-code`, `openai/codex`), optionally with a display name and model. Name yourself if you will
    be one of them. They are declared per brain, so a project with several brains answers this once per brain.

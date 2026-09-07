@@ -93,6 +93,8 @@ class ProjectOps:
         create: bool = True,
         publish: bool = True,
         assisted_by: Sequence[str] | None = None,
+        actor: str | None = None,
+        actor_kind: str | None = None,
     ) -> dict[str, Any]:
         """
         Register a brain in the project, creating its layout when it does not exist yet.
@@ -108,15 +110,27 @@ class ProjectOps:
             assisted_by (Sequence[str] | None): The agents that may be recorded as assisting writes into this
                 brain, as canonical actor ids. Written under ``[[brains.<name>.assisted_by]]`` and, from then on,
                 the only parties an invocation into this brain may name.
+            actor (str | None): Who writes into this brain, when that is not the project's actor. Written under
+                ``[brains.<name>.actor]`` only when it differs from what the file declares for the project; the
+                same id is the project's actor restated, and declaring it twice would be one more place to change.
+            actor_kind (str | None): The kind of that actor -- ``human`` unless said otherwise.
 
         Returns:
             dict[str, Any]: The registered brain.
 
         Raises:
             VitruvioError: If the project has no configuration file to write to, or the name is already taken.
-            ActorIdInvalidError: If a collaborator id is not in a canonical form.
+            ActorIdInvalidError: If a collaborator id or the actor id is not in a canonical form.
         """
-        from vitruvio.kernel import ActorIdInvalidError, CollaboratorSpec, NamedBrainSpec, is_layout, update_config
+        from vitruvio.kernel import (
+            ActorIdInvalidError,
+            ActorSpec,
+            CollaboratorSpec,
+            NamedBrainSpec,
+            is_layout,
+            load_project,
+            update_config,
+        )
 
         config_path = self.config.config_file
         if config_path is None:
@@ -135,12 +149,27 @@ class ProjectOps:
             collaborators = [CollaboratorSpec(id=identity) for identity in assisted_by or ()]
         except (TypeError, ValueError) as error:
             raise ActorIdInvalidError(f"--assisted-by contains an invalid collaborator: {error}") from error
+        # The file's own declaration, not the resolved one: a declaring invocation resolves to whatever --actor
+        # said, which is exactly the value being compared against the project's.
+        own_actor: ActorSpec | None = None
+        if actor and actor != load_project(config_path).actor.id:
+            from boltzmann.blocks.provenance import ActorKind
+            from boltzmann.identity.principal import ActorIdError, parse_actor_id
+
+            from vitruvio.kernel import parse_actor_kind
+
+            try:
+                kind = parse_actor_kind(actor_kind, source="--actor-kind")
+                own_actor = ActorSpec(id=parse_actor_id(actor, field="actor id"), kind=kind or ActorKind.HUMAN)
+            except (ActorIdError, ValueError) as error:
+                raise ActorIdInvalidError(f"--actor is not a canonical actor id: {error}") from error
         spec = NamedBrainSpec(
             path=path or f"./brains/{name}",
             description=description,
             reference=reference,
             publish=publish,
             assisted_by=collaborators,
+            actor=own_actor,
         )
         NamedBrainSpec.model_validate(spec.model_dump())
         from vitruvio.kernel import ProjectConfig
@@ -170,6 +199,9 @@ class ProjectOps:
                 f"brains.{name}.assisted_by",
                 [item.model_dump(mode="json", exclude_none=True) for item in collaborators],
             )
+        if own_actor is not None:
+            update_config(config_path, f"brains.{name}.actor.id", own_actor.id)
+            update_config(config_path, f"brains.{name}.actor.kind", own_actor.kind.value)
 
         return {
             "name": name,
@@ -179,6 +211,7 @@ class ProjectOps:
             "description": description,
             "publish": publish,
             "assisted_by": [item.id for item in collaborators],
+            "actor": own_actor.id if own_actor is not None else None,
             "config_file": str(config_path),
         }
 

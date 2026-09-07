@@ -310,6 +310,36 @@ class TestActorResolution:
         assert declaring.project.actor.id == "other@example.com"
         assert declaring.actor_origin is Origin.FLAG
 
+    def test_a_brain_may_declare_its_own_actor(self, tmp_path: Path) -> None:
+        """The brain a different person keeps inside a shared project: its actor wins there, and only there."""
+        make_brain(tmp_path, "a")
+        make_brain(tmp_path, "b")
+        config = write_config(
+            tmp_path,
+            '[actor]\nid = "project@example.com"\n\n'
+            '[brains.a]\npath = "./a"\n[brains.a.actor]\nid = "own@example.com"\n\n'
+            '[brains.b]\npath = "./b"\n',
+        )
+        own = resolve(config=config, brain=Path("a"))
+        assert own.actor().id == "own@example.com"
+        assert own.actor_origin is Origin.FILE
+        assert resolve(config=config, brain=Path("b")).actor().id == "project@example.com"
+
+        repeated = resolve(config=config, brain=Path("a"), actor_id="own@example.com")
+        assert repeated.actor().id == "own@example.com"
+        with pytest.raises(ActorOverrideRefusedError) as caught:
+            resolve(config=config, brain=Path("a"), actor_id="project@example.com")
+        assert "brains.a.actor.id" in (caught.value.hint or "")
+
+        declaring = resolve(config=config, brain=Path("a"), actor_id="other@example.com", declaring=True)
+        assert declaring.actor().id == "other@example.com"
+
+    def test_a_brain_actor_without_an_id_is_refused_when_the_file_loads(self, tmp_path: Path) -> None:
+        make_brain(tmp_path, "a")
+        config = write_config(tmp_path, '[brains.a]\npath = "./a"\n[brains.a.actor]\nkind = "human"\n')
+        with pytest.raises(ConfigError, match="declare an id"):
+            resolve(config=config, brain=Path("a"))
+
     def test_actor_kind_comes_through_and_defaults_to_human(self, tmp_path: Path) -> None:
         make_brain(tmp_path)
         resolved = resolve(brain=tmp_path / "brain", actor_id="a@b.c")

@@ -683,6 +683,8 @@ class GeneratedFacade:
         create: bool = True,
         publish: bool = True,
         assisted_by: Sequence[str] | None = None,
+        actor: str | None = None,
+        actor_kind: str | None = None,
     ) -> dict[str, Any]:
         """Register a brain in the project, creating its layout when it does not exist yet.
 
@@ -695,6 +697,8 @@ class GeneratedFacade:
             create=create,
             publish=publish,
             assisted_by=assisted_by,
+            actor=actor,
+            actor_kind=actor_kind,
         )
 
     def remove_brain(self, name: str) -> dict[str, Any]:
