@@ -201,12 +201,16 @@ class TestTheReadingCommands:
     def test_inspect_links_finds_the_record_that_registered_a_block(
         self, brain: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "md"])
+        main(["--brain", str(brain), "--json", "inspect", "blocks", "canonical", "--contains", "apuntes"])
         row = json.loads(capsys.readouterr().out)["data"]["rows"][0]
         code = main(["--brain", str(brain), "--json", "inspect", "links", row["block_id"]])
         payload = json.loads(capsys.readouterr().out)
         assert code == ExitCode.OK
-        assert payload["data"]["records"][0]["record"]["record_type"] == "registration"
+        # Two records name a Markdown block now -- its registration and the normalization that produced its view --
+        # and their order follows their identities, which follow the origin path. Found by type, not by position.
+        by_type = {item["record"]["record_type"]: item["record"] for item in payload["data"]["records"]}
+        assert set(by_type) == {"registration", "normalization"}
+        assert by_type["registration"]["block"] == row["block_id"]
 
 
 class TestTheEnvelopeSurvivedRich:
