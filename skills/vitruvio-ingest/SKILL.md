@@ -122,8 +122,11 @@ the `[api]` extra and a key.
 
 ## Normalized views
 
-`--normalize-with NAME` produces a deterministic, content-addressed text view of a source, and that view is what a
-proposer reads. `vitruvio ingest pipelines --json` lists what is available. Two things worth knowing:
+A normalized view is a deterministic, content-addressed text view of a source, and it is what a proposer reads —
+and what search reads, since a canonical block holds no prose of its own. `source register`, `source replace` and
+`ingest run` produce the view that suits the media type unless told otherwise; `--normalize-with NAME` overrides,
+`--normalize-with none` keeps only the bytes. `vitruvio ingest pipelines --json` lists what is available. Two things
+worth knowing:
 
 - The view is *evidence*, so the same input and pipeline version must produce identical bytes anywhere. That is why
   the pipelines are conservative and why the version is recorded in provenance.

@@ -76,6 +76,14 @@ The objective is three layers, and the stratification is how pruning happens wit
    blocks, it forced a 5.3 s scan over a 600 µs probe.
 3. `J = cost_µs + λ·(1 − recall_hat)·C_miss`, to choose among plans that are already correct.
 
+*Amended 2026-09-06.* `SeqScan`'s recall of 1.0 is over each block's *projected* text — `vitruvio.indices.project`,
+the same function every index is built from — and not over the SDK's `searchable_text`, which returns only the
+media type for a canonical block. Until then the no-authority exemption was being claimed for a generator that
+could not see canonical content at all, and the cheapest plan on a small brain returned nothing for text that was
+indexed. The exemption's reasoning is unchanged; what changed is that the claim behind it is now true, the
+canonical scan is charged for the view it reads, and the blocks registered without a view are named in the note
+rather than counted as covered.
+
 ### Enumeration is exhaustive, not Cascades
 
 The combinatorial explosion that justifies a memo comes from join reordering, and there are no joins here: one "table"

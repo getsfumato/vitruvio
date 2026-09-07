@@ -74,7 +74,8 @@ actually returned.
    `vitruvio inspect content <DIGEST> --out FILE --json` writes the bytes a block names — pass the row's `blob`,
    which is a content address and not a block id. Never draw a PDF or an image into your own output: the terminal
    rendering is a thumbnail bounded by character cells, and what you want is the text. A canonical block carries a
-   `normalized_view` when it was registered with `--normalize-with`, and *that* blob is the extracted text.
+   `normalized_view` when a pipeline ran — by default for text-like media types, or as `--normalize-with` named —
+   and *that* blob is the extracted text.
 
    `vitruvio inspect links <BLOCK_ID> --json` gives the provenance records naming a block: where it came from, and
    what has been done to it since.

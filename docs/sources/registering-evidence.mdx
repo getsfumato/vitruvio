@@ -22,7 +22,14 @@ extension is a claim, not evidence.
 ## Normalized views
 
 A **normalized view** is a deterministic, content-addressed rendering of a source, produced by a named and versioned
-pipeline, and recorded in provenance. It exists to be *read* — by a proposer, by an analyzer, by a person.
+pipeline, and recorded in provenance. It exists to be *read* — by a proposer, by an analyzer, by a person, and by
+search: a canonical block holds no prose of its own, so the view is the only text the indices and the exhaustive
+scan can observe.
+
+One policy decides which pipeline runs, and `source register`, `source replace` and `ingest run` all follow it.
+Nothing said means the pipeline that suits the media type, from the table below, and no view when none suits — a
+raster image. `--normalize-with NAME` overrides it. `--normalize-with none` produces no view at all. A declared
+source is the exception: it applies exactly what its declaration says, and nothing more.
 
 ```bash
 vitruvio ingest pipelines
@@ -53,6 +60,11 @@ pipeline version must produce identical bytes on every machine.** Which is why:
 
 Content is addressed by its hash, so registering the same bytes twice produces one block and reports
 `duplicate: true`. This is what makes an ingestion pipeline safe to re-run.
+
+The view is part of that identity. The same bytes registered under a different pipeline — or under none — are a
+second block, not a duplicate, because a block that names a view and one that does not are different statements
+about the evidence. A block registered before views were the default keeps its identity, and stays searchable by
+media type only, until it is registered or replaced again.
 
 ## No in-place edit
 

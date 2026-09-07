@@ -106,7 +106,7 @@ policy controls permitted removals, and registry credentials control who can pub
 ### `source` — evidence in, by hand or declared
 | command | for |
 |---|---|
-| `source register FILE` | canonical evidence. `--media-type`, `--normalize-with`, `--license`, `--origin` |
+| `source register FILE` | canonical evidence. Normalizes by media type unless `--normalize-with NAME` or `none`; also `--media-type`, `--license`, `--origin` |
 | `source replace FILE --supersedes ID` | a newer edition, plus the supersession edge |
 | `source put FILE` | store bytes addressably **without** a canonical block |
 | `source pull [NAME]` | acquire from the selected brain's declaration. `--option k=v` overrides one named pull; `--all` stays within that brain |
