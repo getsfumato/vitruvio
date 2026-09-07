@@ -20,7 +20,9 @@ the structural tests assert that direction.
 
 from __future__ import annotations
 
+import logging
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -30,13 +32,18 @@ from boltzmann.blocks.canonical import CanonicalBlock
 from boltzmann.blocks.episodic import EpisodicBlock
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.blocks.procedural import ProceduralBlock
-from boltzmann.blocks.provenance import ProvenanceBlock
-from boltzmann.blocks.semantic import SemanticBlock
+from boltzmann.blocks.provenance import ProvenanceBlock, ProvenanceBlockV2
+from boltzmann.blocks.semantic import SemanticBlock, SemanticBlockV3
 from boltzmann.indices.base import ContentReader
 
-PROJECTION_ID = "vitruvio-projection/3"
+PROJECTION_ID = "vitruvio-projection/4"
 """Bumped whenever what gets extracted, or how it is weighted, changes.
 
+``/4`` projects the block schemas the SDK registers as *siblings* rather than subtypes of their first version:
+provenance version 2, which is every record naming an assisting collaborator, and semantic version 3, which is
+every catalog scheme, class and placement. ``/3`` filed both as unknown blocks, so an index built under it holds
+no subject for a v2 record and no label for a class -- and answers "no creation provenance names this block" and
+"no class by that name" with complete confidence. Refusing that index and rebuilding is the only honest repair.
 ``/3`` makes ``record_subject`` cover every block identity a provenance record mentions, which lets browse and
 related-record lookup avoid a full provenance scan. ``/2`` added :attr:`IdentityKey.ORIGIN`. A bump is not free --
 the identifier is in every index header and inside
@@ -45,6 +52,9 @@ re-push -- and it is honest rather than avoidable: an index built under ``/1`` h
 answer "have I ingested this?" would return "no" for everything and re-fetch a whole brain's worth of material.
 The cost only grows with the number of brains in the world, which is the argument for paying it early.
 """
+
+
+logger = logging.getLogger(__name__)
 
 
 class Facet(StrEnum):
@@ -308,6 +318,56 @@ def _semantic(block: SemanticBlock) -> Projection:
     )
 
 
+def _semantic_structure(block: SemanticBlockV3) -> Projection:
+    """
+    Project catalog structure: a scheme, a class, a hierarchy edge or a placement.
+
+    Schema version 3 is a sibling of :class:`SemanticBlock`, not a subtype. It carries no ``statement``, no
+    ``subject`` and no aliases, and only a class has a ``label``; what it carries is structure -- the scheme a class
+    belongs to, and the relations that make a catalog navigable -- so this is mostly facets and edges. The one piece
+    of text worth finding is a class label, which gets the weight, ordered key and identity a claim's label gets, so
+    that "the class called Teoría" resolves through the same lookup as "the concept called Fourier". A scheme or a
+    placement embeds nothing: a one-word string, or an empty one, would only add noise to a similarity ranking.
+    """
+    kind = block.kind.value
+    fields: list[TextField] = []
+    facets: dict[Facet, tuple[str, ...]] = {
+        Facet.MEMORY_TYPE: (MemoryType.SEMANTIC.value,),
+        Facet.SEMANTIC_KIND: (kind,),
+        Facet.HAS_EVIDENCE: ("yes" if block.evidence else "no",),
+    }
+    keys: dict[OrderedKey, str | int] = {}
+    identities: dict[IdentityKey, tuple[str, ...]] = {}
+    embedded: str | None = None
+    if block.label:
+        fields.append(TextField("label", block.label, 3.0))
+        keys[OrderedKey.LABEL] = fold(block.label)
+        identities[IdentityKey.LABEL] = (fold(block.label),)
+        embedded = f"[{block.scheme}] {block.label}" if block.scheme else block.label
+    if block.scheme:
+        fields.append(TextField("scheme", block.scheme, 1.5))
+    fields.append(TextField("kind", kind, 0.5))
+
+    edges = [Edge(EdgeKind.EVIDENCE, str(cited)) for cited in (block.evidence or [])]
+    predicates: list[str] = []
+    for relation in block.relations or []:
+        edges.append(Edge(EdgeKind.RELATION, str(relation.target), predicate=relation.predicate))
+        predicates.append(fold(relation.predicate))
+    if predicates:
+        facets[Facet.PREDICATE] = tuple(sorted(set(predicates)))
+
+    return Projection(
+        block_id=str(block.block_id),
+        memory_type=MemoryType.SEMANTIC,
+        fields=tuple(fields),
+        embed_text=embedded,
+        facets=facets,
+        keys=keys,
+        identities=identities,
+        edges=tuple(edges),
+    )
+
+
 def _episodic(block: EpisodicBlock) -> Projection:
     """Project an episode: the summary is the meaning, the timestamp is the key people filter on."""
     tags = _clean(block.tags)
@@ -401,7 +461,7 @@ def _procedural(block: ProceduralBlock) -> Projection:
     )
 
 
-def _provenance(block: ProvenanceBlock) -> Projection:
+def _provenance(block: ProvenanceBlock | ProvenanceBlockV2) -> Projection:
     """
     Project a provenance record.
 
@@ -475,17 +535,52 @@ def project(block: Block, content: ContentReader | None = None) -> Projection:
     """
     if isinstance(block, CanonicalBlock):
         return _canonical(block, content)
-    if isinstance(block, SemanticBlock):
-        return _semantic(block)
-    if isinstance(block, EpisodicBlock):
-        return _episodic(block)
-    if isinstance(block, ProceduralBlock):
-        return _procedural(block)
-    if isinstance(block, ProvenanceBlock):
-        return _provenance(block)
+    for schema, projection in _PROJECTIONS:
+        if isinstance(block, schema):
+            return projection(block)
+    return _unknown(block)
 
-    # A block type this build does not know. Indexing its identity and memory type is still correct and still
-    # useful; guessing at its fields would not be.
+
+_PROJECTIONS: tuple[tuple[type[Block], Callable[[Any], Projection]], ...] = (
+    (SemanticBlock, _semantic),
+    (SemanticBlockV3, _semantic_structure),
+    (EpisodicBlock, _episodic),
+    (ProceduralBlock, _procedural),
+    (ProvenanceBlock, _provenance),
+    (ProvenanceBlockV2, _provenance),
+)
+"""Which projection each block class gets, in the order :func:`project` tries them. Canonical is apart: it reads."""
+
+PROJECTED_SCHEMAS: tuple[type[Block], ...] = (CanonicalBlock, *(schema for schema, _ in _PROJECTIONS))
+"""Every block class :func:`project` has a projection for; a subclass inherits its parent's.
+
+The SDK registers each schema version as a class, and a new version is not always a subclass of the one before it:
+``SemanticBlockV3`` and ``ProvenanceBlockV2`` are deliberate siblings of their version 1. A registered class that is
+not covered here is filed as an unknown block, which keeps its identity and memory type and loses every field. The
+structural tests check the SDK's registry against this tuple, so a new sibling fails a test instead of vanishing
+from every index.
+"""
+
+_REPORTED_UNKNOWN: set[tuple[str, int]] = set()
+
+
+def _unknown(block: Block) -> Projection:
+    """
+    A block type this build does not know.
+
+    Indexing its identity and memory type is still correct and still useful; guessing at its fields would not be.
+    Say so once per schema, though: every field the block carries is about to be invisible to every index, and a
+    silent gap here is exactly how an index comes to answer "nobody created this block" with confidence.
+    """
+    key = (block.MEMORY_TYPE.value, block.SCHEMA_VERSION)
+    if key not in _REPORTED_UNKNOWN:
+        _REPORTED_UNKNOWN.add(key)
+        logger.warning(
+            "no projection for %s blocks at schema version %d (%s); indexing their identity and memory type only",
+            block.MEMORY_TYPE.value,
+            block.SCHEMA_VERSION,
+            type(block).__name__,
+        )
     return Projection(
         block_id=str(block.block_id),
         memory_type=block.MEMORY_TYPE,

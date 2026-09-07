@@ -89,7 +89,7 @@ class ProvenanceReader:
             return ProvenanceRead(
                 tuple(records),
                 "indexed",
-                len(selected) == len(ordered) and unreadable == 0,
+                len(selected) == len(ordered) and unreadable == 0 and self._vouches(index),
                 len(selected),
                 unreadable,
             )
@@ -123,7 +123,7 @@ class ProvenanceReader:
         return ProvenanceRead(
             tuple(registrations),
             "indexed",
-            len(selected) == len(identities) and unreadable == 0,
+            len(selected) == len(identities) and unreadable == 0 and self._vouches(index),
             len(selected),
             unreadable,
         )
@@ -141,6 +141,22 @@ class ProvenanceReader:
 
     def _origin_index(self) -> Any | None:
         return self._hash_index("origin")
+
+    @staticmethod
+    def _vouches(index: Any) -> bool:
+        """
+        Whether an indexed lookup that found nothing may be reported as a complete answer.
+
+        A record the projection did not recognise is in the index's population and in none of its tables, so a
+        subject lookup that misses it returns nothing -- indistinguishable from a brain that never recorded the
+        block. Every recognised record names at least its own block under ``record_subject``, so the index vouches
+        for its silence only when as many blocks carry that key as it holds. Short of that, the read says
+        ``complete: false`` rather than letting a projection gap pass for "nobody".
+        """
+        coverage = getattr(index, "coverage", None)
+        if coverage is None:
+            return True
+        return int(coverage("record_subject")) >= int(index.population)
 
     def _hash_index(self, key: str) -> Any | None:
         from vitruvio.indices import HashMapIndex

@@ -701,3 +701,92 @@ class TestIndexSet:
         index.build(semantic_blocks, content)
         indices.add(index)
         assert indices.statistics()[MemoryType.SEMANTIC].version.root is None
+
+
+class TestSiblingSchemas:
+    """Schema versions the SDK registers as *siblings* of their first version, which an `isinstance` on v1 misses.
+
+    `ProvenanceBlockV2` is every record that names an assisting collaborator; `SemanticBlockV3` is every catalog
+    scheme, class and placement. Under `vitruvio-projection/3` both fell through to the unknown-block projection, so
+    a brain written with `--assisted-by` answered "no creation provenance names this block" for every block it held.
+    """
+
+    def test_every_registered_schema_has_a_projection(self) -> None:
+        """The guard: a new sibling in the SDK fails here instead of vanishing from every index."""
+        from boltzmann.blocks.base import Block
+
+        from vitruvio.indices.projection import PROJECTED_SCHEMAS
+
+        for memory_type in MemoryType:
+            for schema in Block.schemas(memory_type):
+                assert issubclass(schema, PROJECTED_SCHEMAS), f"{schema.__name__} would be indexed as an unknown block"
+
+    def test_a_record_naming_an_assistant_is_indexed_by_what_it_talks_about(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        from boltzmann.blocks.provenance import Actor, ActorKind, Collaborator, DerivationRecordV2, ProvenanceBlockV2
+
+        from vitruvio.indices import HashMapIndex, IdentityKey, IdQuery
+
+        subject, cited = semantic_blocks[1], semantic_blocks[0]
+        block = ProvenanceBlockV2(
+            record=DerivationRecordV2(
+                block=subject.block_id,
+                derived_from=[cited.block_id],
+                actor=Actor(id="tester@example.com", kind=ActorKind.HUMAN),
+                at="2026-09-01T18:10:23Z",
+                assisted_by=[Collaborator(id="openai/codex", kind=ActorKind.AGENT)],
+            )
+        )
+        assert block.SCHEMA_VERSION == 2
+
+        projection = project(block)
+        assert projection.facets[Facet.RECORD_TYPE] == ("derivation",)
+        assert set(projection.identities[IdentityKey.RECORD_SUBJECT]) == {str(subject.block_id), str(cited.block_id)}
+        assert (EdgeKind.DERIVED_FROM, str(cited.block_id)) in {(edge.kind, edge.target) for edge in projection.edges}
+
+        built = HashMapIndex(MemoryType.PROVENANCE)
+        built.build([block], content)
+        found = built.lookup(IdQuery(keys=((IdentityKey.RECORD_SUBJECT, str(subject.block_id)),)))
+        assert found.identities() == (str(block.block_id),)
+        assert built.coverage("record_subject") == built.population == 1
+
+    def test_a_catalog_class_is_found_by_its_label(self) -> None:
+        from boltzmann.catalog import ClassDeclaration
+
+        from vitruvio.indices.projection import IdentityKey, OrderedKey, fold
+
+        block = ClassDeclaration(scheme="tipo", label="Programa y planificación").to_block()
+        assert block.SCHEMA_VERSION == 3
+
+        projection = project(block)
+        assert projection.facets[Facet.SEMANTIC_KIND] == ("class",)
+        assert projection.keys[OrderedKey.LABEL] == fold("Programa y planificación")
+        assert projection.identities[IdentityKey.LABEL] == (fold("Programa y planificación"),)
+        assert projection.embed_text == "[tipo] Programa y planificación"
+        assert [(item.name, item.text) for item in projection.fields] == [
+            ("label", "Programa y planificación"),
+            ("scheme", "tipo"),
+            ("kind", "class"),
+        ]
+
+    def test_a_scheme_embeds_nothing_and_a_placement_becomes_a_predicate_edge(self) -> None:
+        from boltzmann.catalog import ClassDeclaration, PlacementDeclaration, SchemeDeclaration
+
+        from vitruvio.indices.projection import OrderedKey
+        from vitruvio.indices.testing import block_id
+
+        scheme = project(SchemeDeclaration(scheme="tipo", exclusive=True).to_block())
+        assert scheme.facets[Facet.SEMANTIC_KIND] == ("scheme",)
+        assert scheme.embed_text is None
+        assert OrderedKey.LABEL not in scheme.keys
+
+        klass = ClassDeclaration(scheme="tipo", label="Teoría").to_block()
+        source = block_id("source-pdf")
+        placement = project(PlacementDeclaration(source=source, class_id=klass.block_id).to_block())
+        assert placement.facets[Facet.SEMANTIC_KIND] == ("relation",)
+        assert placement.facets[Facet.PREDICATE] == ("classified_as",)
+        assert placement.facets[Facet.HAS_EVIDENCE] == ("yes",)
+        edges = {(edge.kind, edge.target, edge.predicate) for edge in placement.edges}
+        assert (EdgeKind.RELATION, str(klass.block_id), "classified_as") in edges
+        assert (EdgeKind.EVIDENCE, str(source), None) in edges

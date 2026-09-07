@@ -49,6 +49,7 @@ class HashMapIndex(VitruvioIndex):
     def _reset(self) -> None:
         """Discard every table."""
         self._tables: dict[str, dict[str, list[int]]] = {key.value: {} for key in IdentityKey}
+        self._keyed: dict[str, int] = dict.fromkeys((key.value for key in IdentityKey), 0)
         self._total_bytes = 0
         self._sized = 0
 
@@ -60,10 +61,14 @@ class HashMapIndex(VitruvioIndex):
 
         for key, values in projection.identities.items():
             table = self._tables[key.value]
+            keyed = False
             for value in values:
                 if not value:
                     continue
                 table.setdefault(value, []).append(ordinal)
+                keyed = True
+            if keyed:
+                self._keyed[key.value] += 1
 
         if projection.size:
             self._total_bytes += projection.size
@@ -72,6 +77,24 @@ class HashMapIndex(VitruvioIndex):
     def _capability_extra(self) -> dict[str, Any]:
         """Which identity tables actually hold anything."""
         return {"keys": tuple(sorted(name for name, table in self._tables.items() if table))}
+
+    def coverage(self, key: str) -> int:
+        """
+        How many indexed blocks carry at least one value under ``key``.
+
+        The population says how many blocks the index holds; this says how many of them a lookup under ``key`` can
+        ever return. The gap between the two is the projection's, not the data's: a block whose schema the
+        projection did not recognise is in the ordinal table and in no table at all, and a lookup that misses it is
+        indistinguishable from a lookup for something that was never written. A reader that wants to call an empty
+        result *complete* compares the two first.
+
+        Args:
+            key (str): An :class:`IdentityKey` value.
+
+        Returns:
+            int: Blocks with at least one value under that key; ``0`` for a key this index does not know.
+        """
+        return self._keyed.get(key, 0)
 
     def _fragment_extra(self) -> dict[str, Any]:
         """
@@ -89,7 +112,10 @@ class HashMapIndex(VitruvioIndex):
 
     def _header_extra(self) -> dict[str, Any]:
         """Report the per-table sizes, which is what makes a duplicate label visible in ``index status``."""
-        return {"tables": {name: len(table) for name, table in sorted(self._tables.items()) if table}}
+        return {
+            "tables": {name: len(table) for name, table in sorted(self._tables.items()) if table},
+            "keyed": {name: count for name, count in sorted(self._keyed.items()) if count},
+        }
 
     def _dump_state(self) -> dict[str, Any]:
         """Tables with sorted keys and sorted postings, so the bytes depend only on the block set."""
@@ -98,6 +124,7 @@ class HashMapIndex(VitruvioIndex):
                 name: {value: sorted(ordinals) for value, ordinals in sorted(table.items())}
                 for name, table in sorted(self._tables.items())
             },
+            "keyed": {name: count for name, count in sorted(self._keyed.items()) if count},
             "total_bytes": self._total_bytes,
             "sized": self._sized,
         }
@@ -108,6 +135,9 @@ class HashMapIndex(VitruvioIndex):
         for name, table in body.get("tables", {}).items():
             if name in self._tables:
                 self._tables[name] = {value: list(ordinals) for value, ordinals in table.items()}
+        for name, count in body.get("keyed", {}).items():
+            if name in self._keyed:
+                self._keyed[name] = int(count)
         self._total_bytes = int(body.get("total_bytes", 0))
         self._sized = int(body.get("sized", 0))
 
