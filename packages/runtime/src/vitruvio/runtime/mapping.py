@@ -346,7 +346,11 @@ def report_for(error: BaseException) -> Report:
         Report: The code, exit status, HTTP status and retryability.
     """
     if isinstance(error, VitruvioError):
-        return Report(error.code, error.exit_code, _http_for(error.exit_code), retryable=False, hint=error.hint)
+        # `retryable` is read from the error rather than assumed false: an SDK failure that crossed `translate()`
+        # carries the table's verdict on the instance, and reconstructing it as non-retryable here is how a
+        # registry timeout used to become a permanent failure the moment it left the runtime.
+        status = error.http_status if error.http_status is not None else _http_for(error.exit_code)
+        return Report(error.code, error.exit_code, status, retryable=error.retryable, hint=error.hint)
     for kind, report in _TABLE:
         if isinstance(error, kind):
             return report
@@ -399,6 +403,8 @@ def translate(error: BaseException) -> VitruvioError:
     # a parallel hierarchy of thirteen exception classes mirroring it would be a second place to keep in sync.
     wrapped.code = report.code
     wrapped.exit_code = report.exit_code
+    wrapped.retryable = report.retryable
+    wrapped.http_status = report.http_status
     return wrapped
 
 

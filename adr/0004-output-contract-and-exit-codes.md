@@ -21,7 +21,8 @@ forty commands.
   "data": {}, "warnings": [], "error": null }
 ```
 
-`command` is a stable dotted operation name. `error` carries `code`, `kind`, `message` and `hint`. `warnings` is
+`command` is a stable dotted operation name. `error` carries `code`, `kind`, `message`, `hint` and — since v0.11.1 —
+`retryable`, the mapping table's verdict on whether the same request could succeed if repeated. `warnings` is
 present on success too, because a degraded answer that looks identical to a clean one is the failure mode this
 whole design is trying to prevent -- and in JSON mode a warning goes into the envelope rather than to stderr,
 where a machine would not see it.

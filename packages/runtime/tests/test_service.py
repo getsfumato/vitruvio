@@ -274,6 +274,41 @@ class TestErrorMapping:
         original = VitruvioError("mine", hint="do this")
         assert translate(original) is original
 
+    def test_retryability_survives_translation(self) -> None:
+        """A registry timeout is retryable in the table, and was reported as permanent the moment it crossed
+        `translate()`: the wrapper carried code and exit status but not this, and `report_for` assumed false for
+        anything native. The one column an automated caller acts on, lost on the seam every registry call crosses."""
+        from boltzmann.exceptions import DistributionError, RetentionPolicyError
+
+        assert translate(DistributionError("timeout")).retryable is True
+        assert report_for(translate(DistributionError("timeout"))).retryable is True
+        assert report_for(translate(RetentionPolicyError("no"))).retryable is False
+
+    def test_every_mapped_family_round_trips_through_translate(self) -> None:
+        """Table-driven over the whole mapping: whatever `report_for` says about an SDK error it must also say
+        about the translated one -- code, exit status, HTTP status, retryability and hint."""
+        from pydantic import ValidationError as PydanticValidationError
+
+        from vitruvio.runtime.mapping import _TABLE
+
+        for kind, _ in _TABLE:
+            error: BaseException
+            if kind is PydanticValidationError:
+                error = PydanticValidationError.from_exception_data("x", [])
+            else:
+                error = kind("x")
+            direct = report_for(error)
+            wrapped = report_for(translate(error))
+            assert wrapped == direct, f"{kind.__name__}: {direct} became {wrapped}"
+
+    def test_a_native_error_is_not_retryable_unless_its_family_says_so(self) -> None:
+        """False by default -- a usage error fails identically next time -- and true where the class's own docstring
+        says "try again later", which is `SourceError`'s whole distinction from `SourceUnavailableError`."""
+        from vitruvio.kernel import SourceError, UsageError
+
+        assert report_for(UsageError("no")).retryable is False
+        assert report_for(SourceError("host down")).retryable is True
+
     def test_codes_are_unique_and_documented(self) -> None:
         codes = list(known_codes())
         assert len(codes) == len(set(codes))

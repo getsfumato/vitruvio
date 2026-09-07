@@ -312,6 +312,41 @@ class TestFailures:
         assert code == ExitCode.USAGE
         assert payload["command"] == "brain"
 
+    def test_a_failure_says_whether_it_is_retryable(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        """The column a caller acts on, in the envelope: a missing brain fails identically next time."""
+        _, payload = envelope(capsys, "--brain", str(tmp_path / "absent"), "brain", "state")
+        assert payload["error"]["retryable"] is False
+        assert list(payload["error"]) == ["code", "kind", "message", "hint", "retryable"]
+
+    def test_a_registry_failure_reaches_the_envelope_as_retryable(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End to end through a registry operation.
+
+        The SDK's `DistributionError` is retryable in the mapping table, and that verdict was lost the moment it
+        crossed `translate()` -- every registry hiccup came out of the runtime as permanent. The filesystem registry
+        is the real transport with its `resolve` made to fail the way a network does.
+        """
+        from boltzmann.distribution.local import LocalLayoutRegistry
+        from boltzmann.exceptions import DistributionError
+
+        async def refuse(self: object, reference: str, tag: str) -> object:
+            raise DistributionError("connection refused")
+
+        monkeypatch.setattr(LocalLayoutRegistry, "resolve", refuse)
+        brain = tmp_path / "brain"
+        registry = tmp_path / "registry"
+        registry.mkdir()
+        envelope(capsys, "--brain", str(brain), "--actor", "tester@example.com", "brain", "init")
+
+        code, payload = envelope(
+            capsys, "--brain", str(brain), "dist", "plan-pull", "demo/brain", "--local", str(registry)
+        )
+        assert code == ExitCode.REGISTRY
+        assert payload["command"] == "dist.plan-pull"
+        assert payload["error"]["code"] == "REGISTRY_FAILED"
+        assert payload["error"]["retryable"] is True
+
 class TestOperationNames:
     """The name a failure reports is derived from the command line, and the alias table behind it must not rot.
 
