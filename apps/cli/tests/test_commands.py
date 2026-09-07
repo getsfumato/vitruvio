@@ -282,11 +282,173 @@ class TestInspect:
         code, payload = envelope(capsys, "--brain", str(brain), "inspect", "doctor")
         assert code == ExitCode.OK
         assert any(check["check"] == "integrity" for check in payload["data"]["checks"])
+        assert all({"code", "severity", "remedy"} <= set(check) for check in payload["data"]["checks"])
 
     def test_doctor_works_with_no_brain_at_all(self, capsys: pytest.CaptureFixture[str]) -> None:
         code, payload = envelope(capsys, "inspect", "doctor")
         assert code == ExitCode.OK
         assert payload["data"]["failures"] >= 1
+        layout = next(check for check in payload["data"]["checks"] if check["code"] == "brain.layout")
+        assert layout["severity"] == "fail"
+
+    @staticmethod
+    def _doctor(capsys: pytest.CaptureFixture[str], brain: Path | None, *flags: str) -> tuple[int, dict[str, Any]]:
+        """`inspect doctor` on a brain, with doctor's own flags after the command where cyclopts expects them."""
+        selection = ("--brain", str(brain)) if brain is not None else ()
+        code, payload = envelope(capsys, *selection, "inspect", "doctor", *flags)
+        return code, payload["data"]
+
+    @staticmethod
+    def _rows(report: dict[str, Any], code: str) -> list[dict[str, Any]]:
+        return [check for check in report["checks"] if check["code"] == code]
+
+    def test_doctor_flags_stale_indices(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path, tmp_path: Path
+    ) -> None:
+        """The documented promise that was not kept: a register after a build, and doctor said everything was fine."""
+        envelope(capsys, "--brain", str(brain), "source", "register", str(source))
+        envelope(capsys, "--brain", str(brain), "index", "build")
+        other = tmp_path / "otra.md"
+        other.write_text("# Otra\n\nUn parrafo.\n", encoding="utf-8")
+        envelope(capsys, "--brain", str(brain), "source", "register", str(other))
+
+        code, report = self._doctor(capsys, brain)
+        assert code == ExitCode.OK
+        (stale,) = self._rows(report, "indices.stale")
+        assert stale["severity"] == "warn"
+        assert "index build" in stale["remedy"]
+        assert report["verdict"] in {"warn", "fail"}
+
+    def test_doctor_flags_a_vector_index_built_with_another_embedder(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path
+    ) -> None:
+        """Read from the sidecar header, so it works even when the configured embedder cannot be constructed."""
+        envelope(capsys, "--brain", str(brain), "source", "register", str(source), "--normalize-with", "markdown")
+        envelope(capsys, "--brain", str(brain), "index", "build")
+        # Written as a section rather than through `config set`, which validates the whole table after each key and
+        # refuses a provider without a model.
+        _, located = envelope(capsys, "--brain", str(brain), "config", "path")
+        with Path(located["data"]["config_file"]).open("a", encoding="utf-8") as handle:
+            handle.write('\n[embedding.text]\nprovider = "fake"\nmodel = "deterministic"\ndims = 32\n')
+
+        code, report = self._doctor(capsys, brain)
+        assert code == ExitCode.OK
+        (mismatch,) = self._rows(report, "indices.model_mismatch")
+        assert mismatch["severity"] == "fail"
+        assert "provider: hashing vs fake" in mismatch["detail"]
+        assert "index build --force" in mismatch["remedy"]
+
+    def test_doctor_reports_tombstones_as_warnings(self, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        """Redaction is lawful, and a redacted block stays a verifiable member: a warning with nothing to fix, and
+        never a `blocks.missing` failure, which is what corruption looks like."""
+        path = tmp_path / "brain"
+        envelope(capsys, "brain", "init", str(path), "--actor", "tester@example.com")
+        document = tmp_path / "fourier.md"
+        document.write_text(
+            "# Series de Fourier\n\nDescompone una funcion periodica en senos.\n\n## Coeficientes\n\nIntegrales.\n",
+            encoding="utf-8",
+        )
+        code, ingested = envelope(capsys, "--brain", str(path), "ingest", "run", str(document))
+        assert code == ExitCode.OK
+        derived = [str(item) for item in ingested["data"]["committed"]["committed"]]
+        assert derived
+        envelope(capsys, "--brain", str(path), "config", "set", "policy.redactable_media_types", '["text/markdown"]')
+        code, _ = envelope(
+            capsys,
+            "--brain",
+            str(path),
+            "retain",
+            "redact",
+            derived[0],
+            "--memory-type",
+            "semantic",
+            "--reason",
+            "personal data",
+            "--yes",
+        )
+        assert code == ExitCode.OK
+
+        code, report = self._doctor(capsys, path)
+        assert code == ExitCode.OK
+        (tombstoned,) = self._rows(report, "blocks.tombstoned")
+        assert tombstoned["severity"] == "warn"
+        assert tombstoned["data"]["tombstoned"]["semantic"] == 1
+        assert self._rows(report, "blocks.missing") == []
+
+    def test_doctor_reports_an_absent_optional_extra(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import importlib.util
+
+        real = importlib.util.find_spec
+        monkeypatch.setattr(
+            importlib.util, "find_spec", lambda name, *rest: None if name == "keyring" else real(name, *rest)
+        )
+
+        code, report = self._doctor(capsys, brain)
+        assert code == ExitCode.OK
+        (keyring,) = self._rows(report, "env.extra.keyring")
+        assert keyring["severity"] == "warn"
+        assert "vitruvio[keyring]" in keyring["remedy"]
+
+    def test_doctor_skips_the_registry_unless_asked(self, capsys: pytest.CaptureFixture[str], brain: Path) -> None:
+        """Offline by default: a check that runs after a pull and before a publish has to be runnable on a train."""
+        _, report = self._doctor(capsys, brain)
+        assert report["registry_probed"] is False
+        (reachable,) = self._rows(report, "registry.reachable")
+        assert reachable["severity"] == "skip"
+        assert reachable["ok"] is True
+
+    def test_doctor_probes_a_local_registry(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, source: Path, tmp_path: Path
+    ) -> None:
+        """The real code path, over the filesystem registry: the same client every distribution command uses."""
+        registry = tmp_path / "registry"
+        registry.mkdir()
+        envelope(capsys, "--brain", str(brain), "source", "register", str(source))
+        envelope(capsys, "--brain", str(brain), "config", "set", "registry.reference", "demo/brain")
+        assert envelope(capsys, "--brain", str(brain), "dist", "push", "--local", str(registry))[0] == ExitCode.OK
+
+        code, report = self._doctor(capsys, brain, "--registry", "--local", str(registry))
+        assert code == ExitCode.OK
+        assert report["registry_probed"] is True
+        (reachable,) = self._rows(report, "registry.reachable")
+        assert reachable["severity"] == "ok"
+        assert reachable["data"]["published"] is True
+
+    def test_doctor_reports_an_unreachable_registry_and_still_exits_ok(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from boltzmann.distribution.local import LocalLayoutRegistry
+        from boltzmann.exceptions import DistributionError
+
+        async def refuse(self: object, reference: str, tag: str) -> object:
+            raise DistributionError("connection refused")
+
+        monkeypatch.setattr(LocalLayoutRegistry, "resolve", refuse)
+        registry = tmp_path / "registry"
+        registry.mkdir()
+        envelope(capsys, "--brain", str(brain), "config", "set", "registry.reference", "demo/brain")
+
+        code, report = self._doctor(capsys, brain, "--registry", "--local", str(registry))
+        assert code == ExitCode.OK
+        (reachable,) = self._rows(report, "registry.reachable")
+        assert reachable["severity"] == "fail"
+        assert "connection refused" in reachable["detail"]
+        assert report["verdict"] == "fail"
+
+    def test_doctor_reports_an_invalid_config_as_one_row(
+        self, capsys: pytest.CaptureFixture[str], tmp_path: Path
+    ) -> None:
+        """Doctor cannot ask the runtime about a configuration the runtime could not load, so it says that itself --
+        in the same shape, in one envelope, exit 0."""
+        broken = tmp_path / "broken.toml"
+        broken.write_text("[actor]\nidd = 3\n", encoding="utf-8")
+        code, payload = envelope(capsys, "--config", str(broken), "inspect", "doctor")
+        assert code == ExitCode.OK
+        assert payload["ok"] is True
+        assert [check["code"] for check in payload["data"]["checks"]] == ["config.invalid"]
+        assert payload["data"]["verdict"] == "fail"
 
 
 class TestSearch:

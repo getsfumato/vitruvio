@@ -140,7 +140,8 @@ vitruvio --json --project NAME project show          # in a project
 
 `brain verify` is integrity; `auth status` is authenticity. Report each on its own line. On an ungoverned brain,
 `auth status` reporting no trust root is the expected description, not a failure. Then run
-`vitruvio --json --brain PATH inspect doctor` and relay anything it flags.
+`vitruvio --json --brain PATH inspect doctor` and relay every row whose `severity` is `warn` or `fail`, with its
+`remedy`; a `skip` on the registry is normal, because doctor does not touch the network unless asked.
 
 ## 7. First evidence
 

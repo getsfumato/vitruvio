@@ -21,9 +21,17 @@ from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import ExitCode
 
-STATE_STYLES = {"ready": "ok", "empty": "warn", "stale": "warn", "unavailable": "bad", "absent": "muted"}
+STATE_STYLES = {
+    "ready": "ok",
+    "empty": "warn",
+    "stale": "warn",
+    "model_mismatch": "bad",
+    "unavailable": "bad",
+    "absent": "muted",
+}
 """How an index's state is coloured. An empty registered index is yellow rather than green: the planner treats
-one as unusable, and it looks identical to a built index in every column except this one."""
+one as unusable, and it looks identical to a built index in every column except this one. A mismatch is red: the
+vectors on disk live in another embedder's space, and the planner refuses them rather than ranking on noise."""
 
 
 def _state(value: str) -> Text:
@@ -216,12 +224,22 @@ def verify() -> ExitCode:
             )
         view = table
 
+    problems = []
     if result["stale"]:
+        problems.append(f"{result['stale']} index(es) describe a different composition than the one installed")
+    if result.get("mismatched"):
+        problems.append(
+            f"{result['mismatched']} vector index(es) were built with an embedder other than the configured one"
+        )
+    if problems:
         from vitruvio.kernel import VitruvioError
 
         raise VitruvioError(
-            f"{result['stale']} index(es) describe a different composition than the one installed",
-            hint="run `vitruvio index build` -- an index is derived, so rebuilding it is always safe",
+            "; ".join(problems),
+            hint=(
+                "run `vitruvio index build` -- an index is derived, so rebuilding it is always safe; a mismatched "
+                "vector index needs `--force`, or the embedder it was built with"
+            ),
         )
     return console.emit("index.verify", result, view=view)
 

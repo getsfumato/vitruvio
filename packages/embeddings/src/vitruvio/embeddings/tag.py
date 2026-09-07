@@ -151,7 +151,7 @@ class ModelTag:
 
         ``hashing`` does not: it is a deterministic bag-of-features projection that lets a bare install exercise every
         code path without a model. Reporting that plainly is the point -- a result ranked by hashed features must not
-        be mistaken for a semantic one, and this is what ``inspect doctor`` and ``index list`` read.
+        be mistaken for a semantic one, and this is what ``inspect doctor`` and ``config embedder list`` read.
         """
         return self.provider not in {"hashing", "fake"}
 

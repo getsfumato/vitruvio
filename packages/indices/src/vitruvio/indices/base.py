@@ -135,6 +135,7 @@ class VitruvioIndex(AbstractIndex):
         self._built_at = ""
         self._bound_root: str | None = None
         self._loaded_from: Path | None = None
+        self._refused_tag: str | None = None
         self._reset()
         if autoload and home is not None:
             self._load_if_present()
@@ -209,6 +210,14 @@ class VitruvioIndex(AbstractIndex):
         state, detail = "ready", None
         if self.population == 0:
             state, detail = "empty", "the index holds no blocks"
+            if self._refused_tag is not None:
+                # Not empty: refused. A sidecar whose vectors live in another embedder's space was discarded on load,
+                # and reporting that as `empty` -- the state that says nothing is wrong except that nothing was
+                # built -- is what kept the mismatch out of `index list`, `index verify` and `inspect doctor`.
+                from vitruvio.embeddings.tag import explain_mismatch
+
+                state = "model_mismatch"
+                detail = explain_mismatch(self._refused_tag, self._expected_model_tag() or "")
         elif root is not None and self._bound_root is not None and self._bound_root != root:
             state, detail = "stale", "built against a different composition"
         elif model_tag is not None and self.model_tag is not None and model_tag != self.model_tag:
@@ -228,6 +237,10 @@ class VitruvioIndex(AbstractIndex):
     def _capability_extra(self) -> dict[str, Any]:
         """Per-kind capability detail: which facets, keys or spaces this index offers."""
         return {}
+
+    def _expected_model_tag(self) -> str | None:
+        """The model tag a sidecar must carry to be loaded here, or ``None`` for an index with no embedder."""
+        return None
 
     # --- Build ----------------------------------------------------------------
 
@@ -254,6 +267,7 @@ class VitruvioIndex(AbstractIndex):
         # "partial apply" meaningless for the ordinal-based indices, and the honest thing is to say so: the win
         # is skipping the *expensive* per-block work, which subclasses do by consulting the delta.
         self._reset()
+        self._refused_tag = None
         self._table = OrdinalTable(incoming)
         self._on_build_start(delta)
 
@@ -393,6 +407,11 @@ class VitruvioIndex(AbstractIndex):
         except Exception:
             self._reset()
             self._table = OrdinalTable()
+            # A body refused for its model tag is the one refusal worth remembering, so that `capability()` can say
+            # what happened instead of reporting the discarded index as empty.
+            expected = self._expected_model_tag()
+            mismatched = bool(header.model_tag) and expected is not None and header.model_tag != expected
+            self._refused_tag = header.model_tag if mismatched else None
             return
 
         self._table = OrdinalTable(body.get("identities", []))

@@ -132,6 +132,38 @@ async def preflight(
     }
 
 
+async def probe_registry(reference: str, client: Any, tag: str) -> dict[str, Any]:
+    """
+    Ask a registry for one manifest, and say what the answer means.
+
+    Read-only, unlike :func:`preflight`, which pushes a probe artifact and therefore needs write scope. This is what
+    ``inspect doctor --registry`` runs: one request that tells reachable-and-published, reachable-and-empty, and
+    unreachable apart, through whichever client the operation was prepared with -- the filesystem registry included,
+    which is what makes the outcome testable without a network.
+
+    Args:
+        reference (str): The repository, already normalized for the client.
+        client (Any): A registry client honouring the SDK's ``resolve`` contract.
+        tag (str): Which tag to ask for.
+
+    Returns:
+        dict[str, Any]: ``reachable``, ``published``, a ``detail`` for a person and the ``error`` text when there was one.
+    """
+    from boltzmann.exceptions import DistributionError, ReferenceNotFoundError
+
+    try:
+        manifest = await client.resolve(reference, tag)
+    except ReferenceNotFoundError as error:
+        detail = f"reachable; nothing is published under {reference}:{tag} yet"
+        return {"reachable": True, "published": False, "detail": detail, "error": str(error)}
+    except (DistributionError, OSError) as error:
+        message = str(error) or type(error).__name__
+        return {"reachable": False, "published": False, "detail": f"unreachable: {message}", "error": message}
+    layers = len(getattr(manifest, "layers", None) or ())
+    detail = f"{reference}:{tag} resolves ({layers} layers)"
+    return {"reachable": True, "published": True, "detail": detail, "error": None}
+
+
 def local_registry(root: Any) -> Any:
     """
     A filesystem "registry" of OCI layouts.

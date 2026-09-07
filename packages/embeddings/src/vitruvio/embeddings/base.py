@@ -143,8 +143,8 @@ class HashingEmbedder:
     deterministic projection of a bag of tokens -- it will match a plural to its singular through the shared analyzer
     and will not match a synonym, because there is no semantics in it at all.
 
-    Its tag says ``hashing``, and ``ModelTag.is_semantic`` is false, which is what ``index list`` and
-    ``inspect doctor`` read in order to say so plainly.
+    Its tag says ``hashing``, and ``ModelTag.is_semantic`` is false, which is what ``inspect doctor`` and
+    ``config embedder list`` read in order to say so plainly.
 
     Attributes:
         dimensions (int): Vector width. Higher reduces collisions between unrelated tokens.

@@ -96,6 +96,7 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/projects.py` | project, add_brain, remove_brain | INSPECT, WRITE |
 | `ops/benchmarking.py` | bench | RETRIEVE, over its own corpus |
 | `ops/embedders.py` | embedders, test_embedder | — |
+| `ops/diagnosis.py` | doctor | INSPECT; the registry only with `registry=True` |
 | `ops/retrieval.py` | search, explain | RETRIEVE |
 | `ops/compound.py` | compound_search, compound_explain | RETRIEVE, once per member brain |
 | `ops/catalog.py` | catalog_show, catalog_tree, catalog_apply, catalog_browse, catalog_path | BROWSE, INSPECT, WRITE |

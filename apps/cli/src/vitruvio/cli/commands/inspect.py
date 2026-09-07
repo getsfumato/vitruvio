@@ -15,7 +15,7 @@ implementation of them, which is why a fix to either shows up in both.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from cyclopts import App, Parameter
 from rich.console import RenderableType
@@ -24,7 +24,7 @@ from rich.text import Text
 from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.cli.render import short
-from vitruvio.kernel import ExitCode
+from vitruvio.kernel import ExitCode, VitruvioError
 
 app = App(
     name="inspect",
@@ -327,71 +327,69 @@ def prove(
     return console.emit("inspect.prove", result, view=view)
 
 
-@app.command(name="doctor")
-def doctor() -> ExitCode:
-    """Check the environment: what is installed, what is configured, and what would fail.
+SEVERITY_STYLES = {"ok": ("ok", "ok"), "warn": ("warn", "warn"), "fail": ("FAIL", "bad"), "skip": ("skip", "muted")}
+"""How a doctor row's severity is drawn: the word in the first column, and the style it and a tripped detail take."""
 
-    Reports rather than fixes. The most useful line is usually about the embedder: a vector index whose model
-    tag does not match the configured embedder is not degraded, it is *wrong* -- the two spaces are unrelated,
-    so the cosines between them are noise -- and the planner will refuse it rather than rank on it.
+
+@app.command(name="doctor")
+def doctor(
+    *,
+    registry: Annotated[bool, Parameter(name=["--registry"], negative=())] = False,
+    local: Annotated[
+        Path | None,
+        Parameter(
+            name=["--local"],
+            help="Probe a filesystem registry of OCI layouts rooted here instead of a remote one.",
+        ),
+    ] = None,
+    anonymous: bool = False,
+) -> ExitCode:
+    """Check the environment and the brain: what is installed, what is configured, and what would disappoint you.
+
+    Reports rather than fixes, and exits 0 whatever it finds -- a broken setup is what this exists to describe. Every
+    row carries a stable `code`, a `severity` of ok, warn, fail or skip, and a `remedy` when there is something to do.
+    Stale or unbuilt indices, a vector index built with another embedder, tombstoned or missing blocks, a partial
+    install, an embedder this build cannot run, hashed features standing in for semantics: all of it offline. The
+    registry is probed only with `--registry`, with one read-only request.
+
+    Parameters
+    ----------
+    registry
+        Also ask the configured registry for a manifest. Off by default, so doctor can run with no network.
+    local
+        Probe a filesystem registry of OCI layouts rooted here instead of a remote one.
+    anonymous
+        Probe without credentials.
     """
     console = current().console
     context = current()
 
-    checks: list[dict[str, object]] = []
-
-    def check(name: str, ok: bool, detail: str) -> None:
-        checks.append({"check": name, "ok": ok, "detail": detail})
-
-    from importlib.util import find_spec
-
-    from vitruvio.kernel import model_cache
-
-    for label, module_name, extra in (
-        ("oras (registry transport)", "oras", "pyboltzmann[oci]"),
-        ("usearch (vector index)", "usearch", "part of vitruvio-indices"),
-        ("pyroaring (bitmap index)", "pyroaring", "part of vitruvio-indices"),
-        ("sentence-transformers (local text)", "sentence_transformers", "vitruvio[local]"),
-        ("pillow + pypdfium2 (vision, and previews)", "pypdfium2", "vitruvio[vision]"),
-        ("keyring (credential store)", "keyring", "vitruvio[keyring]"),
-    ):
-        present = find_spec(module_name) is not None
-        check(label, present, "installed" if present else f"absent -- install {extra}")
-
     try:
-        config = context.resolve()
-        check("brain", True, f"{config.brain} (selected by {config.brain_origin.value})")
-        check(
-            "actor",
-            bool(config.project.actor.id),
-            config.project.actor.id or "not set -- writes will be refused, because every write is attributed",
-        )
-        service = context.service()
-        state = service.verify()
-        check(
-            "integrity",
-            state["verified"],
-            f"{state['block_count']} blocks verify" if state["verified"] else "roots do not match",
-        )
-    except Exception as error:  # the point of doctor is to report a broken setup, not to fail on one
-        from vitruvio.runtime import translate
+        service = context.service(require_brain=False, require_layout=False)
+    except VitruvioError as error:
+        # The one thing the runtime cannot report about itself: a configuration it could not load. Said in the same
+        # shape, so a caller still gets one envelope with one failing row rather than an error envelope from doctor.
+        from vitruvio.runtime.ops.diagnosis import row
 
-        translated = translate(error)
-        check("brain", False, f"{translated.code}: {translated.message}")
+        result: dict[str, Any] = {
+            "checks": [row("config.invalid", "fail", f"{error.code}: {error.message}", data={"code": error.code})],
+            "failures": 1,
+            "warnings": 0,
+            "verdict": "fail",
+            "registry_probed": False,
+        }
+    else:
+        result = service.doctor(registry=registry, local=local, anonymous=anonymous)
 
-    cache = model_cache()
-    size = sum(item.stat().st_size for item in cache.rglob("*") if item.is_file()) if cache.exists() else 0
-    check("model cache", True, f"{cache} ({size / 1_048_576:.1f} MiB)")
-
-    failures = [item for item in checks if not item["ok"]]
-    table = render.table("", "check", "detail")
-    for item in checks:
+    table = render.table("", "check", "detail", "remedy")
+    for item in result["checks"]:
+        word, style = SEVERITY_STYLES.get(str(item["severity"]), ("?", "warn"))
         table.add_row(
-            render.verdict(bool(item["ok"]), yes="ok", no="MISS"),
+            Text(word, style=style),
             str(item["check"]),
-            Text(str(item["detail"]), style="muted" if item["ok"] else "warn"),
+            Text(str(item["detail"]), style="muted" if item["ok"] else style),
+            Text(str(item.get("remedy") or ""), style="muted"),
         )
-    result = {"checks": checks, "failures": len(failures)}
     return console.emit("inspect.doctor", result, view=table)
 
 

@@ -465,6 +465,23 @@ class TestTravel:
         """Which is what the SDK catches, so a brain with a mismatched index still *opens*, degraded."""
         assert issubclass(IndexModelMismatchError, DistributionError)
 
+    def test_a_refused_sidecar_reports_model_mismatch_not_empty(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path
+    ) -> None:
+        """The refusal used to be swallowed into population zero, so `index list`, `index verify` and doctor all called
+        a mismatched sidecar `empty` -- the one state that says nothing is wrong except that nothing was built."""
+        built = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=FakeEmbedder(dimensions=32))
+        built.build(semantic_blocks, content)
+        built.flush()
+
+        reopened = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=FakeEmbedder(dimensions=64))
+        refused = reopened.capability()
+        assert refused.state == "model_mismatch"
+        assert "dimensions" in (refused.detail or "")
+
+        reopened.build(semantic_blocks, content)
+        assert reopened.capability().state == "ready", "a rebuild under the configured embedder clears the refusal"
+
     def test_a_reloaded_sidecar_answers_identically(
         self, tmp_path: Path, semantic_blocks: list[SemanticBlock], content: MemoryContent
     ) -> None:

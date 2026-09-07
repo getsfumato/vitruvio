@@ -23,8 +23,9 @@ ROOT = Path(__file__).resolve().parents[3]
 
 DOCUMENTS = ("docs", "skills", "adr", "README.md", "ARCHITECTURE.md", "CONTRIBUTING.md")
 
-INVOCATION = re.compile(r"(?:^|[\s(`])vitruvio ((?:[a-z][a-z0-9-]*)(?:\s+[a-z][a-z0-9-]*){0,2})")
-"""A command being offered. Applied only to code, never to prose."""
+INVOCATION = re.compile(r"(?:^|[\s(`])vitruvio ((?:[a-z][a-z0-9-]*)(?:[ \t]+[a-z][a-z0-9-]*){0,2})")
+"""A command being offered. Applied only to code, never to prose. Spaces and tabs only between the words: a command
+does not span lines, and matching any whitespace let `vitruvio catalog` swallow the `vitruvio catalog show` below it."""
 
 NOT_COMMANDS = frozenset(
     {
@@ -75,9 +76,31 @@ def documents() -> list[Path]:
     return found
 
 
+def groups_of(commands: set[str]) -> set[str]:
+    """The command words that own subcommands. A group takes no argument of its own, so a word after one must be a
+    subcommand -- which is how `index status` is told apart from `brain init ./demo`."""
+    return {
+        command
+        for command in commands
+        if " " not in command and any(other.startswith(f"{command} ") for other in commands)
+    }
+
+
+def offers_unknown(words: list[str], commands: set[str], groups: set[str]) -> bool:
+    """Whether a documented invocation names something the CLI does not have."""
+    matched = next((length for length in range(len(words), 0, -1) if " ".join(words[:length]) in commands), 0)
+    if not matched:
+        return True
+    # The longest prefix that exists wins: `brain init ./demo` is `brain init` plus an argument. But a *group* followed
+    # by a word that is not one of its subcommands is not a group plus an argument; it is a subcommand that does not
+    # exist, and `vitruvio index status` sat in the docs for a release because the prefix `index` did.
+    return matched == 1 and len(words) > 1 and words[0] in groups
+
+
 def test_the_documentation_offers_only_commands_that_exist() -> None:
     """A promised command that does not exist costs a reader a turn to discover, and tells an agent nothing useful."""
     commands = known_commands()
+    groups = groups_of(commands)
     broken: list[str] = []
 
     for document in documents():
@@ -87,12 +110,29 @@ def test_the_documentation_offers_only_commands_that_exist() -> None:
                 words = [word for word in match.group(1).split() if not word.startswith("-")]
                 if not words or words[0] in NOT_COMMANDS:
                     continue
-                # The longest prefix that exists wins: `brain init ./demo` is `brain init` plus an argument.
-                if any(" ".join(words[:length]) in commands for length in range(len(words), 0, -1)):
-                    continue
-                broken.append(f"{document.relative_to(ROOT)}: vitruvio {' '.join(words)}")
+                if offers_unknown(words, commands, groups):
+                    broken.append(f"{document.relative_to(ROOT)}: vitruvio {' '.join(words)}")
 
     assert not broken, "documentation offers commands that do not exist:\n  " + "\n  ".join(sorted(set(broken)))
+
+
+def test_a_group_followed_by_a_subcommand_that_does_not_exist_is_caught() -> None:
+    """`index status` was documented and never existed; the prefix `index` let it through."""
+    commands = known_commands()
+    groups = groups_of(commands)
+    assert offers_unknown(["index", "status"], commands, groups)
+    assert not offers_unknown(["index", "build"], commands, groups)
+    assert not offers_unknown(["brain", "init", "./demo"], commands, groups)
+
+
+def test_the_doctor_documentation_names_every_check_code() -> None:
+    """The checks are declared once in the runtime; the page that promises them is tested against that declaration,
+    because a doctor page that promised checks doctor did not run is how issue #55 happened."""
+    from vitruvio.runtime.ops.diagnosis import CHECKS
+
+    text = (ROOT / "docs" / "under-the-hood" / "benchmarking.mdx").read_text(encoding="utf-8")
+    missing = [check.code for check in CHECKS if f"`{check.code}`" not in text]
+    assert not missing, "the doctor page does not list these checks: " + ", ".join(missing)
 
 
 def test_documented_pin_sources_are_protocol_values() -> None:

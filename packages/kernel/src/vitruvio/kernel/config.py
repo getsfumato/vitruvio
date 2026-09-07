@@ -335,7 +335,7 @@ class PlannerConfig(BaseModel):
         overfetch (int): Candidate pool multiplier over the requested limit.
         graph_expand_max (int): Ceiling on requested expansion depth.
         plan_cache_size (int): Entries in the plan cache, keyed by query shape and statistics version.
-        strict (bool): Turn every degradation into an error. For CI and for ``inspect doctor``.
+        strict (bool): Turn every degradation into an error. For CI.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

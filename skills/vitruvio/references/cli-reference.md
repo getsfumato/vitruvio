@@ -454,9 +454,9 @@ Read one block by identity.
 
 Produce a Merkle inclusion proof for one block, already checked against the module's root.
 
-### `vitruvio inspect doctor`
+### `vitruvio inspect doctor` `--registry` `--local` `--anonymous`
 
-Check the environment: what is installed, what is configured, and what would fail.
+Check the environment and the brain: what is installed, what is configured, and what would disappoint you.
 
 ## `vitruvio config`
 
