@@ -154,6 +154,12 @@ real investigation. `UsageError` carries `ExitCode.USAGE`.
 not `main()` — and weakening a documented invariant to set a field no consumer reads is a bad trade. It gets
 revisited in the same commit as its first consumer.
 
+*Revisited, v0.11.1 (2026-09-06).* The first consumer is the envelope's `error.retryable`. `VitruvioError` now
+carries `retryable` (false by default, true on `SourceError`) and `http_status` (`None` unless the table declares one
+more specific than the exit code implies), `translate()` copies the table's verdict onto the wrapped instance, and
+`report_for()` reads it back instead of reconstructing it — which is what had made every `DistributionError` report
+as permanent, and every tombstone a 404 rather than a 410, once it crossed the registry seam.
+
 ## Consequences
 
 - **Verified by running the CLI**, not by reasoning: a directory source registering two files, a second pull

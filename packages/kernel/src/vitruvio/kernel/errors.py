@@ -75,11 +75,22 @@ class VitruvioError(Exception):
     Attributes:
         code (str): A stable, machine-readable identifier for this failure.
         exit_code (ExitCode): What the CLI should return.
+        retryable (bool): Whether the same request could succeed if repeated unchanged. False for every native
+            error by default: a usage error, a policy refusal or a missing brain will fail identically next time,
+            and an agent told otherwise is an agent in a loop. Set on the class where a family is transient by
+            nature, and set on the instance by :func:`vitruvio.runtime.mapping.translate` for SDK failures, whose
+            retryability the mapping table declares.
+        http_status (int | None): What an HTTP API would answer. ``None``, the default, means the status follows
+            from the exit code; :func:`vitruvio.runtime.mapping.translate` sets it on the instance where the table
+            declares a more specific one -- 410 for a tombstoned block, 409 for a commit conflict -- so the verdict
+            survives the crossing intact.
         hint (str | None): The next action a caller could take, when one exists.
     """
 
     code = "INTERNAL"
     exit_code = ExitCode.INTERNAL
+    retryable = False
+    http_status: int | None = None
 
     def __init__(self, message: str, *, hint: str | None = None) -> None:
         """
@@ -172,6 +183,9 @@ class SourceError(VitruvioError):
 
     code = "SOURCE_FAILED"
     exit_code = ExitCode.SOURCE
+    # "Try again later" is this class's whole distinction from `SourceUnavailableError`, so it says so where a
+    # machine can read it. Exit 11 is documented as retryable for the same reason.
+    retryable = True
 
 
 class SourceUnavailableError(ConfigError):

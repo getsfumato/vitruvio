@@ -44,7 +44,9 @@ class Envelope:
         data (Any): The payload, already JSON-able.
         warnings (list[str]): Non-fatal notes. Present even on success, because a degraded answer that looks
             identical to a clean one is the failure mode this whole design is trying to avoid.
-        error (dict[str, Any] | None): The failure, when there is one.
+        error (dict[str, Any] | None): The failure, when there is one: ``{code, kind, message, hint, retryable}``.
+            ``retryable`` is the one field that answers "may I try again" without parsing prose, and the first
+            consumer of the mapping table's verdict outside the runtime.
     """
 
     command: str
@@ -73,6 +75,7 @@ class Envelope:
                 "kind": type(error).__name__,
                 "message": error.message,
                 "hint": error.hint,
+                "retryable": error.retryable,
             },
         )
 

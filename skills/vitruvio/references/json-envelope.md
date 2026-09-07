@@ -21,7 +21,7 @@ stderr, so a pipe into `jq` never needs a filter.
 | `ok` | whether the operation succeeded |
 | `data` | the result, shaped per command |
 | `warnings` | notes that did not prevent success |
-| `error` | `null` on success, else `{code, kind, message, hint}` |
+| `error` | `null` on success, else `{code, kind, message, hint, retryable}` |
 
 The top level never varies, which is what lets a caller branch on `ok` and `error.code` without knowing which of
 the forty-odd commands it ran.
@@ -49,6 +49,10 @@ machine reading stdout would never see stderr.
 
 `code` is stable and machine-readable; branch on it. `hint` is the next action when one exists — it is usually the
 most useful field in the object, and it is where a flag or an environment variable name will be named.
+
+`retryable` says whether the *same* request could succeed if repeated unchanged. It is true for a registry that
+timed out or a declared source that was down, and false for a usage error, a policy refusal, a diverged push or a
+missing brain — those fail identically next time, and the fix is in `hint`. Read it before retrying anything.
 
 ## Two things that are strings on purpose
 

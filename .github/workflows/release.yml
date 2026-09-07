@@ -10,6 +10,10 @@ name: release
 on:
   push:
     branches: [main]
+    # Mintlify owns docs-only pushes. GitHub evaluates paths-ignore across the whole push, so a
+    # commit that changes docs and releasable code still reaches the release planner.
+    paths-ignore:
+      - "docs/**"
   # The hand path: force a release out of commits that would not have caused one, or re-run after a
   # transient failure. `none` behaves exactly like a push.
   workflow_dispatch:
