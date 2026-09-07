@@ -1418,7 +1418,8 @@ async def _settle(pilot: Any, ticks: int = 25) -> None:
     """
     for _ in range(ticks):
         await pilot.pause(0.05)
-        debouncing = any(getattr(pilot.app, name, None) is not None for name in ("_filter_timer", "_select_timer"))
+        pending = ("_filter_timer", "_select_timer", "_land_timer")
+        debouncing = any(getattr(pilot.app, name, None) is not None for name in pending)
         idle = not pilot.app.workers or all(not worker.is_running for worker in pilot.app.workers)
         if idle and not debouncing:
             await pilot.pause(0.05)

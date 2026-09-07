@@ -37,6 +37,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedContent, TabPane, Tree
 
 from vitruvio.cli import render
@@ -280,6 +281,7 @@ class BrainBrowser(App[None]):
         self.catalog_rows: list[dict[str, Any]] = []
         self._filter_timer: Any = None
         self._select_timer: Any = None
+        self._land_timer: Any = None
 
     @property
     def opened(self) -> BrainService:
@@ -1406,16 +1408,28 @@ class BrainBrowser(App[None]):
         """
         self.query_one("#filter", Input).value = ""
         self.load_rows()
-        self.set_timer(0.4, lambda: self._land(block_id))
+        if self._land_timer is not None:
+            self._land_timer.stop()
+        self._land_timer = self.set_timer(0.4, lambda: self._land(block_id))
 
     def _land(self, block_id: str) -> None:
         """
         Move the cursor onto a row once its page has arrived.
 
+        The timer that schedules this outlives a screen: it can fire while the app is shutting down, or while a
+        modal is up, and then the table it wants is not on the current screen. Landing nowhere is the right answer
+        in both cases; raising would take the interface down, or the test run with it.
+
         Args:
             block_id (str): The row to land on.
         """
-        table = self.query_one("#blocks", DataTable)
+        self._land_timer = None
+        if not self.is_running:
+            return
+        try:
+            table = self.query_one("#blocks", DataTable)
+        except NoMatches:
+            return
         for index, row in enumerate(self.rows):
             if row["block_id"] == block_id:
                 table.move_cursor(row=index)
