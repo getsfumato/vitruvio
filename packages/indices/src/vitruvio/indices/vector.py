@@ -423,6 +423,10 @@ class VectorIndex(VitruvioIndex):
             "model_tag": self._tag().render(),
         }
 
+    def _expected_model_tag(self) -> str | None:
+        """The tag this embedder produces, which a sidecar must carry to be loaded rather than refused."""
+        return self._tag().render()
+
     def _load_body(self, body: dict[str, Any]) -> None:
         """
         Restore the vectors, refusing a tag that does not match.

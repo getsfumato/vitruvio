@@ -194,7 +194,7 @@ class IndexOps:
         Check each index against the composition it claims to describe.
 
         Returns:
-            dict[str, Any]: A capability per index, and how many are stale.
+            dict[str, Any]: A capability per index, and how many are stale, empty, or built with another embedder.
         """
         indices = self._index_set()
         brain = self.session.brain(Capability.INSPECT)
@@ -212,6 +212,7 @@ class IndexOps:
             "capabilities": rows,
             "stale": sum(1 for row in rows if row["state"] == "stale"),
             "empty": sum(1 for row in rows if row["state"] == "empty"),
+            "mismatched": sum(1 for row in rows if row["state"] == "model_mismatch"),
         }
 
     def index_gc(self, *, apply: bool = False) -> dict[str, Any]:
