@@ -101,6 +101,20 @@ question: the runtime *raised* on `publish = false` while the CLI *skipped*. Bot
 decisions above are unchanged and the JSON keeps its keys; what changed is who owns them, and that a partial
 failure now carries the per-brain results in the same envelope instead of raising after computing them.
 
+*On the trigger.* Issue #60 asked for a second consumer to be confirmed first, and there is none: the trigger
+used instead is the divergence above, which is a defect that exists today rather than a symmetry that might
+matter later. The issue's other criterion -- that the CLI and a second adapter produce equivalent outcomes --
+cannot be demonstrated until a second adapter exists, and is not claimed here. What is claimed is narrower and
+checkable: one predicate for `publish = false`, one loop, and the six behaviour tests in
+`apps/cli/tests/test_project.py` passing unchanged across the move.
+
+*On the failure boundary.* Every brain's preparation is inside it, not only its push. Opening a working copy and
+reading its head are the likeliest things to fail on a project that holds somebody else's brain, and while they
+sat outside the `try` one unreadable brain ended the batch: it discarded the results of every brain before it and
+never reached the ones after. The module selection is materialized once for a related reason -- the signature
+accepts an `Iterable[str]`, and a one-shot one was drained by the first brain, leaving the second asked to
+publish nothing.
+
 ## Consequences
 
 - Verified end to end against **real Docker Hub**: a three-subject `facultad` project, `--brain algebra` writing to
