@@ -30,6 +30,19 @@ the commit already in progress includes the artifacts matching the operation cha
 second commit, and it is not the guard: `test_facade.py` and `test_operation_catalogue.py` assert that each
 committed artifact equals what the generator produces, which is what catches a commit made with `--no-verify`.
 
+**The wire contract.** Every operation result the suite produces is compared against `tests/operation_shapes.json`
+— the set of field paths and JSON types each operation has been seen to return. A renamed or retyped field fails
+the test that produced it. When the change is intended, re-record:
+
+```console
+uv run pytest -p no:xdist --record-shapes
+```
+
+One process, because each xdist worker sees a different slice. `tests/operation_shapes_unobserved.json` lists the
+operations nothing exercised, and a test asserts that list holds nothing an interface elsewhere could call except
+the six needing a registry daemon or a governed brain. Adding an operation means adding a test that runs it, or
+adding it there and saying why.
+
 **`reference --check`.** `skills/vitruvio/references/cli-reference.md` is generated from the cyclopts declarations —
 the same declarations that parse the arguments. A stale reference is worse than none: an agent that trusts a flag
 which no longer exists spends its next turn recovering from a usage error, and nothing in the output says the

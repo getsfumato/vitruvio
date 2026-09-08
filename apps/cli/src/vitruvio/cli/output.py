@@ -22,7 +22,6 @@ renderer, and keeps ``config show`` from importing a rendering library to print 
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -30,7 +29,7 @@ from typing import Any
 from rich.console import Console as RichConsole
 from rich.console import RenderableType
 
-from vitruvio.kernel import ExitCode, VitruvioError, __version__
+from vitruvio.kernel import ExitCode, VitruvioError, __version__, json_dumps
 
 
 @dataclass
@@ -203,7 +202,7 @@ class Console:
         """
         if self.json_mode:
             envelope = Envelope(command=command, data=data, warnings=self._warnings)
-            print(json.dumps(envelope.to_dict(), indent=2, sort_keys=False, default=str))
+            print(json_dumps(envelope.to_dict()))
         elif view is not None:
             # A str is a Sequence of str, so it would iterate into characters. Checked rather than assumed
             # because the failure is silent and absurd: one character per line.
@@ -214,7 +213,7 @@ class Console:
             for line in lines:
                 print(line)
         elif data is not None:
-            print(json.dumps(data, indent=2, default=str))
+            print(json_dumps(data))
         return ExitCode.OK
 
     def fail(
@@ -244,7 +243,7 @@ class Console:
             envelope = Envelope.failure(command, error)
             envelope.warnings = self._warnings
             envelope.data = data
-            print(json.dumps(envelope.to_dict(), indent=2, default=str))
+            print(json_dumps(envelope.to_dict()))
         else:
             if view is not None:
                 parts = [view] if isinstance(view, str) or not isinstance(view, (list, tuple)) else list(view)

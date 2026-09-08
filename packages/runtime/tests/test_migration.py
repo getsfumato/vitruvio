@@ -47,7 +47,9 @@ def test_migration_recreates_current_canonical_state_without_touching_source(
 
     migrated = BrainService(resolve(brain=destination, actor_id="tester@example.com"))
     assert registered["block_id"] in migrated.module("canonical", limit=100)["block_ids"]
-    assert migrated.state()["snapshot"]["labels"]["vitruvio.migrated-from"] == source_snapshot
+    labels = migrated.state()["snapshot"]["labels"]
+    assert labels is not None, "a migrated snapshot records where it came from"
+    assert labels["vitruvio.migrated-from"] == source_snapshot
     assert migrated.verify()["verified"] is True
 
 

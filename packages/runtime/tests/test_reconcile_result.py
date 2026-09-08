@@ -7,9 +7,13 @@ from typing import Any, cast, get_type_hints
 
 from boltzmann.reconcile import ReconcilePlan
 
+from vitruvio.runtime import wire
+from vitruvio.runtime.lifecycle_result import SnapshotResult, StateResult
+from vitruvio.runtime.ops.lifecycle import LifecycleOps
 from vitruvio.runtime.ops.reconcile import ReconcileOps
 from vitruvio.runtime.reconcile_result import (
     PlanView,
+    ReconcileAbortedResult,
     ReconcilePlanResult,
     ReconcileStatusEnvelope,
     serialize_plan,
@@ -73,3 +77,6 @@ def test_plan_view_centrally_interprets_questions_and_withdrawals() -> None:
 def test_runtime_annotations_expose_the_typed_vertical_slice() -> None:
     assert get_type_hints(ReconcileOps.plan)["return"] is ReconcilePlanResult
     assert get_type_hints(ReconcileOps.status)["return"] is ReconcileStatusEnvelope
+    assert get_type_hints(ReconcileOps.abort)["return"] is ReconcileAbortedResult
+    assert get_type_hints(LifecycleOps.state)["return"] is StateResult
+    assert get_type_hints(wire.snapshot)["return"] is SnapshotResult

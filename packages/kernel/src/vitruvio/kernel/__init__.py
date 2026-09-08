@@ -105,6 +105,8 @@ from vitruvio.kernel.secrets import (
     provider_key,
     registry_credentials,
 )
+from vitruvio.kernel.serialization import WireContractError
+from vitruvio.kernel.serialization import dumps as json_dumps
 from vitruvio.kernel.version import __version__
 
 __all__ = [
@@ -160,6 +162,8 @@ __all__ = [
     "StaleBrainError",
     "UsageError",
     "VitruvioError",
+    "WireContractError",
+    "json_dumps",
     "__version__",
     "updates",
     "cache_home",
