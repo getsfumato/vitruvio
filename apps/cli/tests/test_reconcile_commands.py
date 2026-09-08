@@ -435,16 +435,22 @@ class TestTheInteractiveRefusals:
         assert "exactly one decision" in payload["error"]["message"]
 
 
-async def _settle(pilot: Any, ticks: int = 25) -> None:
-    """Let the worker threads finish. Same reason `test_tui` has one: every read here runs off the event loop."""
+async def _settle(pilot: Any, ticks: int = 200) -> None:
+    """Let the worker threads finish. Same reason `test_tui` has one: every read here runs off the event loop.
+
+    Bounded at ten seconds and loud past it: a concluding merge rebuilds indices in its worker, and a settle that
+    gave up quietly after a few ticks let the test assert while the commit was half written -- a snapshot read
+    through a cache the worker had not yet invalidated, on whichever runner happened to be slow that day.
+    """
     from textual.app import App
 
     app: App[Any] = pilot.app
     for _ in range(ticks):
-        await pilot.pause()
+        await pilot.pause(0.05)
         if not any(worker.is_running for worker in app.workers):
-            await pilot.pause()
+            await pilot.pause(0.05)
             return
+    raise AssertionError("the interface's workers did not settle within ten seconds")
 
 
 class TestTheResolverInterface:
