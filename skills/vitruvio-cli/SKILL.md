@@ -39,9 +39,9 @@ vitruvio query search "..." --json                     # also accepted, but --br
 | `--brain NAME-OR-PATH` | which brain. A project's brain *name* is tried before a path |
 | `--project NAME` | which project, by name, from any directory. **Pass it with `--brain`** |
 | `--config FILE` | use this `vitruvio.toml` verbatim, instead of discovering one |
-| `--actor ID` | who to attribute writes to. Once `vitruvio.toml` declares `[actor] id`, only that id is accepted (`ACTOR_OVERRIDE_REFUSED`, exit 3); `brain init`, `project init` and `brain migrate` may name any |
+| `--actor ID` | who to attribute writes to. Once `vitruvio.toml` declares `[actor] id` (or a brain its own `[brains.<name>.actor]`), only that id is accepted (`ACTOR_OVERRIDE_REFUSED`, exit 3); `brain init`, `project init` and `brain migrate` may name any, and on `project add` an id other than the project's declares that brain's own actor |
 | `--actor-kind` | `human`, `agent`, `service`, `pipeline`. **Set `agent` when a model drives** |
-| `--assisted-by ID` | record only these of the brain's declared collaborators for this invocation; repeatable. An undeclared id is refused (`COLLABORATOR_NOT_DECLARED`, exit 3). With no flag every declared party is recorded; `--empty-assisted-by` records none. On `brain init` and `project add` it *writes* the declaration |
+| `--assisted-by ID` | record only these of the brain's declared collaborators for this invocation; repeatable. An undeclared id is refused (`COLLABORATOR_NOT_DECLARED`, exit 3). With no flag every declared party is recorded, except on `ingest run` and `task commit`, which refuse to run until it is stated (`COLLABORATOR_REQUIRED`); `--empty-assisted-by` records none. On `brain init` and `project add` it *writes* the declaration |
 | `--quiet` / `-q` | suppress notes on stderr |
 | `--no-color` | plain output |
 | `-v`, `-vv` | more detail on stderr |

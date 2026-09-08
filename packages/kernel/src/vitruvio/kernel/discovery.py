@@ -641,6 +641,7 @@ def parse_actor_kind(value: str | ActorKind | None, *, source: str) -> ActorKind
 
 def _actor_from_layers(
     project: ProjectConfig,
+    brain_name: str | None,
     actor_id: str | None,
     actor_kind: str | ActorKind | None,
     *,
@@ -649,14 +650,16 @@ def _actor_from_layers(
     """
     Apply the actor precedence: the file, when it declares one, is authoritative; otherwise environment, then flag.
 
-    A declared actor is what every write into the project is attributed to, and the declaration is the reviewed
-    place it lives. An invocation that names a *different* actor is therefore refused rather than obeyed -- a
-    provenance record must not depend on which shell ran the command -- while naming the same actor again is a
-    harmless repetition and leaves the file as the origin. When the file declares nothing, the environment and the
-    flag supply the actor as they always did, which is also how the declaration first gets written.
+    A declared actor is what every write into the brain is attributed to, and the declaration is the reviewed
+    place it lives: the brain's own ``[actor]`` when it has one, the project's otherwise. An invocation that names a
+    *different* actor is therefore refused rather than obeyed -- a provenance record must not depend on which shell
+    ran the command -- while naming the same actor again is a harmless repetition and leaves the file as the origin.
+    When the file declares nothing, the environment and the flag supply the actor as they always did, which is also
+    how the declaration first gets written.
 
     Args:
         project (ProjectConfig): The loaded configuration.
+        brain_name (str | None): The selected named brain, whose own ``[actor]`` wins when it declares one.
         actor_id (str | None): The ``--actor`` value.
         actor_kind (str | ActorKind | None): The ``--actor-kind`` value, coerced if it is a string.
         declaring (bool): Whether this invocation is the one creating the declaration -- ``brain init``,
@@ -670,9 +673,13 @@ def _actor_from_layers(
     """
     from vitruvio.kernel.errors import ActorOverrideRefusedError
 
-    spec = project.actor
+    spec = project.declared_actor(brain_name)
     declared = spec.id or None
     origin = Origin.FILE if declared else Origin.DEFAULT
+    if spec is project.actor:
+        table, scope = "actor", "this project"
+    else:
+        table, scope = (f"brains.{brain_name}.actor" if brain_name else "brain.actor"), "this brain"
 
     def take(candidate: str, layer: Origin, source: str) -> None:
         nonlocal spec, origin
@@ -680,8 +687,8 @@ def _actor_from_layers(
             if candidate != declared:
                 raise ActorOverrideRefusedError(
                     f"{source} names {candidate!r}, but {project.source or 'vitruvio.toml'} declares the actor "
-                    f"{declared!r}, and every write into this project is attributed to the declared actor",
-                    hint="drop the override, or change the declaration with `vitruvio config set actor.id ...`",
+                    f"{declared!r} for {scope}, and every write into it is attributed to the declared actor",
+                    hint=f"drop the override, or change the declaration with `vitruvio config set {table}.id ...`",
                 )
             return
         spec, origin = spec.model_copy(update={"id": candidate}), layer
@@ -908,7 +915,7 @@ def resolve(
         # project. A None would ripple an optional through every consumer of ResolvedConfig for one case.
         selected, origin, brain_name = Path.cwd(), Origin.DEFAULT, None
         require_layout = False
-    actor, actor_origin = _actor_from_layers(document, actor_id, actor_kind, declaring=declaring)
+    actor, actor_origin = _actor_from_layers(document, brain_name, actor_id, actor_kind, declaring=declaring)
     collaborators, collaborators_origin = _collaborators_from_layers(
         document, brain_name, assisted_by, declaring=declaring
     )

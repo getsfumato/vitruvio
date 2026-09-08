@@ -58,7 +58,10 @@ def project(capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pyt
     only = tmp_path / "only.md"
     only.write_text(ONLY_ALGEBRA, encoding="utf-8")
     for brain, document in (("algebra", shared), ("analisis-ii", shared), ("algebra", only)):
-        assert envelope(capsys, *actor, "--brain", brain, "ingest", "run", str(document))[0] == ExitCode.OK
+        assert (
+            envelope(capsys, *actor, "--brain", brain, "--empty-assisted-by", "ingest", "run", str(document))[0]
+            == ExitCode.OK
+        )
     return tmp_path
 
 

@@ -42,7 +42,9 @@ def project(capsys: pytest.CaptureFixture[str], tmp_path: Path, monkeypatch: pyt
 
     document = tmp_path / "algebra.md"
     document.write_text(DOCUMENT, encoding="utf-8")
-    code, _ = envelope(capsys, "--actor", "a@b.c", "--brain", "algebra", "ingest", "run", str(document))
+    code, _ = envelope(
+        capsys, "--actor", "a@b.c", "--brain", "algebra", "--empty-assisted-by", "ingest", "run", str(document)
+    )
     assert code == ExitCode.OK
     return tmp_path
 

@@ -159,6 +159,28 @@ class ActorOverrideRefusedError(ConfigError):
     code = "ACTOR_OVERRIDE_REFUSED"
 
 
+class ActorNotDeclaredError(ConfigError):
+    """An ingest ran without ``vitruvio.toml`` declaring the actor it would be attributed to.
+
+    Ingest is where a model writes, so it is where attribution is checked rather than assumed: the actor comes
+    from the declaration and from nowhere else. A flag or the environment cannot supply one here, because that is
+    how a session's provenance comes to depend on whoever typed the command.
+    """
+
+    code = "ACTOR_NOT_DECLARED"
+
+
+class CollaboratorRequiredError(ConfigError):
+    """An ingest ran without saying who assisted it.
+
+    Knowledge proposed by a model must record the model. The invocation says so with ``--assisted-by``, choosing
+    among the parties the brain declares, or says explicitly that nobody assisted; leaving it unsaid is refused,
+    because "every declared party" is a default and a default is not a statement.
+    """
+
+    code = "COLLABORATOR_REQUIRED"
+
+
 class CollaboratorNotDeclaredError(ConfigError):
     """``--assisted-by`` or ``VITRUVIO_ASSISTED_BY`` named a party the brain has not declared.
 

@@ -13,7 +13,9 @@ from vitruvio.runtime import BrainService
 @pytest.fixture
 def config(tmp_path: Path) -> ResolvedConfig:
     """A resolved configuration over a brain that does not exist yet, ready for ``init``."""
-    return resolve(brain=tmp_path / "brain", actor_id="tester@example.com", require_layout=False)
+    # `assisted_by=[]` says, explicitly, that nobody assists these tests' writes: ingest refuses an invocation that
+    # leaves it unsaid, and the fixture is what most ingesting tests write through.
+    return resolve(brain=tmp_path / "brain", actor_id="tester@example.com", assisted_by=[], require_layout=False)
 
 
 @pytest.fixture

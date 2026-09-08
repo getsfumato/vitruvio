@@ -100,8 +100,9 @@ actually returned.
 
 6. **The actor comes from `vitruvio.toml`, and so do the assistants.** Actor ids are lowercase addresses
    (`alex@example.org`) or namespaced names (`openai/codex`), refused rather than normalized because they enter block
-   identities. Once the file declares `[actor] id`, every write is attributed to it and a different `--actor` is
-   refused (`ACTOR_OVERRIDE_REFUSED`); only `brain init`, `project init` and `brain migrate` may name one. Each brain
+   identities. Once the file declares `[actor] id` -- or a brain its own `[brains.<name>.actor]` -- every write is
+   attributed to it and a different `--actor` is refused (`ACTOR_OVERRIDE_REFUSED`); only `brain init`,
+   `project init`, `project add` and `brain migrate` may name one. Each brain
    declares under `assisted_by` which agents may be recorded as assisting it; with no flag every declared agent is
    recorded, `--assisted-by` selects among them, and an undeclared agent is refused (`COLLABORATOR_NOT_DECLARED`).
    If you are not declared for the brain you are writing into, stop and ask the user to declare you; never write
@@ -116,6 +117,13 @@ actually returned.
    and scopes govern the selected snapshot. `history --json` reports every reachable snapshot with actor, integrity,
    authenticity and authorization evidence. A block creator marked `asserted` is provenance, not verified identity;
    call it verified only when the block's `authorship.claims[].actor_verified` is true.
+
+9. **A write into a governed brain leaves the head unsigned until somebody signs it.** After an ingest -- or any
+   other write: `source register`, `catalog apply`, `supersede` -- run `auth status --json`. When `data.trust_root`
+   is set and `data.state` is `unsigned`, ask the user whether to sign the new head, showing the fingerprints that
+   are both loaded in ssh-agent (`auth keys --json`) and authorized by the root (`auth trust-root --json`); on a yes,
+   `auth sign FINGERPRINT --json`, then `auth status --json` again and report `data.state`. Never sign unasked and
+   never choose the key. On an ungoverned brain there is nothing to sign, and saying so is the whole report.
 
 ## Choose governance before creating a brain
 

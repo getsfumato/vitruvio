@@ -390,7 +390,8 @@ def add(
 
     The global `--assisted-by ID` flags, repeated, declare which agents may be recorded as assisting writes into
     this brain; they are written under `[[brains.<name>.assisted_by]]` and become the only ones later invocations
-    may name.
+    may name. The global `--actor ID`, when it differs from the project's actor, declares this brain's own actor
+    under `[brains.<name>.actor]`, for the brain a different person keeps inside a shared project.
     """
     console = current().console
     context = current()
@@ -402,6 +403,8 @@ def add(
         create=not no_create,
         publish=not no_publish,
         assisted_by=context.assisted_by,
+        actor=context.actor_id,
+        actor_kind=context.actor_kind,
     )
     from pathlib import Path
 
@@ -423,6 +426,7 @@ def add(
         ("added", result["name"]),
         ("path", f"{result['path']}{'  (created)' if result['created'] else ''}"),
         ("assisted by", ", ".join(result.get("assisted_by") or ()) or "(none declared -- inherits the project's)"),
+        ("actor", result.get("actor") or "(the project's)"),
     ]
     if not result["publish"]:
         pairs.append(("publish", Text("false -- `dist push` will refuse this brain", style="warn")))

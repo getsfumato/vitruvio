@@ -365,7 +365,7 @@ class TestInspect:
             "# Series de Fourier\n\nDescompone una funcion periodica en senos.\n\n## Coeficientes\n\nIntegrales.\n",
             encoding="utf-8",
         )
-        code, ingested = envelope(capsys, "--brain", str(path), "ingest", "run", str(document))
+        code, ingested = envelope(capsys, "--brain", str(path), "--empty-assisted-by", "ingest", "run", str(document))
         assert code == ExitCode.OK
         derived = [str(item) for item in ingested["data"]["committed"]["committed"]]
         assert derived

@@ -12,13 +12,16 @@ anything become a block with an identity.
 
 ## Who is writing
 
-Every commit is attributed to the actor `vitruvio.toml` declares, and records the assistants the brain declares under
-`assisted_by`. Before proposing anything, check that the brain declares you: `vitruvio --json --project NAME --brain
-BRAIN config show` lists the actor and the declared collaborators. If your id is there, write with no `--actor` and
-no `--assisted-by` (every declared party is recorded) or with `--assisted-by YOUR-ID` to record only yourself. If it
-is not there, **stop and ask the user to declare you** -- `config set 'brains.BRAIN.assisted_by' '[{"id":"YOUR-ID","kind":"agent"}]'`
--- rather than writing; an undeclared `--assisted-by` is refused, and `--actor-kind agent` is not a substitute for the
-human actor.
+Every commit is attributed to the actor `vitruvio.toml` declares -- the project's, or the brain's own
+`[brains.BRAIN.actor]` -- and records who assisted. On `ingest run` and `task commit` both are **stated, not
+assumed**: never pass `--actor` (it is refused, `ACTOR_NOT_DECLARED`), and always say who assisted, because an ingest
+that leaves it unsaid is refused (`COLLABORATOR_REQUIRED`). Before proposing anything, check that the brain declares
+you: `vitruvio --json --project NAME --brain BRAIN config show` lists the actor and the declared collaborators, the
+brain's own list or, when it has none, the project's. If your id is there, write with `--assisted-by YOUR-ID`. If it
+is not there, **stop and ask the user to declare you** -- `config set 'brains.BRAIN.assisted_by'
+'[{"id":"YOUR-ID","kind":"agent"}]'` -- rather than writing; an undeclared `--assisted-by` is refused
+(`COLLABORATOR_NOT_DECLARED`), and `--actor-kind agent` is not a substitute for the human actor. A person committing
+candidates they wrote by hand says so with `--empty-assisted-by`.
 
 ## The loop
 
@@ -38,7 +41,7 @@ vitruvio task schema --task task.json --json | jq .data > schema.json
 # 5. the gate's verdict, per candidate, committing nothing
 vitruvio task validate candidates.json --task task.json --json
 
-# 6. commit — refused entirely if anything was rejected for a fixable reason
+# 6. commit — refused entirely if anything was rejected for a fixable reason; --assisted-by is required here
 vitruvio task commit candidates.json --task task.json --json
 ```
 
@@ -112,6 +115,32 @@ Exit 7 means the proposal was wrong. Retrying it unchanged will fail identically
 
 Re-submitting a whole set after repairing one member is the expected workflow: the ones already committed come back
 as duplicates, are reported as `already_held`, and do not block the commit.
+
+## After the commit: a governed brain wants a signature
+
+A commit moves the head, and on a governed brain the new head is **unsigned** until an authorized key signs it. Right
+after `task commit` or `ingest run` writes something, run:
+
+```bash
+vitruvio --json --project NAME --brain BRAIN auth status
+```
+
+- `data.trust_root` is `null`: the brain is ungoverned. There is nothing to sign; say so in one line and move on.
+- `data.trust_root` is set and `data.state` is `unsigned`: the blocks just ingested are in a head nobody has vouched
+  for. **Ask the user whether to sign it now.** Show them the keys that could: `vitruvio --json auth keys` lists the
+  fingerprints loaded in ssh-agent, `vitruvio --json --project NAME --brain BRAIN auth trust-root` lists the keys the
+  root authorizes, and only a fingerprint in both can sign. Name them in the question and let the user choose; if
+  none is in both, say that signing needs one of the authorized keys loaded in ssh-agent, and stop.
+- The user says yes and names the key:
+
+```bash
+vitruvio --json --project NAME --brain BRAIN auth sign FINGERPRINT
+vitruvio --json --project NAME --brain BRAIN auth status
+```
+
+Report `data.state` from the second command -- `authorized` is the answer signing was for. Never sign without being
+told to, never choose the key yourself, and never treat an unsigned head as a failure of the ingest: the blocks are
+committed and verifiable either way; what the signature adds is who stands behind them.
 
 ## The shortcut, and when not to take it
 

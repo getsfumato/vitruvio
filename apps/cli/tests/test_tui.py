@@ -53,7 +53,7 @@ def service_for(brain: Path) -> Any:
     from vitruvio.kernel import resolve
     from vitruvio.runtime import BrainService
 
-    return BrainService(resolve(brain=brain))
+    return BrainService(resolve(brain=brain, assisted_by=[]))
 
 
 def governed_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, str]:
@@ -810,6 +810,7 @@ class TestTheInterface:
             app.catalog_rows = list(app.rows)
             app.rows = [app.rows[0]] * 200
             app.action_next_page()
+            await _settle(pilot)
             assert app.offset == 200
             assert app.catalog_context is None
 
@@ -1399,7 +1400,7 @@ class TestChoosingWhatToLookAt:
             assert brains.row_count == 2, "the highlighted project's brains, not the first project's"
 
 
-async def _settle(pilot: Any, ticks: int = 25) -> None:
+async def _settle(pilot: Any, ticks: int = 200) -> None:
     """
     Let the worker threads finish.
 
@@ -1424,6 +1425,7 @@ async def _settle(pilot: Any, ticks: int = 25) -> None:
         if idle and not debouncing:
             await pilot.pause(0.05)
             return
+    raise AssertionError("the interface did not settle within ten seconds")
 
 
 def _focus(app: BrainBrowser) -> str:

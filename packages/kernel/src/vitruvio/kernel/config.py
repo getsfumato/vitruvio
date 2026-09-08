@@ -492,6 +492,13 @@ def _validate_source_names(value: dict[str, SourceSpec]) -> dict[str, SourceSpec
     return value
 
 
+def _validate_brain_actor(value: ActorSpec | None) -> ActorSpec | None:
+    """A brain's own actor exists to name somebody; a table without an ``id`` names nobody and is refused."""
+    if value is not None and not value.id:
+        raise ValueError("a brain's [actor] must declare an id; leave the table out to use the project's actor")
+    return value
+
+
 class BrainSpec(BaseModel):
     """
     Which brain this project is about.
@@ -506,6 +513,8 @@ class BrainSpec(BaseModel):
         sources (dict[str, SourceSpec]): Where this brain acquires canonical evidence from.
         assisted_by (list[CollaboratorSpec]): Who may be recorded as assisting a write into this brain. See
             :attr:`NamedBrainSpec.assisted_by`.
+        actor (ActorSpec | None): Who writes into this brain, when it is not the project's actor. See
+            :attr:`NamedBrainSpec.actor`.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -515,8 +524,10 @@ class BrainSpec(BaseModel):
     reconcile: ReconcileStrategy | None = None
     sources: dict[str, SourceSpec] = Field(default_factory=dict)
     assisted_by: list[CollaboratorSpec] = Field(default_factory=list)
+    actor: ActorSpec | None = None
 
     _source_names = field_validator("sources")(_validate_source_names)
+    _actor_has_id = field_validator("actor")(_validate_brain_actor)
 
 
 class NamedBrainSpec(BaseModel):
@@ -560,6 +571,11 @@ class NamedBrainSpec(BaseModel):
             declares none inherits the project's ``[[assisted_by]]``. Per brain rather than per project because
             the agents differ per subject and per client, and a collaborator recorded into the wrong brain is a
             provenance record that lies about who was in the room.
+        actor (ActorSpec | None): Who writes into this brain, when that is not the project's actor. A project is
+            what several brains share, the actor included, so this is absent for most brains; it exists for the
+            brain a different person keeps inside a shared project. Declared with an ``id``, and authoritative for
+            writes into this brain exactly as the project's actor is for the rest: an invocation naming somebody
+            else is refused.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -571,8 +587,10 @@ class NamedBrainSpec(BaseModel):
     reconcile: ReconcileStrategy | None = None
     sources: dict[str, SourceSpec] = Field(default_factory=dict)
     assisted_by: list[CollaboratorSpec] = Field(default_factory=list)
+    actor: ActorSpec | None = None
 
     _source_names = field_validator("sources")(_validate_source_names)
+    _actor_has_id = field_validator("actor")(_validate_brain_actor)
 
     @field_validator("reference")
     @classmethod
@@ -624,7 +642,8 @@ class ProjectConfig(BaseModel):
         brains (dict[str, NamedBrainSpec]): The named brains, for a project that has several. A subject per
             brain, a client per brain -- whatever the unit of "someone might want only this one" is.
         actor (ActorSpec): Who writes. Declared once, and authoritative: an invocation naming a different actor
-            is refused rather than obeyed.
+            is refused rather than obeyed. A brain that declares its own ``actor`` replaces it for writes into that
+            brain. After :func:`vitruvio.kernel.resolve`, the actor one invocation actually records.
         assisted_by (list[CollaboratorSpec]): The project's default assisting parties; a brain that declares its
             own list replaces this one for writes into it. After :func:`vitruvio.kernel.resolve`, the parties one
             invocation actually records.
@@ -681,6 +700,28 @@ class ProjectConfig(BaseModel):
             return None
         base = self.source.parent if self.source is not None else Path()
         return (base / spec.path).expanduser().resolve()
+
+    def declared_actor(self, brain: str | None) -> ActorSpec:
+        """
+        Who a write into one brain is attributed to.
+
+        The brain's own ``[actor]`` when it declares one -- ``[brains.<name>.actor]`` for a named brain,
+        ``[brain.actor]`` for the single one -- and the project's ``[actor]`` otherwise.
+
+        Args:
+            brain (str | None): The named brain, or ``None`` for the single ``[brain]`` declaration.
+
+        Returns:
+            ActorSpec: The declaration that governs writes into that brain; its ``id`` may be unset when nobody
+            declared anything anywhere.
+        """
+        if brain is not None:
+            spec = self.brains.get(brain)
+            if spec is not None and spec.actor is not None and spec.actor.id:
+                return spec.actor
+        elif self.brain.actor is not None and self.brain.actor.id:
+            return self.brain.actor
+        return self.actor
 
     def declared_collaborators(self, brain: str | None) -> list[CollaboratorSpec]:
         """

@@ -88,6 +88,21 @@ def _redact(document: dict[str, Any]) -> dict[str, Any]:
     return walked
 
 
+def _actor(project: ProjectConfig) -> str:
+    """The project's actor, then each brain that declares its own -- the one place to see who a write becomes."""
+    actor = project.actor
+    shared = f"{actor.id or '(not set)'} [{actor.kind.value}]"
+    own = "; ".join(
+        f"{name}: {brain.actor.id} [{brain.actor.kind.value}]"
+        for name, brain in sorted(project.brains.items())
+        if brain.actor is not None and brain.actor.id
+    )
+    if project.brain.actor is not None and project.brain.actor.id:
+        single = f"[brain]: {project.brain.actor.id} [{project.brain.actor.kind.value}]"
+        own = "; ".join(filter(None, [single, own]))
+    return f"{shared}   per brain -- {own}" if own else shared
+
+
 def _collaborators(project: ProjectConfig) -> str:
     """
     The declared assisting parties: the project's, then each brain's own list where one declares it.
@@ -119,7 +134,6 @@ def _describe(project: ProjectConfig, source: Path | None) -> Table:
     """
     from rich.text import Text
 
-    actor = project.actor
     text = project.text_embedder
     vision = project.vision_embedder
     username, token = registry_credentials()
@@ -148,7 +162,7 @@ def _describe(project: ProjectConfig, source: Path | None) -> Table:
         ("config file", source or "(none -- using defaults)"),
         ("project", addressable),
         ("brain", brains),
-        ("actor", f"{actor.id or '(not set)'} [{actor.kind.value}]"),
+        ("actor", _actor(project)),
         ("assisted by", _collaborators(project)),
         (
             "policy",
