@@ -287,6 +287,10 @@ def commit(
 ) -> ExitCode:
     """Validate and commit a candidate set.
 
+    Attribution is stated, not assumed: the actor is the one `vitruvio.toml` declares (`--actor` is refused here),
+    and the invocation says who assisted with `--assisted-by ID` from the brain's declared parties, or
+    `--empty-assisted-by` when nobody did.
+
     All or nothing on a rejection, which is stricter than the SDK's commit: a partial commit leaves the brain
     holding half an interpretation with no record that the other half was refused. Exit 7 means the proposal was
     wrong — repair it, do not retry it unchanged.

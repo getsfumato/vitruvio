@@ -53,7 +53,7 @@ def service_for(brain: Path) -> Any:
     from vitruvio.kernel import resolve
     from vitruvio.runtime import BrainService
 
-    return BrainService(resolve(brain=brain))
+    return BrainService(resolve(brain=brain, assisted_by=[]))
 
 
 def governed_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, str]:

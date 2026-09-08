@@ -50,3 +50,12 @@ up immediately is the brain a *different person* keeps inside a shared project. 
 actor for writes into that brain, and it is authoritative in exactly the same way -- a differing `--actor` or
 `VITRUVIO_ACTOR_ID` is refused, and the refusal names the table to change. `project add --actor` writes it when the
 id differs from the project's. The project's actor stays the default for every brain that declares none.
+
+## Amendment: ingest states its attribution
+
+`ingest run` and `task commit` are where a model writes, so there the two attribution facts are checked rather than
+assumed. The actor is the one the file declares for the brain and nothing else -- a flag or the environment naming
+another is `ACTOR_NOT_DECLARED` -- and the invocation must say who assisted: `--assisted-by` selecting among the
+declared parties, or `--empty-assisted-by` for nobody; leaving it unsaid is `COLLABORATOR_REQUIRED`. Everywhere
+else the declared parties remain the default, because a person registering a file alone is the common case there
+and a model proposing knowledge is the common case here.

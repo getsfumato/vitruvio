@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from vitruvio.kernel import ResolvedConfig
+from vitruvio.kernel import Origin, ResolvedConfig
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import block_id
@@ -192,6 +192,48 @@ class TaskOps:
                 blocking += 1
         return duplicates, blocking
 
+    def _attributed(self) -> None:
+        """
+        Refuse an ingest whose attribution is assumed rather than stated.
+
+        Ingest is where a model writes, so it is where the two attribution facts are checked: the actor is the one
+        ``vitruvio.toml`` declares for this brain -- a flag or the environment cannot supply or replace it here --
+        and the invocation says who assisted, by selecting among the declared parties or by saying nobody did.
+        Checked before the brain is opened, so a refusal costs nothing and commits nothing.
+
+        Raises:
+            ActorNotDeclaredError: If the file declares no actor for this brain, or a layer above it named another.
+            CollaboratorRequiredError: If the invocation did not say who assisted.
+        """
+        from vitruvio.kernel import ActorNotDeclaredError, CollaboratorRequiredError, load_project, select_config_file
+
+        config = self.config
+        # The file as it is now, found the way a fresh invocation would find it: a service built before `init`
+        # wrote the file carries no `config_file`, and the declaration it wrote is still the one that governs.
+        source = config.config_file or select_config_file(brain=config.brain)
+        declared_file = load_project(source) if source is not None else None
+        declared = declared_file.declared_actor(config.brain_name).id if declared_file is not None else None
+        if declared_file is None or not declared:
+            raise ActorNotDeclaredError(
+                "ingest attributes every block to the actor vitruvio.toml declares, and none is declared",
+                hint="declare it once with `vitruvio config set actor.id you@example.com`; ingest does not take --actor",
+            )
+        if config.project.actor.id != declared:
+            raise ActorNotDeclaredError(
+                f"ingest attributes to the declared actor {declared!r}, not to {config.project.actor.id!r} named by a "
+                "flag or the environment",
+                hint="drop --actor and VITRUVIO_ACTOR_ID; if the declaration is wrong, change it in vitruvio.toml",
+            )
+        if config.collaborators_origin not in (Origin.FLAG, Origin.ENVIRONMENT):
+            parties = ", ".join(spec.id for spec in declared_file.declared_collaborators(config.brain_name)) or "nobody"
+            raise CollaboratorRequiredError(
+                "ingest records who assisted it, and this invocation did not say",
+                hint=(
+                    f"pass --assisted-by ID for each assisting agent (declared for this brain: {parties}), or "
+                    "--empty-assisted-by if nobody did"
+                ),
+            )
+
     def commit_candidates(self, candidates: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
         """
         Validate and commit in one step, refusing if anything was rejected for a reason worth fixing.
@@ -211,11 +253,14 @@ class TaskOps:
 
         Raises:
             CandidatesRejectedError: If any candidate was rejected for anything other than being a duplicate.
+            ActorNotDeclaredError: If the file does not declare the actor this commit would be attributed to.
+            CollaboratorRequiredError: If the invocation did not say who assisted.
         """
         from boltzmann.ingest.task import ProcessingTask
 
         from vitruvio.kernel import CandidatesRejectedError
 
+        self._attributed()
         parsed = self._parse_candidates(candidates)
         with self.session.write() as brain, translated():
             report = brain.validate(parsed, ProcessingTask.model_validate(task))
@@ -266,6 +311,7 @@ class TaskOps:
         from vitruvio.kernel import CandidatesRejectedError
         from vitruvio.runtime.coerce import pipeline as coerce_pipeline
 
+        self._attributed()
         engine = resolve_proposer(proposer, **({"subject": subject} if proposer.startswith("structure") else {}))
         types = [coerce_memory_type(item) for item in allowed] if allowed else None
         pipeline = coerce_pipeline(normalize_with, media_type)

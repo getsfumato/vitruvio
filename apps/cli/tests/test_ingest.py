@@ -69,7 +69,9 @@ class TestIngestRun:
     def test_a_dry_run_proposes_and_commits_nothing(
         self, capsys: pytest.CaptureFixture[str], brain: Path, document: Path
     ) -> None:
-        code, payload = envelope(capsys, "--brain", str(brain), "ingest", "run", str(document), "--dry-run")
+        code, payload = envelope(
+            capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(document), "--dry-run"
+        )
         assert code == ExitCode.OK
         assert payload["data"]["proposed"] == 2
         assert payload["data"]["committed"] is None
@@ -80,7 +82,9 @@ class TestIngestRun:
     def test_the_media_type_selects_the_pipeline(
         self, capsys: pytest.CaptureFixture[str], brain: Path, document: Path
     ) -> None:
-        _, payload = envelope(capsys, "--brain", str(brain), "ingest", "run", str(document), "--dry-run")
+        _, payload = envelope(
+            capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(document), "--dry-run"
+        )
         assert payload["data"]["pipeline"] == "markdown"
 
     def test_none_disables_the_pipeline(self, capsys: pytest.CaptureFixture[str], brain: Path, document: Path) -> None:
@@ -88,14 +92,25 @@ class TestIngestRun:
         suggested pipeline -- so it did not opt out. `none` does, and so does the empty string."""
         for spelling in ("none", ""):
             _, payload = envelope(
-                capsys, "--brain", str(brain), "ingest", "run", str(document), "--dry-run", "--normalize-with", spelling
+                capsys,
+                "--brain",
+                str(brain),
+                "--empty-assisted-by",
+                "ingest",
+                "run",
+                str(document),
+                "--dry-run",
+                "--normalize-with",
+                spelling,
             )
             assert payload["data"]["pipeline"] is None, repr(spelling)
 
     def test_a_full_run_commits_and_advances_the_snapshot(
         self, capsys: pytest.CaptureFixture[str], brain: Path, document: Path
     ) -> None:
-        code, payload = envelope(capsys, "--brain", str(brain), "ingest", "run", str(document), "--subject", "fourier")
+        code, payload = envelope(
+            capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(document), "--subject", "fourier"
+        )
         assert code == ExitCode.OK
         assert len(payload["data"]["committed"]["committed"]) == 2
 
@@ -107,8 +122,8 @@ class TestIngestRun:
     ) -> None:
         """Every candidate comes back a duplicate, which means the brain already holds them. Reporting that as a
         rejection would make the ordinary repair-and-resubmit loop fail forever after its first partial success."""
-        _, first = envelope(capsys, "--brain", str(brain), "ingest", "run", str(document))
-        code, second = envelope(capsys, "--brain", str(brain), "ingest", "run", str(document))
+        _, first = envelope(capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(document))
+        code, second = envelope(capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(document))
         assert code == ExitCode.OK
         assert second["data"]["already_held"] == 2
         assert second["data"]["committed"]["committed"] == []
@@ -120,7 +135,7 @@ class TestIngestRun:
         """The structure proposer finding nothing is a fact about the document, not an error."""
         plain = tmp_path / "plain.md"
         plain.write_text("no headings here, just prose.\n", encoding="utf-8")
-        code, payload = envelope(capsys, "--brain", str(brain), "ingest", "run", str(plain))
+        code, payload = envelope(capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(plain))
         assert code == ExitCode.OK
         assert payload["data"]["proposed"] == 0
         assert any("propose" in warning for warning in payload["warnings"])
@@ -261,7 +276,15 @@ class TestTaskLifecycle:
         assert report["data"]["is_clean"] is True
 
         code, committed = envelope(
-            capsys, "--brain", str(brain), "task", "commit", str(candidates), "--task", str(task_file)
+            capsys,
+            "--brain",
+            str(brain),
+            "--empty-assisted-by",
+            "task",
+            "commit",
+            str(candidates),
+            "--task",
+            str(task_file),
         )
         assert code == ExitCode.OK
         assert len(committed["data"]["committed"]) == 1
@@ -269,7 +292,15 @@ class TestTaskLifecycle:
 
         # And again: the second commit is a no-op rather than a failure.
         code, again = envelope(
-            capsys, "--brain", str(brain), "task", "commit", str(candidates), "--task", str(task_file)
+            capsys,
+            "--brain",
+            str(brain),
+            "--empty-assisted-by",
+            "task",
+            "commit",
+            str(candidates),
+            "--task",
+            str(task_file),
         )
         assert code == ExitCode.OK
         assert again["data"]["already_held"] == 1
@@ -299,7 +330,7 @@ class TestTaskLifecycle:
         self, capsys: pytest.CaptureFixture[str], brain: Path, document: Path
     ) -> None:
         """Otherwise a better model revisiting an old document leaves two competing interpretations installed."""
-        _, ingested = envelope(capsys, "--brain", str(brain), "ingest", "run", str(document))
+        _, ingested = envelope(capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(document))
         derived = ingested["data"]["committed"]["committed"][0]
         source = ingested["data"]["registration"]["block_id"]
 

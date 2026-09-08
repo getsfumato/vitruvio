@@ -128,6 +128,12 @@ reviewed. `--empty-assisted-by` records no assistance for one invocation. `brain
 `project add --assisted-by` write the declaration; `config show` and `inspect doctor` (`config.collaborators`) show
 it. Assistance is written into provenance v2 on every new operation.
 
+Ingest is stricter, because it is where a model writes. `ingest run` and `task commit` take the actor from the
+declaration and from nowhere else — `--actor` or `VITRUVIO_ACTOR_ID` naming anyone the file does not declare for
+that brain is refused with `ACTOR_NOT_DECLARED` — and they refuse to run until the invocation says who assisted:
+`--assisted-by ID` for each assisting agent, chosen among the declared parties, or `--empty-assisted-by` when nobody
+did (`COLLABORATOR_REQUIRED` otherwise). "Every declared party" is a default, and a default is not a statement.
+
 ## Integrity is not authenticity
 
 `brain verify` proves that the blocks match their hashes and module roots. `auth status` additionally asks whether

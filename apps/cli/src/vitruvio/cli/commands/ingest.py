@@ -46,6 +46,10 @@ def run(
 ) -> ExitCode:
     """Register a source, propose knowledge from it, validate and commit.
 
+    Attribution is stated, not assumed: the actor is the one `vitruvio.toml` declares (`--actor` is refused here),
+    and the invocation says who assisted with `--assisted-by ID` from the brain's declared parties, or
+    `--empty-assisted-by` when nobody did.
+
     Exit 7 means the proposal was rejected and nothing was stored — re-run with `--dry-run` to read each code.
 
     Parameters

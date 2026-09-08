@@ -41,7 +41,7 @@ def populated(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> tuple[Path,
 
     document = tmp_path / "fourier.md"
     document.write_text(DOCUMENT, encoding="utf-8")
-    code, ingested = envelope(capsys, "--brain", str(path), "ingest", "run", str(document))
+    code, ingested = envelope(capsys, "--brain", str(path), "--empty-assisted-by", "ingest", "run", str(document))
     assert code == ExitCode.OK
 
     source = str(ingested["data"]["registration"]["block_id"])
