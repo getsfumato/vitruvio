@@ -23,9 +23,9 @@ cache. So:
   a second brain that the session never held and therefore could never invalidate;
 * invalidation bumps a generation, and :meth:`pinned` refuses a read whose composition was replaced while it ran.
   A reference already handed out cannot be revoked, but its answer can be refused;
-* :meth:`write` admits one writer and refuses the second. Queueing is the wrong answer for operations that block
-  on a registry: a caller parked behind a push has no way to learn it is waiting, and a refusal it can retry does
-  tell it.
+* :meth:`write` admits one writer and refuses the second, where "one writer" is a task when a loop is running
+  and a thread otherwise. Queueing is the wrong answer for operations that block on a registry: a caller parked
+  behind a push has no way to learn it is waiting, and a refusal it can retry does tell it.
 
 **Not the only door to a brain, and deliberately not.** ``lifecycle.init`` and ``projects.add_brain`` call
 ``open_brain`` directly: the first with ``create=True``, the second over a *different* ``ResolvedConfig`` for the
@@ -35,6 +35,7 @@ would only make it easy to write the version that caches a brain under the wrong
 
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -44,6 +45,29 @@ from boltzmann.brain import HEAD_POINTER, Brain
 from vitruvio.kernel import ResolvedConfig, SessionBusyError, StaleBrainError
 from vitruvio.runtime.assembly import Capability, open_brain
 from vitruvio.runtime.mapping import translated
+
+
+def _writer() -> tuple[int, int]:
+    """
+    What counts as one writer: the running task, or the thread when there is none.
+
+    A thread alone is the wrong unit. ``push_async`` and ``pull_async`` hold the write across a registry round
+    trip, and two tasks awaiting on one event loop share a thread identity -- so a thread-reentrant lock would
+    read the second as a nested call and admit it. ``sys.modules`` rather than an import: ``test_import_cost``
+    keeps ``asyncio`` out of ``import vitruvio.runtime``, and a loop cannot be running if it was never imported.
+
+    Returns:
+        tuple[int, int]: The thread, and the task on it when one is running.
+    """
+    asyncio = sys.modules.get("asyncio")
+    if asyncio is not None:
+        try:
+            task = asyncio.current_task()
+        except RuntimeError:
+            task = None
+        if task is not None:
+            return (threading.get_ident(), id(task))
+    return (threading.get_ident(), 0)
 
 
 class BrainSession:
@@ -68,9 +92,11 @@ class BrainSession:
         self._cache: dict[Capability, Brain] = {}
         self._generation = 0
         self._lock = threading.RLock()
-        # Reentrant so that a thread already inside `write` may nest another -- `migrate` and the reconciliation
-        # flows do -- while a *second* thread is still refused, which is the distinction being drawn.
-        self._writing = threading.RLock()
+        # Reentrancy is tracked by owner rather than delegated to an RLock, because the owner has to be the task
+        # and not the thread: `migrate` and the reconciliation flows nest a write, and two async pushes must not.
+        self._writing = threading.Lock()
+        self._writer: tuple[int, int] | None = None
+        self._depth = 0
 
     def brain(self, capability: Capability = Capability.INSPECT) -> Brain:
         """
@@ -152,13 +178,17 @@ class BrainSession:
             Brain: The session-owned WRITE-capability brain.
 
         Raises:
-            SessionBusyError: Another thread is inside this session's write.
+            SessionBusyError: Another task or thread is inside this session's write.
         """
-        if not self._writing.acquire(blocking=False):
-            raise SessionBusyError(
-                "another write is already running on this brain",
-                hint="wait for it to finish and run this again",
-            )
+        me = _writer()
+        with self._writing:
+            if self._writer not in (None, me):
+                raise SessionBusyError(
+                    "another write is already running on this brain",
+                    hint="wait for it to finish and run this again",
+                )
+            self._writer = me
+            self._depth += 1
         try:
             brain = self.brain(Capability.WRITE)
             before = brain.store.read_pointer(HEAD_POINTER)
@@ -168,4 +198,8 @@ class BrainSession:
                 if brain.store.read_pointer(HEAD_POINTER) != before:
                     self.invalidate()
         finally:
-            self._writing.release()
+            # In a `finally` so that a cancelled task releases: `CancelledError` arrives at the `yield` above.
+            with self._writing:
+                self._depth -= 1
+                if self._depth == 0:
+                    self._writer = None

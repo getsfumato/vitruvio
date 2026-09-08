@@ -43,10 +43,14 @@ can be refused, which is the honest version of the same guarantee. The error is 
 `BrainService.pinned` exposes it to an interface that answers one question with several calls; the browser's
 preview and four tabs are the case that exists today, and they now read again rather than paint two compositions.
 
-**One writer per session, refused rather than queued.** `write()` acquires non-blockingly and raises
-`SessionBusyError` otherwise. The lock is reentrant, so a thread already writing may nest another — `migrate` and
-the reconciliation flows do — while a second thread is refused. Refusal is also what makes the before/after
-comparison mean anything again.
+**One writer per session, refused rather than queued.** `write()` records who is inside and raises
+`SessionBusyError` for anybody else. Reentrancy is tracked rather than delegated to an `RLock`, because the unit
+that may nest is the **task** and not the thread: `migrate` and the reconciliation flows nest a write on one
+thread, but `push_async` and `pull_async` hold the write open across the registry round trip, and two coroutines
+awaiting on one event loop share a thread identity — so a thread-reentrant lock reads the second as a nested call
+and lets it in. The owner is the running `asyncio` task when there is one and the thread otherwise, and it is
+released in a `finally`, so a cancelled push leaves the session writable. Refusal is also what makes the
+before/after comparison mean anything again.
 
 Both errors share a new `ExitCode.BUSY` (13): the only status in the table that means "nothing is wrong, ask
 again".
@@ -54,7 +58,10 @@ again".
 ## Consequences
 
 - A new failure mode exists that no caller had to handle before. It is marked `retryable`, and the CLI cannot
-  reach it: one command, one session, one thread. The browser reaches it and answers by reading again.
+  reach it: one command, one session, one thread. The browser reaches it and answers by reading again — twice at
+  most, because the retry can race the next write too and an exception out of a thread worker ends the
+  application. An async adapter serving two requests on one loop is the other caller that reaches it, which is
+  why the writer is identified by task.
 - Queueing was rejected. It is the obvious alternative and it is wrong here: the writes being separated are
   registry pushes and pulls, and a caller parked behind one has no way to learn it is waiting. A refusal it can
   retry is information; a silent wait is a hang with a good reputation.

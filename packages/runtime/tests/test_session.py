@@ -12,6 +12,7 @@ exclusivity groups do not span reads and writes.
 from __future__ import annotations
 
 import ast
+import asyncio
 import threading
 from pathlib import Path
 
@@ -198,3 +199,57 @@ class TestConcurrency:
         with opened.write():
             with opened.write() as inner:
                 assert inner is opened.brain(Capability.WRITE)
+
+
+class TestConcurrentTasks:
+    """Two coroutines on one event loop, which a thread-reentrant lock could not tell apart.
+
+    They share a thread identity, and `push_async` and `pull_async` hold the write open across the registry round
+    trip -- so this is the overlap an adapter serving two requests on one loop would produce, not a hypothetical.
+    """
+
+    async def test_a_second_task_is_refused_across_an_await(self, opened: BrainSession) -> None:
+        inside = asyncio.Event()
+        release = asyncio.Event()
+
+        async def hold_the_write() -> None:
+            with opened.write():
+                inside.set()
+                await release.wait()
+
+        holder = asyncio.create_task(hold_the_write())
+        try:
+            await asyncio.wait_for(inside.wait(), timeout=5)
+            with pytest.raises(SessionBusyError, match="another write is already running"):
+                with opened.write():
+                    await asyncio.sleep(0)
+        finally:
+            release.set()
+            await holder
+
+        with opened.write() as brain:
+            assert brain is opened.brain(Capability.WRITE)
+
+    async def test_one_task_may_still_nest_a_write_across_an_await(self, opened: BrainSession) -> None:
+        with opened.write():
+            await asyncio.sleep(0)
+            with opened.write() as inner:
+                assert inner is opened.brain(Capability.WRITE)
+
+    async def test_a_cancelled_write_leaves_the_session_writable(self, opened: BrainSession) -> None:
+        """A registry round trip is the likeliest thing a caller gives up on, and it is inside the write."""
+        inside = asyncio.Event()
+
+        async def hold_the_write() -> None:
+            with opened.write():
+                inside.set()
+                await asyncio.sleep(60)
+
+        holder = asyncio.create_task(hold_the_write())
+        await asyncio.wait_for(inside.wait(), timeout=5)
+        holder.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await holder
+
+        with opened.write() as brain:
+            assert brain is opened.brain(Capability.WRITE)

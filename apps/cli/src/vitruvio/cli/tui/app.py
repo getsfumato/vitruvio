@@ -570,13 +570,20 @@ class BrainBrowser(App[None]):
             row (dict[str, Any]): The selected row.
         """
         width = max(20, self.query_one("#preview", Static).size.width or 80)
-        try:
-            self._read_detail(row, width=width)
-        except StaleBrainError:
-            # A write landed while the five reads were running, so the panes just painted describe two
-            # compositions. Reading again is the whole remedy: the second pass is against the composition that
-            # replaced them, and a further collision only repaints again on the next selection.
-            self._read_detail(row, width=width)
+        for _ in range(2):
+            try:
+                self._read_detail(row, width=width)
+                return
+            except StaleBrainError:
+                # A write landed while the five reads were running, so the panes just painted describe two
+                # compositions. Reading again is the remedy, but the retry can collide too, and an exception out
+                # of a thread worker takes the application down -- so the second collision is reported instead.
+                continue
+        self.call_from_thread(
+            self.notify,
+            "the brain kept changing while reading this block; select it again",
+            severity="warning",
+        )
 
     def _read_detail(self, row: dict[str, Any], *, width: int) -> None:
         """
