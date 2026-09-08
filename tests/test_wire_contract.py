@@ -8,6 +8,7 @@ list of operations nothing exercised is a list somebody chose rather than one th
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -20,6 +21,11 @@ def _not_while_recording(request: pytest.FixtureRequest) -> None:
     """The file these read is written at session end, so under `--record-shapes` they see the previous run."""
     if request.config.getoption("--record-shapes"):
         pytest.skip("the recording is written after the session, so there is nothing yet to check it against")
+
+
+def _recorded() -> dict[str, dict[str, object]]:
+    contract: dict[str, dict[str, object]] = json.loads(wire_contract.GOLDEN.read_text(encoding="utf-8"))
+    return contract
 
 
 def _serializable() -> set[str]:
@@ -35,7 +41,7 @@ class TestCoverage:
     def test_every_serializable_operation_is_recorded_or_declared_unobserved(self) -> None:
         """The second list is the point: "we have no contract for `auth_rotate`" is a tracked line rather than
         an absence nobody counted."""
-        recorded = set(json.loads(wire_contract.GOLDEN.read_text(encoding="utf-8")))
+        recorded = set(_recorded())
         unobserved = set(json.loads(wire_contract.UNOBSERVED.read_text(encoding="utf-8")))
 
         assert recorded | unobserved == _serializable()
@@ -58,6 +64,44 @@ class TestCoverage:
         # and now have tests instead of a line here.
         allowed = {"registry_check", "pack", "auth_rotate", "auth_revoke", "auth_countersign", "auth_plan_rotation"}
         assert unobserved & exposed <= allowed
+
+    def test_no_recorded_field_name_is_really_a_value(self) -> None:
+        """The guard on `DYNAMIC_KEYS`: a map that is not declared there gets its keys pinned as schema, and a
+        contract that names one brain's digests fails against another brain with the same shape."""
+        data = re.compile(r"(sha256:|blake3:|[0-9a-f]{16,}|\d{4}-\d{2}-\d{2}T)")
+        pinned = {
+            f"{operation}.{path}"
+            for operation, entry in _recorded().items()
+            for path in entry["paths"]
+            if any(data.search(segment) for segment in path.split("."))
+        }
+
+        assert pinned == set(), f"declare the parent field in wire_contract.DYNAMIC_KEYS: {sorted(pinned)}"
+
+
+class TestWhatItRefuses:
+    """Recorded as a contract means all three of renamed, retyped and *removed*."""
+
+    def test_a_field_that_disappears_is_refused(self) -> None:
+        """The one the subset check could never catch: an empty result observes no path nothing has recorded."""
+        with pytest.raises(AssertionError, match="no longer returns"):
+            wire_contract._check("state", wire_contract.shape({}))
+
+    def test_a_field_recorded_as_sometimes_absent_may_be_absent(self) -> None:
+        state = _recorded()["state"]
+        optional = next(iter(state["optional"]))
+        whole = {path: set(tokens) for path, tokens in state["paths"].items()}
+
+        wire_contract._check("state", {path: tokens for path, tokens in whole.items() if path != optional})
+
+    def test_a_contract_taken_over_one_digest_accepts_another(self) -> None:
+        """`state.resolutions` is keyed by the block being resolved, so two brains agree on the schema and on
+        nothing else. Pinning the key would make the contract a fact about the fixture."""
+        first = wire_contract.shape({"state": {"resolutions": {"sha256:" + "a" * 64: {"prefer": "ours"}}}})
+        second = wire_contract.shape({"state": {"resolutions": {"sha256:" + "b" * 64: {"prefer": "theirs"}}}})
+
+        assert first == second
+        assert "state.resolutions.{}.prefer" in first
 
 
 class TestTheShapeItself:

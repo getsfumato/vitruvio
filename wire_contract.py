@@ -9,9 +9,10 @@ first. This wraps the operations instead, so **the suite that already exists is 
 makes contributes what it saw to one checked-in file, and a call whose result carries a path the file does not
 know fails the test that made it, naming the operation and the path.
 
-What is recorded is the *shape*: a set of dotted paths, each with the JSON types seen at it. Not the values --
-those are digests and timestamps and would change every run. Types as well as paths, because "renamed" and
-"retyped" are both drift and only one of them shows up as a new path.
+What is recorded is the *shape*: a set of dotted paths, each with the JSON types seen at it, plus which of
+them a run is allowed not to produce. Not the values -- those are digests and timestamps and would change every
+run. Types as well as paths, because "renamed" and "retyped" are both drift and only one of them shows up as a
+new path; and required-ness as well as both, because a field that *disappears* shows up as neither.
 
     pytest -p no:xdist --record-shapes      # rewrite the file from a full run
 
@@ -29,9 +30,23 @@ from typing import Any
 GOLDEN = Path(__file__).with_name("tests") / "operation_shapes.json"
 UNOBSERVED = Path(__file__).with_name("tests") / "operation_shapes_unobserved.json"
 
+# Fields whose value is a map keyed by *data* -- a digest, a block id, a label somebody chose -- rather than an
+# object with fields. Their keys are recorded as `{}`, so a contract taken over one brain's content still
+# describes another's. Without this the golden pinned `state.resolutions.sha256:5ff0...` as though renaming that
+# digest were a schema change, and `snapshot.labels.vitruvio.migrated-from` as though it were a field.
+DYNAMIC_KEYS = frozenset({"labels", "resolutions", "missing_evidence"})
+
 _recording: dict[str, dict[str, set[str]]] = {}
+_counts: dict[str, dict[str, int]] = {}
+_observations: dict[str, int] = {}
 _expected: dict[str, dict[str, set[str]]] = {}
+_optional: dict[str, set[str]] = {}
 _mode = {"record": False}
+
+
+def _keyed(path: str) -> bool:
+    """Whether the mapping at this path is keyed by data rather than by field name."""
+    return path.rsplit(".", 1)[-1].removesuffix("[]") in DYNAMIC_KEYS
 
 
 def _token(value: Any) -> str:
@@ -64,8 +79,10 @@ def shape(payload: Any, path: str = "", into: dict[str, set[str]] | None = None)
     found = {} if into is None else into
     if isinstance(payload, dict):
         found.setdefault(path or ".", set()).add("object")
+        keyed = _keyed(path)
         for key, value in payload.items():
-            shape(value, f"{path}.{key}" if path else str(key), found)
+            segment = "{}" if keyed else str(key)
+            shape(value, f"{path}.{segment}" if path else segment, found)
     elif isinstance(payload, (list, tuple)):
         found.setdefault(path or ".", set()).add("array")
         for value in payload:
@@ -77,8 +94,11 @@ def shape(payload: Any, path: str = "", into: dict[str, set[str]] | None = None)
 
 def _merge(operation: str, observed: dict[str, set[str]]) -> None:
     known = _recording.setdefault(operation, {})
+    counted = _counts.setdefault(operation, {})
+    _observations[operation] = _observations.get(operation, 0) + 1
     for path, tokens in observed.items():
         known.setdefault(path, set()).update(tokens)
+        counted[path] = counted.get(path, 0) + 1
 
 
 def _check(operation: str, observed: dict[str, set[str]]) -> None:
@@ -86,6 +106,13 @@ def _check(operation: str, observed: dict[str, set[str]]) -> None:
     if known is None:
         raise AssertionError(
             f"{operation} has no recorded wire shape. Re-record with:\n    uv run pytest -p no:xdist --record-shapes"
+        )
+    absent = sorted(set(known) - set(observed) - _optional.get(operation, set()))
+    if absent:
+        raise AssertionError(
+            f"{operation} no longer returns {', '.join(absent)}, which every recorded run of it carried.\n"
+            f"If the change is intended, re-record with:\n"
+            f"    uv run pytest -p no:xdist --record-shapes"
         )
     for path, tokens in sorted(observed.items()):
         allowed = known.get(path)
@@ -152,12 +179,14 @@ def install(record: bool) -> None:
 
     _mode["record"] = record
     if not record:
+        recorded = json.loads(GOLDEN.read_text(encoding="utf-8"))
         _expected.update(
             {
-                operation: {path: set(tokens) for path, tokens in paths.items()}
-                for operation, paths in json.loads(GOLDEN.read_text(encoding="utf-8")).items()
+                operation: {path: set(tokens) for path, tokens in entry["paths"].items()}
+                for operation, entry in recorded.items()
             }
         )
+        _optional.update({operation: set(entry["optional"]) for operation, entry in recorded.items()})
     for domain in OPERATION_CATALOGUE:
         owner = getattr(importlib.import_module(domain.module), domain.class_name)
         for operation in domain.operations:
@@ -170,13 +199,17 @@ def write() -> None:
     """Write what this session saw, plus the operations it never reached."""
     from vitruvio.runtime.operation_catalogue import OPERATION_CATALOGUE, ResultKind
 
-    GOLDEN.write_text(
-        json.dumps(
-            {op: {p: sorted(t) for p, t in sorted(paths.items())} for op, paths in sorted(_recording.items())}, indent=2
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    # A path is optional when some run of the operation did not produce it -- an empty list, a null parent, a
+    # branch not taken. Everything else was in every observation, and its absence is the drift nothing else here
+    # would catch.
+    contract = {
+        operation: {
+            "optional": sorted(path for path, seen in _counts[operation].items() if seen < _observations[operation]),
+            "paths": {path: sorted(tokens) for path, tokens in sorted(paths.items())},
+        }
+        for operation, paths in sorted(_recording.items())
+    }
+    GOLDEN.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
     every = {
         operation.name
         for domain in OPERATION_CATALOGUE

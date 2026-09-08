@@ -14,6 +14,7 @@ the ~124ms of importing the runtime on every ``--help``.
 from __future__ import annotations
 
 import json
+from math import isfinite
 from typing import Any
 
 from vitruvio.kernel.errors import VitruvioError
@@ -47,11 +48,15 @@ def dumps(payload: Any, *, indent: int | None = 2) -> str:
         WireContractError: Something in the payload has no JSON form.
     """
     try:
-        return json.dumps(payload, indent=indent, sort_keys=False)
+        # `allow_nan=False`: Python's default emits the bare words `NaN`, `Infinity` and `-Infinity`, which are
+        # not JSON and which a strict parser refuses. A statistic that came out non-finite is a bug upstream, and
+        # an envelope no consumer can read is a worse way to learn about it than an error naming the field.
+        return json.dumps(payload, indent=indent, sort_keys=False, allow_nan=False)
     except (TypeError, ValueError) as error:
         path, value = _offender(payload)
+        described = "not finite" if isinstance(value, float) else f"{type(value).__name__}, which has no JSON form"
         raise WireContractError(
-            f"{path} is {type(value).__name__}, which has no JSON form ({error})",
+            f"{path} is {described} ({error})",
             hint="the operation that produced it must convert the value, rather than the envelope guessing",
         ) from error
 
@@ -62,7 +67,8 @@ def _offender(payload: Any, path: str = "data") -> tuple[str, Any]:
 
     Walked only after :func:`json.dumps` has already failed, so the cost is paid once and never on the happy
     path. ``json.dumps`` says *what* it could not serialize and never *where*, and "Object of type PosixPath is
-    not JSON serializable" over a result with ninety keys is not a place to start looking.
+    not JSON serializable" over a result with ninety keys is not a place to start looking. Its message for a
+    non-finite float names neither, which is worse still.
 
     Args:
         payload (Any): The value to search.
@@ -83,7 +89,7 @@ def _offender(payload: Any, path: str = "data") -> tuple[str, Any]:
             found = _offender(value, f"{path}[{index}]")
             if found[1] is not _NOTHING:
                 return found
-    elif not isinstance(payload, JSON_SCALARS):
+    elif not isinstance(payload, JSON_SCALARS) or (isinstance(payload, float) and not isfinite(payload)):
         return path, payload
     return path, _NOTHING
 
