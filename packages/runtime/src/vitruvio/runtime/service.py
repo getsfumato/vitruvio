@@ -6,6 +6,9 @@ The public operation surface is generated from :mod:`vitruvio.runtime.operation_
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from boltzmann.brain import Brain
 
 from vitruvio.kernel import ResolvedConfig
@@ -25,3 +28,14 @@ class BrainService(GeneratedFacade):
     def brain(self, capability: Capability = Capability.INSPECT) -> Brain:
         """Return the session-owned brain opened at ``capability``."""
         return self.session.brain(capability)
+
+    @contextmanager
+    def pinned(self, capability: Capability = Capability.INSPECT) -> Iterator[Brain]:
+        """Read several operations as one composition, or be told the composition changed.
+
+        For an interface that answers one question with several calls -- the browser's four detail tabs are the
+        one that exists today -- and holds the service across them. Without it the tabs can describe two
+        compositions and nothing says so.
+        """
+        with self.session.pinned(capability) as brain:
+            yield brain
