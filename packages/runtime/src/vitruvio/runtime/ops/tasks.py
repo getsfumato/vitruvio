@@ -8,9 +8,9 @@ flag, because an agent that could commit its own proposal is an agent whose prop
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Any
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import Origin, ResolvedConfig
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability
@@ -276,28 +276,23 @@ class TaskOps:
 
     def ingest_run(
         self,
-        path: Path,
+        evidence: Evidence,
         *,
-        media_type: str,
         proposer: str = "structure",
         allowed: Iterable[str] | None = None,
-        normalize_with: str | None = None,
         subject: str | None = None,
-        origin: str | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """
         The whole path in one call: register, define, propose, validate, commit.
 
         Args:
-            path (Path): The file to ingest.
-            media_type (str): What the bytes are. It is what pipeline dispatch and projection both read, so a
-                Markdown file filed as ``application/octet-stream`` is a file nothing will normalise.
+            evidence (Evidence): The bytes to ingest, what they are, and where they came from. The media type is
+                what pipeline dispatch and projection both read, so a Markdown file filed as
+                ``application/octet-stream`` is a file nothing will normalise.
             proposer (str): Which proposer, optionally with a model after a colon.
             allowed (Iterable[str] | None): Which memory types may be proposed.
-            normalize_with (str | None): A normalization pipeline. Defaults to whatever suits the media type.
             subject (str | None): A subject to tag proposals with, which is what makes a subject filter useful later.
-            origin (str | None): Where the source came from.
             dry_run (bool): Propose and validate, commit nothing. What to run before letting a model write.
 
         Returns:
@@ -312,18 +307,19 @@ class TaskOps:
         from vitruvio.runtime.coerce import pipeline as coerce_pipeline
 
         self._attributed()
+        bounded = evidence.bounded(self.config.project.ingest.max_bytes)
         engine = resolve_proposer(proposer, **({"subject": subject} if proposer.startswith("structure") else {}))
         types = [coerce_memory_type(item) for item in allowed] if allowed else None
-        pipeline = coerce_pipeline(normalize_with, media_type)
+        pipeline = coerce_pipeline(bounded.normalize_with, bounded.media_type)
 
         with self.session.write() as brain, translated():
-            data = path.read_bytes()
+            data = bounded.data
             registration = brain.register(
                 data,
                 RegistrationRequest(
-                    media_type=media_type,
+                    media_type=bounded.media_type,
                     actor=self.config.actor(),
-                    origin=origin or str(path),
+                    origin=bounded.origin,
                     normalize_with=pipeline,
                 ),
             )

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ResolvedConfig
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.assembly import Capability
@@ -82,7 +83,7 @@ class TestInvalidation:
         """The reported defect: an INSPECT view opened before registration must not survive it."""
         before = service.state()["snapshot"]["digest"]
 
-        registered = service.register(source_file, media_type="text/markdown")
+        registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         after = service.state()
 
         assert after["snapshot"]["digest"] == registered["snapshot"]
@@ -92,7 +93,7 @@ class TestInvalidation:
     def test_retrieve_write_retrieve_reopens_the_query_view(self, service: BrainService, source_file: Path) -> None:
         before = service.brain(Capability.RETRIEVE)
 
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
 
         after = service.brain(Capability.RETRIEVE)
         assert after is not before
@@ -103,7 +104,7 @@ class TestInvalidation:
     ) -> None:
         before = service.brain(Capability.INSPECT)
 
-        service.put_content(source_file, media_type="text/markdown")
+        service.put_content(Evidence.from_path(source_file, media_type="text/markdown"))
 
         assert service.brain(Capability.INSPECT) is before
 

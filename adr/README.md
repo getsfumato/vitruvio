@@ -28,3 +28,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0017](0017-auditable-browse-projections.md) | Bounded browse projections and the history audit envelope |
 | [0018](0018-declared-actor-and-collaborators.md) | The declared actor and per-brain collaborators are authoritative |
 | [0020](0020-what-the-operation-catalogue-declares.md) | What the operation catalogue declares, and why every fact is checked |
+| [0021](0021-transport-neutral-evidence.md) | Evidence arrives as bytes, and an origin is never invented |

@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import resolve
 from vitruvio.runtime import BrainService
 
@@ -39,7 +40,7 @@ def _row(service: BrainService, memory_type: str, block_id: str) -> dict[str, An
 def test_a_registration_naming_an_assistant_shows_its_creator_through_the_index(
     assisted: BrainService, source_file: Path
 ) -> None:
-    registered = assisted.register(source_file, media_type="text/markdown")["block_id"]
+    registered = assisted.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     assisted.index_build()
 
     authorship = _row(assisted, "canonical", registered)["authorship"]
@@ -53,7 +54,7 @@ def test_a_registration_naming_an_assistant_shows_its_creator_through_the_index(
 
 
 def test_related_records_reach_an_assisted_registration(assisted: BrainService, source_file: Path) -> None:
-    registered = assisted.register(source_file, media_type="text/markdown")["block_id"]
+    registered = assisted.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     assisted.index_build()
 
     related = assisted.related(registered)
@@ -70,10 +71,10 @@ def test_an_index_that_projected_fewer_records_than_it_holds_does_not_pass_for_c
     from vitruvio.indices import base
     from vitruvio.indices.projection import Facet, Projection
 
-    first = assisted.register(source_file, media_type="text/markdown")["block_id"]
+    first = assisted.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     other = source_file.parent / "notas.txt"
     other.write_text("una nota corta", encoding="utf-8")
-    second = assisted.register(other, media_type="text/plain")["block_id"]
+    second = assisted.register(Evidence.from_path(other, media_type="text/plain"))["block_id"]
 
     faithful = base.project
 

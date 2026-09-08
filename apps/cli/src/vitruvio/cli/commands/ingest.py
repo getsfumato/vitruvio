@@ -75,23 +75,20 @@ def run(
     dry_run
         Propose and validate, commit nothing. Run this first against any new kind of document.
     """
-    from vitruvio.cli.commands.source import media_type_for
+    from vitruvio.cli.commands.source import _read
 
     console = current().console
-    resolved = media_type_for(path, media_type)
-    result = (
-        current()
-        .service()
-        .ingest_run(
-            path,
-            media_type=resolved,
-            proposer=proposer,
-            allowed=allowed,
-            normalize_with=normalize_with,
-            subject=subject,
-            origin=origin,
-            dry_run=dry_run,
-        )
+    service = current().service()
+    # `_read` rather than a bare `read_bytes`: `ingest run` used to skip even the missing-file check, so a typo
+    # surfaced as an OSError from inside the write transaction rather than as a usage error before it.
+    evidence = _read(service, path, media_type, origin=origin, normalize_with=normalize_with)
+    resolved = evidence.media_type
+    result = service.ingest_run(
+        evidence,
+        proposer=proposer,
+        allowed=allowed,
+        subject=subject,
+        dry_run=dry_run,
     )
 
     validation = result["validation"]

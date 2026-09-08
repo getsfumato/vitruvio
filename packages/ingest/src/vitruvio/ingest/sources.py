@@ -33,7 +33,14 @@ from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from vitruvio.ingest.media import media_type_for
-from vitruvio.kernel import ConfigError, SourceError, SourceSpec, SourceUnavailableError, plugin_dir
+from vitruvio.kernel import (
+    ConfigError,
+    EvidenceRefusedError,
+    SourceError,
+    SourceSpec,
+    SourceUnavailableError,
+    plugin_dir,
+)
 
 ENTRY_POINT_GROUP = "vitruvio.sources"
 """Where a distributable source kind registers itself.
@@ -358,17 +365,10 @@ class BaseSource:
         """
         Check that a path is a real file inside this source's root, and small enough to read.
 
-        Four refusals, each for a failure that has a name:
-
-        * **outside the root** -- a glob that followed a link out of its directory turns "ingest this folder" into
-          "ingest whatever that points at", and a canonical block is content-addressed and Merkle-committed before
-          anyone notices;
-        * **a symlink**, before resolution, because a link inside the root pointing inside the root still means the
-          same bytes get registered twice under two origins;
-        * **not a regular file** -- and this one is not theoretical: ``read_bytes()`` on a FIFO blocks forever, and
-          a FIFO is something a glob will happily hand you;
-        * **too large**, checked against ``stat().st_size`` *before* the read rather than after, which is the
-          difference between a refusal and an out-of-memory kill.
+        The four refusals live in :func:`vitruvio.ingest.evidence.contain`, because a person registering a file
+        by hand needs exactly the same ones and a second copy of them is a second set of answers. What stays
+        here is whose refusal it is: a source names itself in the message, and reports at the source exit status
+        so a caller can tell "this declaration is unusable" from "you pointed at a FIFO".
 
         Args:
             path (Path): The candidate.
@@ -380,28 +380,12 @@ class BaseSource:
         Raises:
             SourceError: If any of the four refusals applies.
         """
-        if not allow_symlinks and path.is_symlink():
-            raise SourceError(
-                f"source {self.name!r} refuses the symlink {path}",
-                hint="a link registers the same bytes under a second origin; register the target directly",
-            )
+        from vitruvio.ingest.evidence import contain as contained
 
-        resolved = path.expanduser().resolve()
-        if self.root is not None and not resolved.is_relative_to(self.root):
-            raise SourceError(
-                f"source {self.name!r} refuses {resolved}, which is outside {self.root}",
-                hint="a source may only read inside its declared path",
-            )
-        if not resolved.is_file():
-            detail = "does not exist" if not resolved.exists() else "is not a regular file"
-            raise SourceError(f"source {self.name!r}: {resolved} {detail}")
-
-        size = resolved.stat().st_size
-        if self.spec.max_bytes is not None and size > self.spec.max_bytes:
-            raise SourceError(
-                f"source {self.name!r}: {resolved} is {size} bytes, over the declared max_bytes ({self.spec.max_bytes})"
-            )
-        return resolved
+        try:
+            return contained(path, root=self.root, max_bytes=self.spec.max_bytes, allow_symlinks=allow_symlinks)
+        except EvidenceRefusedError as error:
+            raise SourceError(f"source {self.name!r}: {error.message}", hint=error.hint) from error
 
 
 class DirectorySource(BaseSource):

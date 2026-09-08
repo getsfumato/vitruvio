@@ -13,17 +13,18 @@ from typing import Any
 
 import pytest
 
-from vitruvio.kernel import ResolvedConfig, VitruvioError
+from vitruvio.ingest.evidence import Evidence
+from vitruvio.kernel import EvidenceRefusedError, ResolvedConfig, VitruvioError
 from vitruvio.runtime import BrainService
 
 
 @pytest.fixture
 def registered(service: BrainService, source_file: Path) -> dict[str, str]:
     """Two canonical blocks with different origins, which is what a row's title comes from."""
-    first = service.register(source_file, media_type="text/markdown")
+    first = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
     other = source_file.parent / "notas.txt"
     other.write_text("una nota corta", encoding="utf-8")
-    second = service.register(other, media_type="text/plain")
+    second = service.register(Evidence.from_path(other, media_type="text/plain"))
     return {"markdown": first["block_id"], "text": second["block_id"]}
 
 
@@ -138,10 +139,10 @@ class TestBlocks:
 @pytest.fixture
 def named_content(service: BrainService, source_file: Path) -> dict[str, Any]:
     """A semantic block whose datum sits in the store rather than in its payload, plus the reference it names."""
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     diagram = source_file.parent / "diagrama.png"
     diagram.write_bytes(b"\x89PNG\r\n\x1a\n not really a png")
-    reference = service.put_content(diagram, media_type="image/png")
+    reference = service.put_content(Evidence.from_path(diagram, media_type="image/png"))
     task = service.define_task(source, allowed=["semantic"])
     service.commit_candidates(
         {
@@ -189,7 +190,7 @@ class TestRowsNameTheContentDerivedBlocksCarryOutOfLine:
     def test_a_block_that_inlines_everything_has_no_content_key(self, service: BrainService, source_file: Path) -> None:
         """Omitted rather than nulled, like every per-type field: a `content` of None would suggest the block
         named bytes and lost them."""
-        source = service.register(source_file, media_type="text/markdown")["block_id"]
+        source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
         task = service.define_task(source, allowed=["semantic"])
         service.commit_candidates(
             {
@@ -218,7 +219,7 @@ class TestRowsNameTheContentDerivedBlocksCarryOutOfLine:
 
 class TestContent:
     def test_content_returns_the_bytes_the_block_names(self, service: BrainService, source_file: Path) -> None:
-        registration = service.register(source_file, media_type="text/markdown")
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
         assert service.content(row["blob"]) == source_file.read_bytes()
 
@@ -231,7 +232,7 @@ class TestContent:
     def test_export_writes_the_bytes_and_reports_where(
         self, service: BrainService, source_file: Path, tmp_path: Path
     ) -> None:
-        registration = service.register(source_file, media_type="text/markdown")
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
         target = tmp_path / "out" / "copy.md"
         result = service.export_content(row["blob"], target)
@@ -239,24 +240,66 @@ class TestContent:
         assert result["path"] == str(target)
         assert result["size"] == len(source_file.read_bytes())
 
-    def test_export_can_atomically_refuse_to_replace_an_existing_file(
+    def test_export_refuses_to_replace_an_existing_file_unless_told_to(
         self, service: BrainService, source_file: Path, tmp_path: Path
     ) -> None:
-        registration = service.register(source_file, media_type="text/markdown")
+        """Refusing is the default because overwriting is right for exactly one caller -- a person who typed a
+        destination -- and wrong for every caller that derives one, which is the shape #19 took."""
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
         target = tmp_path / "keep.md"
         target.write_bytes(b"belonged to the user")
 
-        with pytest.raises(FileExistsError):
-            service.export_content(row["blob"], target, overwrite=False)
+        with pytest.raises(EvidenceRefusedError, match="already exists"):
+            service.export_content(row["blob"], target)
 
         assert target.read_bytes() == b"belonged to the user"
+
+        service.export_content(row["blob"], target, overwrite=True)
+        assert target.read_bytes() == source_file.read_bytes()
+
+    def test_export_refuses_a_destination_outside_the_directory_it_was_given(
+        self, service: BrainService, source_file: Path, tmp_path: Path
+    ) -> None:
+        """For a caller that derives the name from an origin the brain recorded, which for a pulled brain is
+        somebody else's text."""
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+        allowed = tmp_path / "exports"
+        allowed.mkdir()
+
+        with pytest.raises(EvidenceRefusedError, match="outside"):
+            service.export_content(row["blob"], allowed / ".." / "escaped.md", within=allowed)
+
+    def test_a_content_window_is_how_a_caller_elsewhere_reads_bytes(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """`export_content` writes to a path on this machine, which a caller elsewhere cannot name."""
+        import base64
+
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+        whole = source_file.read_bytes()
+
+        window = service.content_range(row["blob"], offset=2, length=5)
+
+        assert base64.b64decode(window["content"]) == whole[2:7]
+        assert window["size"] == len(whole)
+        assert window["length"] == 5
+
+    def test_a_content_window_past_the_end_is_empty_rather_than_an_error(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+
+        assert service.content_range(row["blob"], offset=10_000)["length"] == 0
 
     def test_exporting_into_a_directory_names_the_file_after_the_digest(
         self, service: BrainService, source_file: Path, tmp_path: Path
     ) -> None:
         """So that two exports of different content into one directory cannot overwrite each other."""
-        registration = service.register(source_file, media_type="text/markdown")
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
         directory = tmp_path / "exports"
         directory.mkdir()
@@ -269,7 +312,7 @@ class TestRelated:
     def test_the_registration_record_is_found_from_the_block_it_registered(
         self, service: BrainService, source_file: Path
     ) -> None:
-        registration = service.register(source_file, media_type="text/markdown")
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         result = service.related(registration["block_id"])
         # Two records name the block: its registration, and the normalization that produced its view.
         assert result["count"] == 2
@@ -287,7 +330,7 @@ class TestRelated:
         from vitruvio.indices.testing import MemoryContent
         from vitruvio.runtime.assembly import Capability
 
-        registration = service.register(source_file, media_type="text/markdown")
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         brain = service.brain(Capability.BROWSE)
         module = brain.module(MemoryType.PROVENANCE)
         index = HashMapIndex(MemoryType.PROVENANCE)
@@ -386,7 +429,7 @@ class TestOriginsDegradeHonestly:
         for index in range(40):
             path = tmp_path / f"keeper-{index}.html"
             path.write_text(f"<p>keeper {index}</p>\n", encoding="utf-8")
-            service.register(path, media_type="text/html")
+            service.register(Evidence.from_path(path, media_type="text/html"))
             expected.add(path.name)
 
         pages = [service.blocks("canonical", limit=1, offset=offset) for offset in range(40)]
@@ -397,7 +440,7 @@ class TestOriginsDegradeHonestly:
 
     def test_a_brain_without_provenance_lists_by_media_type(self, service: BrainService, source_file: Path) -> None:
         """The documented empty case: a selectively pulled brain can hold canonical evidence and no provenance."""
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         rows = service.blocks("canonical")["rows"]
         assert rows, "a brain with canonical evidence must still list"
 
@@ -411,10 +454,10 @@ class TestOriginsDegradeHonestly:
 
         from vitruvio.runtime.assembly import Capability
 
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         second = source_file.parent / "laplace.md"
         second.write_text("# Laplace\n\nDe lo diferencial a lo algebraico.\n", encoding="utf-8")
-        service.register(second, media_type="text/markdown")
+        service.register(Evidence.from_path(second, media_type="text/markdown"))
 
         brain = service.brain(Capability.BROWSE)
         module = brain.module(MemoryType.PROVENANCE)
@@ -443,7 +486,7 @@ class TestPagingReadsOnlyThePage:
         for index in range(count):
             path = source_file.parent / f"nota-{index}.md"
             path.write_text(f"# Nota {index}\n\nContenido {index}.\n", encoding="utf-8")
-            service.register(path, media_type="text/markdown")
+            service.register(Evidence.from_path(path, media_type="text/markdown"))
 
     def test_an_unfiltered_page_reads_only_its_own_rows(
         self, service: BrainService, source_file: Path, monkeypatch: pytest.MonkeyPatch

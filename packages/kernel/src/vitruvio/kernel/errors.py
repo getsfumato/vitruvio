@@ -204,6 +204,17 @@ class UsageError(VitruvioError):
     exit_code = ExitCode.USAGE
 
 
+class EvidenceRefusedError(UsageError):
+    """A path or a payload offered as evidence is one vitruvio will not read.
+
+    A symlink, an escape from a declared directory, something that is not a regular file, or bytes over the
+    declared ceiling. A usage error rather than a policy refusal: nothing about the brain forbids it, the caller
+    named the wrong thing, and naming a different one works.
+    """
+
+    code = "EVIDENCE_REFUSED"
+
+
 class CandidatesRejectedError(VitruvioError):
     """The validation gate rejected at least one candidate, so nothing was committed.
 

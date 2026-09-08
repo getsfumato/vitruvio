@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from vitruvio.kernel import ResolvedConfig
+from vitruvio.kernel import EvidenceRefusedError, ResolvedConfig, UsageError
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
@@ -169,31 +169,74 @@ class BrowsingOps:
         with translated():
             return brain.store.get_bytes(OciDigest.parse(digest))
 
-    def export_content(self, digest: str, destination: Path, *, overwrite: bool = True) -> dict[str, Any]:
+    def content_range(self, digest: str, *, offset: int = 0, length: int | None = None) -> dict[str, Any]:
         """
-        Write the bytes a block names to a file.
+        A bounded window onto the bytes a block names, as text a caller elsewhere can be handed.
+
+        What :meth:`export_content` is for a caller on this machine, this is for one that is not. A remote
+        caller has no destination path here, and it does not want a whole video in a JSON envelope either, so it
+        asks for a window and is told how big the whole thing is.
+
+        Args:
+            digest (str): The content address.
+            offset (int): Where to start, in bytes.
+            length (int | None): How many bytes at most. ``None`` means to the end.
+
+        Returns:
+            dict[str, Any]: The digest, the window's ``offset`` and ``length``, the content's total ``size``,
+            and the window itself as base64 in ``content``.
+        """
+        import base64
+
+        if offset < 0 or (length is not None and length < 0):
+            raise UsageError("a content window cannot start or end before zero")
+        data = self.content(digest)
+        window = data[offset:] if length is None else data[offset : offset + length]
+        return {
+            "digest": digest,
+            "offset": offset,
+            "length": len(window),
+            "size": len(data),
+            "content": base64.b64encode(window).decode("ascii"),
+        }
+
+    def export_content(
+        self, digest: str, destination: Path, *, overwrite: bool = False, within: Path | None = None
+    ) -> dict[str, Any]:
+        """
+        Write the bytes a block names to a file on this machine.
 
         For everything a terminal cannot draw: a video to hand to a player, a spreadsheet to open, an original
         PDF to keep. The brain stays the authority -- this is a copy out, not a move, and nothing about the
         block changes.
 
+        The default is to refuse an existing target rather than replace it, which is the opposite of what it was.
+        A default that overwrites is correct for exactly one caller -- a person who typed ``--out`` and meant it --
+        and wrong for every caller that *derives* a destination, which is the shape a bug takes: issue #19 was the
+        browser exporting over a file in the working directory.
+
         Args:
             digest (str): The content address.
             destination (Path): Where to write. A directory is written into, under the digest's hex.
-            overwrite (bool): Whether an existing target may be replaced. Defaults to ``True`` for explicit
-                command-line exports; callers that derive a destination should disable it.
+            overwrite (bool): Whether an existing target may be replaced.
+            within (Path | None): A directory the destination must be inside, for a caller that did not type it.
 
         Returns:
             dict[str, Any]: The digest, the path written, and how many bytes it holds.
+
+        Raises:
+            EvidenceRefusedError: The target exists and may not be replaced, or is outside ``within``.
         """
         data = self.content(digest)
-        target = destination
-        if destination.is_dir():
-            target = destination / digest.replace(":", "-")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("wb" if overwrite else "xb") as exported:
-            exported.write(data)
-        return {"digest": digest, "path": str(target), "size": len(data)}
+        target = destination / digest.replace(":", "-") if destination.is_dir() else destination
+        resolved = target.expanduser().resolve()
+        if within is not None and not resolved.is_relative_to(within.expanduser().resolve()):
+            raise EvidenceRefusedError(f"{resolved} is outside {within}", hint="choose a destination inside it")
+        if resolved.exists() and not overwrite:
+            raise EvidenceRefusedError(f"{resolved} already exists", hint="ask for a replacement explicitly")
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_bytes(data)
+        return {"digest": digest, "path": str(resolved), "size": len(data)}
 
     def related(self, block_id: str, *, limit: int = 50) -> dict[str, Any]:
         """

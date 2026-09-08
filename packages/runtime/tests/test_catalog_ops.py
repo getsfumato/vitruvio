@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import UsageError, VitruvioError
 from vitruvio.runtime import BrainService
 
@@ -23,7 +24,7 @@ def manifest(source: str) -> dict[str, object]:
 
 
 def test_a_manifest_is_atomic_navigable_and_idempotent(service: BrainService, source_file: Path) -> None:
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     before = service.state()["snapshot"]["digest"]
 
     dry_run = service.catalog_apply(manifest(source), dry_run=True)
@@ -59,7 +60,7 @@ def test_reapplying_a_manifest_repairs_declarations_committed_without_provenance
     from boltzmann.blocks.memory_type import MemoryType
     from boltzmann.catalog import ClassDeclaration, SchemeDeclaration
 
-    service.register(source_file, media_type="text/markdown")
+    service.register(Evidence.from_path(source_file, media_type="text/markdown"))
     scheme = SchemeDeclaration(scheme="topic", exclusive=True)
     science = ClassDeclaration(scheme="topic", label="Science")
     with service.session.write() as writable:
@@ -100,7 +101,7 @@ def test_an_invalid_manifest_commits_nothing(service: BrainService) -> None:
 
 
 def test_unclassified_sources_are_explicit(service: BrainService, source_file: Path) -> None:
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     tree = service.catalog_tree()
     assert tree["schemes"] == []
     assert [row["block_id"] for row in tree["unclassified"]] == [source]
@@ -109,10 +110,10 @@ def test_unclassified_sources_are_explicit(service: BrainService, source_file: P
 def test_catalog_browse_projects_only_the_sources_in_the_selected_class(
     service: BrainService, source_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    first = service.register(source_file, media_type="text/markdown")["block_id"]
+    first = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     other = source_file.parent / "other.md"
     other.write_text("other", encoding="utf-8")
-    service.register(other, media_type="text/markdown")
+    service.register(Evidence.from_path(other, media_type="text/markdown"))
     service.catalog_apply(manifest(first))
 
     from vitruvio.runtime.provenance import ProvenanceReader
@@ -152,7 +153,7 @@ def test_an_empty_catalog_directory_performs_no_canonical_authorship_read(
 
 
 def test_query_class_references_filter_through_descendants(service: BrainService, source_file: Path) -> None:
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     service.catalog_apply(manifest(source))
 
     found = service.search("", classes=["topic/Science"], memory_types=["canonical"], limit=10)

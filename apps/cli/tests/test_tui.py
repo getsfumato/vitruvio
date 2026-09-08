@@ -29,6 +29,7 @@ from textual.widgets import DataTable, Input, Tree
 from vitruvio.cli.main import main
 from vitruvio.cli.render import evidence, media, theme
 from vitruvio.cli.tui import BrainBrowser
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ExitCode
 
 
@@ -97,7 +98,7 @@ def governed_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[A
     service.init(governed=True, sign_with=[party.public_key.fingerprint])
     source = tmp_path / "governed-source.md"
     source.write_text("governed catalog source", encoding="utf-8")
-    source_id = service.register(source, media_type="text/markdown")["block_id"]
+    source_id = service.register(Evidence.from_path(source, media_type="text/markdown"))["block_id"]
     service.catalog_apply(
         {
             "schema": "vitruvio.catalog/v1",
@@ -1088,8 +1089,8 @@ def derived_brain(tmp_path: Path) -> Path:
     figure.write_bytes(DRAWING)
 
     service = service_for(root)
-    source = service.register(notes, media_type="text/markdown")["block_id"]
-    reference = service.put_content(figure, media_type="text/plain")
+    source = service.register(Evidence.from_path(notes, media_type="text/markdown"))["block_id"]
+    reference = service.put_content(Evidence.from_path(figure, media_type="text/plain"))
     task = service.define_task(source, allowed=["semantic"])
     service.commit_candidates(
         {

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import resolve
 from vitruvio.runtime import BrainService, Capability
 from vitruvio.runtime.vouch import VOUCHED_ATTRIBUTE, supported, vouch_travelling
@@ -36,7 +37,7 @@ def populated(tmp_path: Path, source_file: Path) -> BrainService:
 
     service = BrainService(resolve(brain=tmp_path / "brain", actor_id="tester@example.com", require_layout=False))
     service.init()
-    registered = service.register(source_file, media_type="text/markdown", normalize_with="none")
+    registered = service.register(Evidence.from_path(source_file, media_type="text/markdown", normalize_with="none"))
 
     brain = service.brain(Capability.WRITE)
     source = BlockId.parse(registered["block_id"])

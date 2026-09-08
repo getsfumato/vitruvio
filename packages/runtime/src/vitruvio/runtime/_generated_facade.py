@@ -6,6 +6,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.runtime.ops.authenticity import AuthenticityOps
 from vitruvio.runtime.ops.benchmarking import BenchmarkOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
@@ -142,11 +143,19 @@ class GeneratedFacade:
         See :meth:`vitruvio.runtime.ops.browsing.BrowsingOps.content`."""
         return self.browsing_ops.content(digest)
 
-    def export_content(self, digest: str, destination: Path, *, overwrite: bool = True) -> dict[str, Any]:
-        """Write the bytes a block names to a file.
+    def content_range(self, digest: str, *, offset: int = 0, length: int | None = None) -> dict[str, Any]:
+        """A bounded window onto the bytes a block names, as text a caller elsewhere can be handed.
+
+        See :meth:`vitruvio.runtime.ops.browsing.BrowsingOps.content_range`."""
+        return self.browsing_ops.content_range(digest, offset=offset, length=length)
+
+    def export_content(
+        self, digest: str, destination: Path, *, overwrite: bool = False, within: Path | None = None
+    ) -> dict[str, Any]:
+        """Write the bytes a block names to a file on this machine.
 
         See :meth:`vitruvio.runtime.ops.browsing.BrowsingOps.export_content`."""
-        return self.browsing_ops.export_content(digest, destination, overwrite=overwrite)
+        return self.browsing_ops.export_content(digest, destination, overwrite=overwrite, within=within)
 
     def related(self, block_id: str, *, limit: int = 50) -> dict[str, Any]:
         """The provenance records that name a block: how it got here, and what was done to it since.
@@ -313,55 +322,23 @@ class GeneratedFacade:
         """The RegistrationOps operations."""
         return RegistrationOps(self.session)
 
-    def register(
-        self,
-        path: Path,
-        *,
-        media_type: str,
-        origin: str | None = None,
-        license_id: str | None = None,
-        retention_policy: str | None = None,
-        normalize_with: str | None = None,
-    ) -> dict[str, Any]:
-        """Register a source as canonical evidence.
+    def register(self, evidence: Evidence) -> dict[str, Any]:
+        """Register evidence as canonical.
 
         See :meth:`vitruvio.runtime.ops.registration.RegistrationOps.register`."""
-        return self.registration_ops.register(
-            path,
-            media_type=media_type,
-            origin=origin,
-            license_id=license_id,
-            retention_policy=retention_policy,
-            normalize_with=normalize_with,
-        )
+        return self.registration_ops.register(evidence)
 
-    def replace(
-        self,
-        path: Path,
-        *,
-        supersedes: str,
-        media_type: str,
-        origin: str | None = None,
-        license_id: str | None = None,
-        normalize_with: str | None = None,
-    ) -> dict[str, Any]:
+    def replace(self, evidence: Evidence, *, supersedes: str) -> dict[str, Any]:
         """Register a newer edition of a source, and record that it supersedes the old one.
 
         See :meth:`vitruvio.runtime.ops.registration.RegistrationOps.replace`."""
-        return self.registration_ops.replace(
-            path,
-            supersedes=supersedes,
-            media_type=media_type,
-            origin=origin,
-            license_id=license_id,
-            normalize_with=normalize_with,
-        )
+        return self.registration_ops.replace(evidence, supersedes=supersedes)
 
-    def put_content(self, path: Path, *, media_type: str) -> dict[str, Any]:
+    def put_content(self, evidence: Evidence) -> dict[str, Any]:
         """Store bytes addressably without registering a canonical block.
 
         See :meth:`vitruvio.runtime.ops.registration.RegistrationOps.put_content`."""
-        return self.registration_ops.put_content(path, media_type=media_type)
+        return self.registration_ops.put_content(evidence)
 
     @cached_property
     def task_ops(self) -> TaskOps:
@@ -412,29 +389,17 @@ class GeneratedFacade:
 
     def ingest_run(
         self,
-        path: Path,
+        evidence: Evidence,
         *,
-        media_type: str,
         proposer: str = "structure",
         allowed: Iterable[str] | None = None,
-        normalize_with: str | None = None,
         subject: str | None = None,
-        origin: str | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """The whole path in one call: register, define, propose, validate, commit.
 
         See :meth:`vitruvio.runtime.ops.tasks.TaskOps.ingest_run`."""
-        return self.task_ops.ingest_run(
-            path,
-            media_type=media_type,
-            proposer=proposer,
-            allowed=allowed,
-            normalize_with=normalize_with,
-            subject=subject,
-            origin=origin,
-            dry_run=dry_run,
-        )
+        return self.task_ops.ingest_run(evidence, proposer=proposer, allowed=allowed, subject=subject, dry_run=dry_run)
 
     def pipelines(self) -> dict[str, Any]:
         """Every normalization pipeline this build can run.
