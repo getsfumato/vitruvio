@@ -17,7 +17,7 @@ to answer before it can offer an operation, and every answer lived in the implem
   holds the write brain and only reads, while `init` and `add_brain` create a layout without ever entering it.
 - **Can the result go in an envelope?** `content` returns `bytes`. Nothing distinguished it from `search`.
 - **Does it name a location on this host?** Six operations take a required `Path`. Nothing distinguished them
-  either.
+  either — and three more take one as a plain `str`, which no annotation check would have seen.
 - **Which of `push` and `push_async` is the operation?** Both were declared, as unrelated sibling strings. The
   fact that the coroutine is the canonical one lived in a private helper's docstring, `ops/remote.py`. A loop
   over the catalogue would have offered twelve distribution tools where there are six.
@@ -44,6 +44,27 @@ permitted, because `compound_search` opens RETRIEVE on somebody else's session a
 runtime, and under-declaring is the direction that would let an interface offer a write to a caller allowed only
 to read.
 
+Each fact has a seam it is checked against, named in the test module rather than inferred:
+
+| fact | seam |
+|---|---|
+| `capability` | every `Capability.X` in the reached call graph |
+| `mutates` | entering `session.write`, **or** putting bytes on the filesystem — `write_text`, `write_bytes`, `mkdir`, `unlink`, `touch` |
+| `network` | reaching `probe_registry`, a registry client, a declared source's listing, or `_pull_one` |
+| `remote` | a required `Path`, a `path`/`destination`/`to`/`out`/`root` argument that admits absence, or writing into the plugin directory |
+| `result` | the return annotation, resolved against the module the signature was copied from |
+| `heavy` | nothing — see below |
+
+**Declared conservatively, over the branch not taken.** `doctor` contacts a registry only under `registry=True`
+and declares `network` unconditionally, because a caller choosing a timeout cannot know which branch it will get.
+The same reading makes `export_content` mutating: it creates, and with `overwrite=True` replaces, a file
+somebody else's tooling reads.
+
+**`heavy` is pinned rather than checked.** Capability, mutation and network each have a seam in the code.
+"Expensive" has none — `migrate` rehashes, `bench` measures, `test_embedder` constructs an embedder, and no
+expression they share says so. The five are asserted as a list, so adding a sixth is a review decision instead
+of a default somebody inherited.
+
 **`Capability` moves to its own leaf module.** The catalogue must be readable by the generator and by
 documentation, and `assembly.py` imports the SDK to build brains. Declaring a fact must not cost what performing
 it costs.
@@ -57,7 +78,12 @@ the committed file contains what the catalogue renders.
   a class's public methods and its declaration, so there was no incremental path — and the change is mechanical.
 - `mutates` is true for an operation that only *holds* the write brain, `pack` and `plan_drop` among them. That is
   deliberate rather than imprecise: holding it engages the retention policy and the validation gate and takes the
-  session's writer slot, and those are what a caller is being allowed to do.
+  session's writer slot, and those are what a caller is being allowed to do. It is also true for the two
+  operations that write outside a brain entirely — `scaffold_source`, which puts a plugin where the next run will
+  load it, and `export_content`.
+- Three operations that look ordinary are `Remote.LOCAL`: `scaffold_source` writes into this installation's
+  plugin directory, and `add_source` and `add_brain` name where something goes on this host. All three stay on
+  the facade and stay in the CLI; they are simply not in the inventory an interface elsewhere builds from.
 - The generator no longer hard-codes its import block. It reads each annotation's origin from the module the
   signature was copied from, so a domain can introduce a result type — which is what #58 does next — without
   editing the generator. The regenerated facade is byte-identical to the previous one, which is how the change

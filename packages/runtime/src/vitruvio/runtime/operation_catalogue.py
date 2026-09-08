@@ -78,9 +78,12 @@ class Operation:
             opens no brain at all. Over-declaring is safe and sometimes necessary -- ``compound_search`` opens
             RETRIEVE on each member's session rather than on this one -- so the checked property is that nothing
             in the body asks for *more* than this.
-        mutates (bool): Whether it may change durable state: the brain, its derived indices, or the configuration
-            file. Holding the WRITE brain counts, because that alone engages the retention policy and the
-            validation gate and takes the session's writer slot.
+        mutates (bool): Whether it may change durable state: the brain, its derived indices, the configuration
+            file, the plugins this installation loads, or any other file it puts on this host. Holding the WRITE
+            brain counts, because that alone engages the retention policy and the validation gate and takes the
+            session's writer slot. Declared conservatively -- ``doctor`` reaches a registry only under
+            ``registry=True`` and still declares ``network``, because a caller choosing a timeout has to assume
+            the branch it did not take.
         result (ResultKind): What it hands back.
         remote (Remote): Whether it may be offered to a caller elsewhere.
         network (bool): Whether it contacts a registry or a declared source.
@@ -174,7 +177,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         (
             Operation("blocks", capability=_BROWSE),
             Operation("content", capability=_INSPECT, result=ResultKind.BINARY),
-            Operation("export_content", capability=_INSPECT, remote=Remote.LOCAL),
+            Operation("export_content", capability=_INSPECT, mutates=True, remote=Remote.LOCAL),
             Operation("related", capability=_BROWSE),
         ),
     ),
@@ -247,8 +250,8 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         (
             Operation("sources"),
             Operation("source_kinds"),
-            Operation("scaffold_source"),
-            Operation("add_source", mutates=True),
+            Operation("scaffold_source", mutates=True, remote=Remote.LOCAL),
+            Operation("add_source", mutates=True, remote=Remote.LOCAL),
             Operation("remove_source", mutates=True),
             Operation("pull_source", capability=_WRITE, mutates=True, network=True),
             Operation("pull_all", capability=_WRITE, mutates=True, network=True),
@@ -297,7 +300,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "vitruvio.runtime.ops.diagnosis",
         "DiagnosisOps",
         "diagnosis_ops",
-        (Operation("doctor", capability=_INSPECT),),
+        (Operation("doctor", capability=_INSPECT, network=True),),
     ),
     OperationDomain(
         "vitruvio.runtime.ops.projects",
@@ -305,7 +308,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "project_ops",
         (
             Operation("project"),
-            Operation("add_brain", capability=_INSPECT, mutates=True),
+            Operation("add_brain", capability=_INSPECT, mutates=True, remote=Remote.LOCAL),
             Operation("remove_brain", mutates=True),
         ),
     ),

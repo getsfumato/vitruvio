@@ -78,6 +78,23 @@ def _reached(owner: ast.ClassDef, name: str, seen: set[str] | None = None) -> tu
     return capabilities, writes
 
 
+def _called(owner: ast.ClassDef, name: str, seen: set[str] | None = None) -> set[str]:
+    """Every call expression in an operation's body and in the private helpers it reaches, as written."""
+    seen = {name} if seen is None else seen | {name}
+    calls: set[str] = set()
+    for node in ast.walk(_method(owner, name)):
+        if isinstance(node, ast.Call):
+            calls.add(ast.unparse(node.func))
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "self":
+            if node.attr in seen or node.attr == "config":
+                continue
+            try:
+                calls |= _called(owner, node.attr, seen)
+            except StopIteration:
+                continue
+    return calls
+
+
 def _origins(domain: OperationDomain) -> dict[str, str]:
     found = importlib.util.find_spec(domain.module)
     if found is None or found.origin is None:  # pragma: no cover - a catalogued module always resolves
@@ -91,12 +108,32 @@ def _origins(domain: OperationDomain) -> dict[str, str]:
     }
 
 
+# A place on the host running vitruvio, whatever the annotation says: `add_source(path=...)` and
+# `add_brain(path=...)` take one as `str | None`, which an annotation check alone cannot see. The annotation
+# still has to admit absence, because `catalog_path(path: str = "")` is a path *inside the catalog* and names
+# nothing on any host. `local` is deliberately not in the set: it redirects a registry operation at a filesystem
+# layout instead of a remote one, and an operation that works without it is not made host-bound by an argument a
+# remote caller never sends.
+HOST_LOCATIONS = frozenset({"path", "destination", "to", "out", "root"})
+HOST_LOCATION_TYPES = frozenset({"Path", "Path | None", "str | None"})
+
+# Past these, something leaves this machine: a registry client, or a declared source's own acquisition. Building
+# a `Source` is not one of them -- `sources` does that to report what is declared, and contacts nothing.
+NETWORK_SEAMS = ("probe_registry", "remote._prepare", "remote._client", "fetch._pull_one", "source.list")
+
+# Bytes onto this host's filesystem, outside anything `session.write` accounts for.
+FILESYSTEM_WRITES = frozenset({"write_text", "write_bytes", "mkdir", "unlink", "touch"})
+
+
 def _required_paths(method: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
     arguments = method.args.args + method.args.kwonlyargs
+    named = {
+        argument.arg: ast.unparse(argument.annotation) for argument in arguments if argument.annotation is not None
+    }
     return [
-        argument.arg
-        for argument in arguments
-        if argument.annotation is not None and ast.unparse(argument.annotation) == "Path"
+        argument
+        for argument, annotation in named.items()
+        if annotation == "Path" or (argument in HOST_LOCATIONS and annotation in HOST_LOCATION_TYPES)
     ]
 
 
@@ -124,7 +161,37 @@ class TestEveryDeclaredFactHolds:
         owner = _class(domain)
         required = _required_paths(_method(owner, operation.name))
         if required:
-            assert operation.remote.value == "local", f"{operation.name} requires {required} and is offered remotely"
+            assert operation.remote.value == "local", f"{operation.name} takes {required} and is offered remotely"
+
+    def test_reaching_a_registry_or_a_declared_source_is_declared_network(
+        self, domain: OperationDomain, operation: Operation
+    ) -> None:
+        """Conservatively: `doctor` contacts one only under `registry=True`, and a caller choosing a timeout has
+        to assume the branch it did not take."""
+        calls = _called(_class(domain), operation.async_name or operation.name)
+        reached = sorted(call for call in calls if call.endswith(NETWORK_SEAMS))
+        if reached:
+            assert operation.network, f"{operation.name} reaches {reached} and does not declare network"
+
+    def test_putting_bytes_on_this_host_is_declared_mutating(
+        self, domain: OperationDomain, operation: Operation
+    ) -> None:
+        """The mutation check above follows `session.write`, which is every write *into a brain*. This is the
+        rest: `scaffold_source` writes a plugin the next run loads, and `export_content` creates or replaces a
+        file somebody else's tooling reads."""
+        calls = _called(_class(domain), operation.async_name or operation.name)
+        wrote = sorted(call for call in calls if call.rsplit(".", 1)[-1] in FILESYSTEM_WRITES)
+        if wrote:
+            assert operation.mutates, f"{operation.name} calls {wrote} and does not declare mutation"
+
+    def test_writing_into_the_installation_itself_is_declared_local(
+        self, domain: OperationDomain, operation: Operation
+    ) -> None:
+        """A brain's own derived files are state a remote caller may certainly change; this installation's plugin
+        directory is a place on somebody's laptop. Reading it is fine -- `source_kinds` lists what is installed."""
+        calls = _called(_class(domain), operation.name)
+        if "plugin_dir" in calls and any(call.rsplit(".", 1)[-1] in FILESYSTEM_WRITES for call in calls):
+            assert operation.remote.value == "local", f"{operation.name} writes into the plugin directory"
 
     def test_the_result_kind_matches_the_return_annotation(self, domain: OperationDomain, operation: Operation) -> None:
         returns = _method(_class(domain), operation.name).returns
@@ -184,7 +251,28 @@ class TestTheCatalogueIsComplete:
 
     def test_nothing_host_local_is_offered_to_a_caller_elsewhere(self) -> None:
         offered = {operation.name for _, operation in protocol_operations()}
-        assert not offered & {"register", "replace", "put_content", "ingest_run", "export_content", "migrate", "bench"}
+        assert not offered & {
+            "register",
+            "replace",
+            "put_content",
+            "ingest_run",
+            "export_content",
+            "migrate",
+            "bench",
+            # These three name a place on this machine as a plain string, which is the shape the annotation check
+            # cannot see and the reason `HOST_LOCATIONS` exists.
+            "scaffold_source",
+            "add_source",
+            "add_brain",
+        }
+
+    def test_the_heavy_operations_are_a_reviewed_list(self) -> None:
+        """Unlike capability, mutation and network, "heavy" has no seam to check it against: it is a judgment
+        about what an operation costs. So the judgment is pinned, and changing it is a review decision rather
+        than a default somebody inherited."""
+        heavy = sorted(operation.name for _, operation in operations() if operation.heavy)
+
+        assert heavy == ["bench", "index_build", "ingest_run", "migrate", "test_embedder"]
 
     def test_cost_follows_the_facts_rather_than_being_declared_beside_them(self) -> None:
         costs = {operation.name: operation.cost for _, operation in operations()}

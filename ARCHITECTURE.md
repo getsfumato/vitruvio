@@ -84,7 +84,7 @@ earlier describes the composition that was just replaced. It can only invalidate
 |---|---|---|---|
 | `ops/lifecycle.py` | init, state, verify, history, info | INSPECT | yes |
 | `ops/inspection.py` | resolvability, resolve, prove, module, roots | INSPECT | no |
-| `ops/browsing.py` | blocks, content, export_content, related | INSPECT, BROWSE | no |
+| `ops/browsing.py` | blocks, content, export_content, related | INSPECT, BROWSE | yes |
 | `ops/catalog.py` | catalog_show, catalog_tree, catalog_apply, catalog_browse, catalog_path | INSPECT, BROWSE, WRITE | yes |
 | `ops/authenticity.py` | auth_keys, auth_status, auth_trust_root, auth_sign, auth_pin, auth_attribution, auth_plan_rotation, auth_countersign, auth_rotate, auth_revoke | INSPECT, WRITE | yes |
 | `ops/migration.py` | plan_migration, migrate | INSPECT, WRITE | yes |
