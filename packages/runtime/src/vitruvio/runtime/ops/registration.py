@@ -19,6 +19,35 @@ from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
 
 
+def requested(evidence: Evidence, config: ResolvedConfig) -> tuple[Evidence, Any]:
+    """
+    Bound the evidence and turn it into a registration request.
+
+    One conversion, because three callers had written their own and they had already diverged: ``replace``
+    dropped the retention policy and ``ingest_run`` dropped that and the licence too. Silently, on an input that
+    accepts all of them -- so the same evidence registered two ways produced two different provenance records.
+
+    Args:
+        evidence (Evidence): What to register.
+        config (ResolvedConfig): For the actor, and for the declared size ceiling.
+
+    Returns:
+        tuple[Evidence, Any]: The bounded evidence, and the ``RegistrationRequest`` describing it. The pipeline
+        that will run is the request's ``normalize_with``.
+    """
+    from boltzmann.ingest.register import RegistrationRequest
+
+    bounded = evidence.bounded(config.project.ingest.max_bytes)
+    return bounded, RegistrationRequest(
+        media_type=bounded.media_type,
+        actor=config.actor(),
+        origin=bounded.origin,
+        license=bounded.license,
+        retention_policy=bounded.retention_policy,
+        normalize_with=coerce_pipeline(bounded.normalize_with, bounded.media_type),
+    )
+
+
 class RegistrationOps:
     """Canonical registration, as operations."""
 
@@ -51,20 +80,10 @@ class RegistrationOps:
             dict[str, Any]: The block's identity, whether it was a duplicate, the new version, and the pipeline that
             ran -- ``None`` when no view was produced.
         """
-        from boltzmann.ingest.register import RegistrationRequest
-
-        bounded = evidence.bounded(self.config.project.ingest.max_bytes)
-        pipeline = coerce_pipeline(bounded.normalize_with, bounded.media_type)
+        bounded, request = requested(evidence, self.config)
         with self.session.write() as brain, translated():
-            request = RegistrationRequest(
-                media_type=bounded.media_type,
-                actor=self.config.actor(),
-                origin=bounded.origin,
-                license=bounded.license,
-                retention_policy=bounded.retention_policy,
-                normalize_with=pipeline,
-            )
-            return {**wire.registration(brain.register(bounded.data, request)), "pipeline": pipeline}
+            registered = brain.register(bounded.data, request)
+        return {**wire.registration(registered), "pipeline": request.normalize_with}
 
     def replace(self, evidence: Evidence, *, supersedes: str) -> dict[str, Any]:
         """
@@ -83,28 +102,20 @@ class RegistrationOps:
             dict[str, Any]: The new block's identity, the version this produced, and the pipeline that ran.
         """
         from boltzmann.identity.digest import BlockId
-        from boltzmann.ingest.register import RegistrationRequest
 
-        bounded = evidence.bounded(self.config.project.ingest.max_bytes)
-        pipeline = coerce_pipeline(bounded.normalize_with, bounded.media_type)
+        bounded, request = requested(evidence, self.config)
         with self.session.write() as brain, translated():
-            request = RegistrationRequest(
-                media_type=bounded.media_type,
-                actor=self.config.actor(),
-                origin=bounded.origin,
-                license=bounded.license,
-                normalize_with=pipeline,
-            )
             result = brain.replace(bounded.data, request, BlockId.parse(supersedes))
-            return {**wire.registration(result), "supersedes": supersedes, "pipeline": pipeline}
+        return {**wire.registration(result), "supersedes": supersedes, "pipeline": request.normalize_with}
 
     def put_content(self, evidence: Evidence) -> dict[str, Any]:
         """
         Store bytes addressably without registering a canonical block.
 
         For content a block will *reference* -- a normalized view produced elsewhere, an image a canonical
-        block points at -- rather than content that is itself evidence. Nothing is committed, so the origin
-        the evidence carries is not recorded anywhere.
+        block points at -- rather than content that is itself evidence. Nothing is committed, so the only fields
+        read are the bytes and the media type: the origin, the licence and the retention policy describe a
+        registration, and this makes none.
 
         Args:
             evidence (Evidence): The bytes and what they are.

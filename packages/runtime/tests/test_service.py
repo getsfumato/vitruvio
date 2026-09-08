@@ -94,6 +94,42 @@ class TestRegistration:
         assert origins == ["upload://1"]
         assert not any(str(source_file.parent) in origin for origin in origins)
 
+    def test_every_intake_records_the_metadata_the_evidence_carried(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """One input accepted a licence and a retention policy on every path, and each path built its own
+        registration request: `replace` dropped the policy and `ingest_run` dropped both, so the same evidence
+        produced different provenance depending on which operation took it."""
+        first = Evidence.from_path(
+            source_file, media_type="text/markdown", license="CC-BY-4.0", retention_policy="retain"
+        )
+        registered = service.register(first)
+        replaced = service.replace(
+            Evidence.from_bytes(
+                b"# Series de Fourier\n\nSegunda edicion.\n",
+                origin="https://example.org/fourier",
+                media_type="text/markdown",
+                license="CC-BY-4.0",
+                retention_policy="retain",
+            ),
+            supersedes=registered["block_id"],
+        )
+        ingested = service.ingest_run(
+            Evidence.from_bytes(
+                b"# Series de Fourier\n\nTercera edicion.\n",
+                origin="https://example.org/fourier-3",
+                media_type="text/markdown",
+                license="CC-BY-4.0",
+                retention_policy="retain",
+            ),
+            proposer="structure",
+            dry_run=True,
+        )
+
+        for block in (registered["block_id"], replaced["block_id"], ingested["registration"]["block_id"]):
+            record = next(row["record"] for row in service.related(block)["records"] if row["record"].get("license"))
+            assert (record["license"], record["retention_policy"]) == ("CC-BY-4.0", "retain")
+
     def test_evidence_over_the_declared_ceiling_is_refused(self, config: ResolvedConfig) -> None:
         """Declared on the brain, enforced in the runtime, so bytes assembled in memory cannot exceed what a
         file may not."""

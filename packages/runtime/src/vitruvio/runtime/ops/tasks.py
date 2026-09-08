@@ -299,30 +299,21 @@ class TaskOps:
             dict[str, Any]: The registration, the task, the validation report and -- unless this was a dry run --
                 the commit.
         """
-        from boltzmann.ingest.register import RegistrationRequest
         from boltzmann.ingest.task import ProcessingTask
 
         from vitruvio.ingest import resolve as resolve_proposer
         from vitruvio.kernel import CandidatesRejectedError
-        from vitruvio.runtime.coerce import pipeline as coerce_pipeline
+        from vitruvio.runtime.ops.registration import requested
 
         self._attributed()
-        bounded = evidence.bounded(self.config.project.ingest.max_bytes)
+        bounded, request = requested(evidence, self.config)
         engine = resolve_proposer(proposer, **({"subject": subject} if proposer.startswith("structure") else {}))
         types = [coerce_memory_type(item) for item in allowed] if allowed else None
-        pipeline = coerce_pipeline(bounded.normalize_with, bounded.media_type)
+        pipeline = request.normalize_with
 
         with self.session.write() as brain, translated():
             data = bounded.data
-            registration = brain.register(
-                data,
-                RegistrationRequest(
-                    media_type=bounded.media_type,
-                    actor=self.config.actor(),
-                    origin=bounded.origin,
-                    normalize_with=pipeline,
-                ),
-            )
+            registration = brain.register(data, request)
             task = brain.define_task(registration.block_id, allowed=types)
 
             # The normalized view when there is one, and this is not a preference. The view is what the pipeline

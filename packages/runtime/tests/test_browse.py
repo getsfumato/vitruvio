@@ -295,6 +295,79 @@ class TestContent:
 
         assert service.content_range(row["blob"], offset=10_000)["length"] == 0
 
+    def test_a_destination_that_appears_between_the_check_and_the_write_is_still_refused(
+        self, service: BrainService, source_file: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`overwrite=False` is a promise about the file, not about the moment it was looked at. An `exists()`
+        followed by `write_bytes` keeps the promise only while nobody else is writing."""
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+        target = tmp_path / "raced.md"
+        mkdir = Path.mkdir
+
+        def creating(self: Path, *arguments: Any, **keywords: Any) -> None:
+            """Stand in for the other caller, at the last instant before the open."""
+            mkdir(self, *arguments, **keywords)
+            target.write_bytes(b"arrived first")
+
+        monkeypatch.setattr(Path, "mkdir", creating)
+
+        with pytest.raises(EvidenceRefusedError, match="already exists"):
+            service.export_content(row["blob"], target)
+
+        assert target.read_bytes() == b"arrived first"
+
+    def test_a_window_never_loads_the_whole_object(
+        self, service: BrainService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The shape this replaced called `content()` and sliced the result, which bounds the response and
+        nothing else: a one-byte read off a gigabyte cost a gigabyte of memory, once per window. `get_bytes` is
+        that read-it-all path, so a window is only bounded if it never takes it."""
+        big = tmp_path / "big.bin"
+        big.write_bytes(bytes(range(256)) * 40_000)
+        registration = service.register(Evidence.from_path(big, media_type="application/octet-stream"))
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+        store = type(service.session.brain().store)
+
+        def refuse(self: Any, digest: Any) -> bytes:
+            raise AssertionError("a window must not read the whole blob into memory")
+
+        monkeypatch.setattr(store, "get_bytes", refuse)
+        window = service.content_range(row["blob"], offset=5_000_000, length=1)
+
+        assert window["length"] == 1
+        assert window["size"] == 10_240_000
+
+    def test_a_window_is_capped_so_an_envelope_cannot_be_unbounded(self, service: BrainService, tmp_path: Path) -> None:
+        """`length=None` means to the end *or* to the cap; comparing offset plus length with size is how a
+        caller learns to ask again."""
+        from vitruvio.runtime.ops.browsing import MAX_WINDOW
+
+        big = tmp_path / "big.bin"
+        big.write_bytes(bytes(range(256)) * 40_000)
+        registration = service.register(Evidence.from_path(big, media_type="application/octet-stream"))
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+
+        window = service.content_range(row["blob"])
+
+        assert window["length"] == MAX_WINDOW
+        assert window["size"] == 10_240_000
+        with pytest.raises(VitruvioError, match="at most"):
+            service.content_range(row["blob"], length=MAX_WINDOW + 1)
+
+    def test_a_corrupt_blob_fails_the_window_rather_than_being_handed_over(
+        self, service: BrainService, source_file: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole reason the streaming read hashes as it goes."""
+        registration = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        row = next(row for row in service.blocks("canonical")["rows"] if row["block_id"] == registration["block_id"])
+        store: Any = service.session.brain().store
+        blob = store.blobs_dir / row["blob"].removeprefix("sha256:")
+        blob.write_bytes(b"not what it hashes to")
+
+        with pytest.raises(VitruvioError, match="corrupt"):
+            service.content_range(row["blob"])
+
     def test_exporting_into_a_directory_names_the_file_after_the_digest(
         self, service: BrainService, source_file: Path, tmp_path: Path
     ) -> None:

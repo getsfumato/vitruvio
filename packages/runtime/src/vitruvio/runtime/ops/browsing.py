@@ -19,6 +19,59 @@ from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.provenance import ProvenanceReader
 from vitruvio.runtime.session import BrainSession
 
+MAX_WINDOW = 8 << 20
+"""The most a single window will put in an envelope. A caller reads a larger object in several."""
+
+_CHUNK = 1 << 20
+
+
+def _window(store: Any, digest: Any, *, offset: int, length: int) -> tuple[bytes, int]:
+    """
+    A window onto stored bytes, and the size of the whole, without ever holding the whole.
+
+    Verification is what forces the entire blob to be read: a sha256 is not checkable from a slice of it, and
+    handing back unverified bytes would make this the one read in the runtime that does not. What it does not
+    force is *keeping* the blob -- the hash is folded a megabyte at a time and only the requested window is
+    retained, so a one-byte window off a gigabyte costs a gigabyte of reading and a byte of memory.
+
+    Falls back to :meth:`get_bytes` for a store that is not an OCI layout on disk, and defers to it for
+    resolvability so that a missing or tombstoned digest fails exactly as it does everywhere else.
+
+    Args:
+        store (Any): The block store.
+        digest (Any): The parsed content address.
+        offset (int): Where the window starts.
+        length (int): How long it is, at most.
+
+    Returns:
+        tuple[bytes, int]: The window, and the total size.
+    """
+    import hashlib
+
+    blobs = getattr(store, "blobs_dir", None)
+    if blobs is None or not store.is_resolvable(digest):
+        data = store.get_bytes(digest)
+        return data[offset : offset + length], len(data)
+
+    from boltzmann.exceptions import BlockIntegrityError
+
+    end = offset + length
+    digester = hashlib.sha256()
+    kept = bytearray()
+    size = 0
+    with (blobs / digest.hex).open("rb") as handle:
+        while chunk := handle.read(_CHUNK):
+            digester.update(chunk)
+            start, size = size, size + len(chunk)
+            lower, upper = max(offset - start, 0), min(end - start, len(chunk))
+            if lower < upper:
+                kept += chunk[lower:upper]
+    if digester.hexdigest() != digest.hex:
+        raise BlockIntegrityError(
+            f"stored bytes for {digest.KIND} {digest.short} do not hash to it: the store is corrupt"
+        )
+    return bytes(kept), size
+
 
 class BrowsingOps:
     """Browsing, as operations."""
@@ -177,26 +230,38 @@ class BrowsingOps:
         caller has no destination path here, and it does not want a whole video in a JSON envelope either, so it
         asks for a window and is told how big the whole thing is.
 
+        A window is capped at :data:`MAX_WINDOW`, so ``length=None`` means "to the end or to the cap, whichever
+        comes first". Comparing ``offset + length`` with ``size`` says whether to ask again -- which is how a
+        range read works, and the reason the operation reports the total at all.
+
         Args:
             digest (str): The content address.
             offset (int): Where to start, in bytes.
-            length (int | None): How many bytes at most. ``None`` means to the end.
+            length (int | None): How many bytes at most. ``None`` means to the end, within the cap.
 
         Returns:
             dict[str, Any]: The digest, the window's ``offset`` and ``length``, the content's total ``size``,
             and the window itself as base64 in ``content``.
+
+        Raises:
+            UsageError: The window starts before zero, or asks for more than the cap.
         """
         import base64
 
+        from boltzmann.identity.digest import OciDigest
+
         if offset < 0 or (length is not None and length < 0):
             raise UsageError("a content window cannot start or end before zero")
-        data = self.content(digest)
-        window = data[offset:] if length is None else data[offset : offset + length]
+        if length is not None and length > MAX_WINDOW:
+            raise UsageError(f"a content window is at most {MAX_WINDOW} bytes", hint="read it in several windows")
+        brain = self.session.brain(Capability.INSPECT)
+        with translated():
+            window, size = _window(brain.store, OciDigest.parse(digest), offset=offset, length=length or MAX_WINDOW)
         return {
             "digest": digest,
             "offset": offset,
             "length": len(window),
-            "size": len(data),
+            "size": size,
             "content": base64.b64encode(window).decode("ascii"),
         }
 
@@ -232,10 +297,16 @@ class BrowsingOps:
         resolved = target.expanduser().resolve()
         if within is not None and not resolved.is_relative_to(within.expanduser().resolve()):
             raise EvidenceRefusedError(f"{resolved} is outside {within}", hint="choose a destination inside it")
-        if resolved.exists() and not overwrite:
-            raise EvidenceRefusedError(f"{resolved} already exists", hint="ask for a replacement explicitly")
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_bytes(data)
+        try:
+            # `xb` rather than a prior `exists()`: between the check and the write another caller can create the
+            # file, and `write_bytes` would then truncate it under a refusal it was promised.
+            with resolved.open("wb" if overwrite else "xb") as exported:
+                exported.write(data)
+        except FileExistsError as collision:
+            raise EvidenceRefusedError(
+                f"{resolved} already exists", hint="ask for a replacement explicitly"
+            ) from collision
         return {"digest": digest, "path": str(resolved), "size": len(data)}
 
     def related(self, block_id: str, *, limit: int = 50) -> dict[str, Any]:

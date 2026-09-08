@@ -45,11 +45,25 @@ may not.
 accepts `within` to bound where a destination may land. Overwriting is right for exactly one caller — a person
 who typed `--out` — and wrong for every caller that *derives* a destination, which is the shape issue #19 took.
 The browser's export passes `within=Path.cwd()`, because the filename it derives comes from the origin recorded
-in the block, and a pulled brain's origins are somebody else's text.
+in the block, and a pulled brain's origins are somebody else's text. The refusal is the **open mode** and not a
+prior `exists()`: a check followed by a write keeps the promise only while nobody else is writing, and `xb`
+keeps it against the filesystem instead.
+
+**One conversion from evidence to a registration.** `register`, `replace` and `ingest_run` each built their own
+`RegistrationRequest`, and they had already diverged — `replace` dropped the retention policy, `ingest_run`
+dropped that and the licence. On one input that accepts all of them, so the same evidence produced different
+provenance depending on which operation took it. `requested()` is the single conversion, and the three call it.
 
 **`content` stays bytes, and gains a bounded sibling.** Base64 inside an envelope would be a different operation
 with a different cost, as its docstring has always said. `content_range(digest, offset, length)` is that other
 operation, declared for what it is: a window, plus the total size, for a caller that cannot be handed a file.
+
+Bounded in what it *reads*, not only in what it returns. Verification forces the whole blob to be read — a
+sha256 is not checkable from a slice, and an unverified read here would be the only one in the runtime — but it
+does not force the blob to be *held*: the hash is folded a megabyte at a time and only the window is kept, so a
+one-byte window off a gigabyte costs a gigabyte of reading and a byte of memory. The window itself is capped at
+8 MiB, so `length=None` means "to the end or to the cap"; comparing `offset + length` against the reported
+`size` is how a caller learns to ask again, which is how a range read works anyway.
 
 ## Consequences
 
