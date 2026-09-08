@@ -478,7 +478,14 @@ class BrainBrowser(App[None]):
             result (dict[str, Any]): What ``service.blocks`` produced.
         """
         self.rows = list(result["rows"])
-        table = self.query_one("#blocks", DataTable)
+        # The read ran in a thread and lands here through call_from_thread; by then the app may be shutting down,
+        # or a modal may hold the screen. Filling nothing is the right answer in both cases.
+        if not self.is_running:
+            return
+        try:
+            table = self.query_one("#blocks", DataTable)
+        except NoMatches:
+            return
         table.clear()
         for row in self.rows:
             # The size and type columns fall back to the content a derived block names: a semantic block whose

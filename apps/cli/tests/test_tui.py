@@ -810,6 +810,7 @@ class TestTheInterface:
             app.catalog_rows = list(app.rows)
             app.rows = [app.rows[0]] * 200
             app.action_next_page()
+            await _settle(pilot)
             assert app.offset == 200
             assert app.catalog_context is None
 
