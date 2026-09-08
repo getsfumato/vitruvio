@@ -19,7 +19,6 @@ index" is a fact about the command.
 
 from __future__ import annotations
 
-from enum import IntEnum
 from pathlib import Path
 
 from boltzmann.blocks.memory_type import MemoryType
@@ -31,23 +30,7 @@ from boltzmann.store.oci_layout import OciLayoutStore
 
 from vitruvio.ingest import bootstrap as bootstrap_pipelines
 from vitruvio.kernel import BrainNotFoundError, IndexSpec, ResolvedConfig, is_layout
-
-
-class Capability(IntEnum):
-    """
-    How much of a brain an operation needs standing up.
-
-    Ordered, so that ``capability >= Capability.RETRIEVE`` is a meaningful test.
-    """
-
-    INSPECT = 0
-    """Read the pointer, the snapshot, the modules. No index, no model."""
-    BROWSE = 1
-    """Read structural relationships through provenance's rebuildable hash-map index."""
-    RETRIEVE = 2
-    """Query. Registers the configured indices; the embedder is still resolved lazily."""
-    WRITE = 3
-    """Commit, drop, publish. Adds the retention policy and the validation gate."""
+from vitruvio.runtime.capability import Capability
 
 
 def build_indices(config: ResolvedConfig, capability: Capability) -> dict[MemoryType, list[Index]] | None:
