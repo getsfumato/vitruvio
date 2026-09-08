@@ -94,6 +94,13 @@ A brain that fails for a real reason does not stop the others. Publishing five o
 not go is better than publishing two and stopping, because the four that would have worked are still not published
 and nobody knows that either. The command exits non-zero if anything genuinely failed.
 
+**Amended (2026-09-08, issue #60): the workflow moved to `PublishOps.push_all`.** It was written in the CLI, and
+by the time `ops/sources.py` and `ops/compound.py` had each declined to copy it -- both saying so in their own
+docstrings, both naming this command as the thing left behind -- the duplication had produced two answers to one
+question: the runtime *raised* on `publish = false` while the CLI *skipped*. Both now read one predicate. The
+decisions above are unchanged and the JSON keeps its keys; what changed is who owns them, and that a partial
+failure now carries the per-brain results in the same envelope instead of raising after computing them.
+
 ## Consequences
 
 - Verified end to end against **real Docker Hub**: a three-subject `facultad` project, `--brain algebra` writing to

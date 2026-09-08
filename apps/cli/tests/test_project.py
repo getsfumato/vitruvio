@@ -312,20 +312,42 @@ class TestPushAll:
         Silent in the worst direction: the user asked for no credentials and got whatever was in the keyring.
         Asserted on the call, because `--local` needs no credentials and so no observable outcome differs.
         """
-        from vitruvio.runtime import BrainService
+        from vitruvio.runtime.ops.publish import PublishOps
 
         seen: list[bool] = []
-        original = BrainService.push
+        original = PublishOps.push
 
-        def spy(self: BrainService, reference: str | None = None, **kwargs: object) -> dict[str, Any]:
+        def spy(self: PublishOps, reference: str | None = None, **kwargs: object) -> dict[str, Any]:
             seen.append(bool(kwargs.get("anonymous")))
             return original(self, reference, **kwargs)  # type: ignore[arg-type]
 
-        monkeypatch.setattr(BrainService, "push", spy)
+        # On `PublishOps` rather than the facade: the loop lives in the runtime now, so it reaches `push` on the
+        # operations object and a facade spy would see nothing.
+        monkeypatch.setattr(PublishOps, "push", spy)
         code, _ = envelope(capsys, "dist", "push", "--all", "--anonymous", "--local", str(project / "registry"))
         assert code == ExitCode.OK
         assert seen, "no brain was pushed, so the flag was never exercised"
         assert all(seen), "every brain in an --all run must be pushed with the flag the user passed"
+
+    def test_a_partial_failure_still_reports_which_brains_went(
+        self, capsys: pytest.CaptureFixture[str], project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It used to raise after building the results, so a `--json` reader of a half-published project got an
+        error envelope with no data and no way to learn which brains had published."""
+        from vitruvio.kernel import CredentialError
+        from vitruvio.runtime.ops.publish import PublishOps
+
+        def refuse(self: PublishOps, reference: str | None = None, **kwargs: object) -> dict[str, Any]:
+            raise CredentialError("the registry refused the credentials")
+
+        monkeypatch.setattr(PublishOps, "push", refuse)
+        code, payload = envelope(capsys, "dist", "push", "--all", "--local", str(project / "registry"))
+
+        assert code != ExitCode.OK
+        assert payload["error"]["message"].startswith("1 of 2 brains")
+        failed = [item for item in payload["data"]["brains"] if not item["ok"]]
+        assert [item["brain"] for item in failed] == ["algebra"]
+        assert failed[0]["code"] == "CREDENTIAL_MISSING"
 
     def test_all_refuses_a_reference_because_it_names_one_repository(
         self, capsys: pytest.CaptureFixture[str], project: Path

@@ -246,7 +246,7 @@ class TestTheCatalogueIsComplete:
             for domain, operation in protocol_operations()
             if domain.class_name in {"PublishOps", "InstallOps"}
         ]
-        assert distribution == ["pack", "registry_check", "push", "tags", "plan_pull", "pull", "fetch"]
+        assert distribution == ["pack", "registry_check", "push", "push_all", "tags", "plan_pull", "pull", "fetch"]
         assert len([name for _, name in facade_operations() if name.endswith("_async")]) == 5
 
     def test_nothing_host_local_is_offered_to_a_caller_elsewhere(self) -> None:

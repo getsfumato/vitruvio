@@ -8615,6 +8615,71 @@
       ]
     }
   },
+  "push_all": {
+    ".": [
+      "object"
+    ],
+    "brains": [
+      "array"
+    ],
+    "brains[]": [
+      "object"
+    ],
+    "brains[].brain": [
+      "str"
+    ],
+    "brains[].code": [
+      "str"
+    ],
+    "brains[].digest": [
+      "str"
+    ],
+    "brains[].effective": [
+      "str"
+    ],
+    "brains[].error": [
+      "str"
+    ],
+    "brains[].ok": [
+      "bool"
+    ],
+    "brains[].reason": [
+      "str"
+    ],
+    "brains[].reference": [
+      "str"
+    ],
+    "brains[].skipped": [
+      "bool"
+    ],
+    "brains[].tag": [
+      "str"
+    ],
+    "brains[].vouched": [
+      "object"
+    ],
+    "brains[].vouched.canonical": [
+      "str"
+    ],
+    "brains[].vouched.semantic": [
+      "str"
+    ],
+    "brains[].warnings": [
+      "array"
+    ],
+    "failed": [
+      "int"
+    ],
+    "ok": [
+      "bool"
+    ],
+    "published": [
+      "int"
+    ],
+    "skipped": [
+      "int"
+    ]
+  },
   "put_content": {
     "optional": [],
     "paths": {

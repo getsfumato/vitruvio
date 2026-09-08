@@ -98,7 +98,7 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/diagnosis.py` | doctor | INSPECT | no |
 | `ops/projects.py` | project, add_brain, remove_brain | INSPECT | yes |
 | `ops/remote.py` | reference_for | — | no |
-| `ops/publish.py` | pack, registry_check, push, tags | INSPECT, WRITE | yes |
+| `ops/publish.py` | pack, registry_check, push, push_all, tags | INSPECT, WRITE | yes |
 | `ops/install.py` | plan_pull, pull, fetch | INSPECT, WRITE | yes |
 | `ops/reconcile.py` | declared_strategy, contains, plan, reconcile, status, resolve, accept_removals, continue, abort, tree | INSPECT, WRITE | yes |
 | `ops/retrieval.py` | search, explain | RETRIEVE | no |

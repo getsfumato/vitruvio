@@ -68,7 +68,9 @@ class ProjectOps:
                     "exists": bool(path and is_layout(path)),
                     "repository": document.repository_for(name, account=account),
                     "explicit_reference": spec.reference,
-                    "publish": spec.publish,
+                    # The resolved value, not the raw spec: they agree for a named brain and diverge for
+                    # the single-brain `[brain]` form, and the CLI used to re-derive it rather than read this.
+                    "publish": self.config.model_copy(update={"brain_name": name}).publish_allowed,
                     "selected": path == self.config.brain,
                 }
             )

@@ -177,75 +177,40 @@ def _push_all(
     reference: str | None,
 ) -> ExitCode:
     """
-    Publish every brain in the project, each to its own repository.
+    Render a project-wide publish.
 
-    Keeps going after a failure rather than stopping at the first one. Publishing five of six brains and being
-    told which one did not go is a better outcome than publishing two and stopping, because the four that would
-    have worked are still not published and nobody knows that either.
+    Which brains are attempted, which are skipped and what a failure does to the rest is the runtime's
+    (:meth:`~vitruvio.runtime.ops.publish.PublishOps.push_all`). What is left here is the refusal of a flag
+    combination, the progress the terminal wants, and the table.
     """
     from vitruvio.kernel import VitruvioError
-    from vitruvio.runtime import BrainService
 
     console = current().console
-    context = current()
     if reference:
         raise VitruvioError(
             "--all publishes several brains and a reference names one repository",
             hint="drop the reference; each brain derives its own from the project namespace",
         )
 
-    # Resolved once. Every brain in a project shares its actor, its policy and its registry, so the only thing
-    # that varies per brain is which layout is open -- and re-reading the file per brain would let a project
-    # change underneath a half-finished publish.
-    base = context.resolve(require_brain=False)
-    project = BrainService(base).project()
-    brains = [brain for brain in project["brains"] if brain["exists"]]
-    if not brains:
-        raise VitruvioError(
-            "this project holds no brains to publish",
-            hint="add one with `vitruvio project add <name>`",
-        )
-
-    results: list[dict[str, Any]] = []
-    for brain in brains:
-        name = str(brain["name"])
-        config = base.model_copy(update={"brain": Path(str(brain["path"])), "brain_name": name})
-        service = BrainService(config)
-
-        # A brain declared unpublishable is skipped rather than attempted, for the same reason an empty one is: it
-        # is the project working as configured, and reporting it as a failure would make `--all` exit non-zero on a
-        # project that holds one upstream brain -- which is the normal shape for a team.
-        if not config.publish_allowed:
-            console.note(f"skip  {name:<18} publish = false")
-            results.append({"brain": name, "ok": True, "skipped": True, "reason": "publish = false"})
-            continue
-
-        # An empty brain is skipped, not attempted. A project where one subject has not been started yet is the
-        # ordinary state rather than an error, and letting it come back as a failed push would make `--all` exit
-        # non-zero on a perfectly healthy project until every last brain had something in it.
-        if service.state()["block_count"] == 0:
-            console.note(f"skip  {name:<18} nothing committed yet")
-            results.append({"brain": name, "ok": True, "skipped": True, "reason": "nothing committed yet"})
-            continue
-
-        try:
-            outcome = service.push(
-                None, tag=tag, modules=modules, force=force, anonymous=anonymous, insecure=insecure, local=local
-            )
-            _warn(outcome)
-            console.note(f"ok    {name:<18} {outcome['reference']}:{outcome['tag']}")
-            results.append({"brain": name, "ok": True, "skipped": False, **outcome})
-        except VitruvioError as error:
-            console.warn(f"{name}: {error.message}")
-            results.append({"brain": name, "ok": False, "skipped": False, "error": error.message, "code": error.code})
-
-    published = [item for item in results if item["ok"] and not item["skipped"]]
-    skipped = [item for item in results if item["skipped"]]
-    failed = [item for item in results if not item["ok"]]
+    result = (
+        current()
+        .service(require_brain=False)
+        .push_all(tag=tag, modules=modules, force=force, anonymous=anonymous, insecure=insecure, local=local)
+    )
+    results: list[dict[str, Any]] = list(result["brains"])
+    for item in results:
+        if item["skipped"]:
+            console.note(f"skip  {item['brain']:<18} {item['reason']}")
+        elif item["ok"]:
+            _warn(item)
+            console.note(f"ok    {item['brain']:<18} {item['reference']}:{item['tag']}")
+        else:
+            console.warn(f"{item['brain']}: {item['error']}")
 
     pairs: list[tuple[str, object]] = [
-        ("published", Text.assemble((str(len(published)), "count"), f" of {len(results)} brains"))
+        ("published", Text.assemble((str(result["published"]), "count"), f" of {len(results)} brains"))
     ]
+    skipped = [item for item in results if item["skipped"]]
     if skipped:
         # Counted by reason rather than lumped together. "skipped 1 with nothing committed yet" was printed for a
         # brain holding 326 blocks the moment a second reason to skip existed, and a summary that states something
@@ -257,23 +222,24 @@ def _push_all(
         pairs.append(("skipped", ", ".join(f"{count} {reason}" for reason, count in sorted(tally.items()))))
     table = render.table("", "brain", "detail")
     for item in results:
-        if item["skipped"]:
-            state = Text("skip", style="warn")
-        else:
-            state = render.verdict(bool(item["ok"]), yes="ok", no="FAIL")
+        state = Text("skip", style="warn") if item["skipped"] else render.verdict(bool(item["ok"]), yes="ok", no="FAIL")
         detail = item.get("reference") or item.get("error") or item.get("reason") or ""
         table.add_row(state, str(item["brain"]), Text(str(detail), style="muted" if item["ok"] else "warn"))
 
-    if failed:
-        raise VitruvioError(
-            f"{len(failed)} of {len(results)} brains were not published",
-            hint="the failures are listed above; each brain is independent, so the rest did publish",
+    view = render.stack(render.fields(pairs), "", table)
+    if not result["ok"]:
+        # The payload travels with the failure. Raising instead would leave a `--json` reader of a half-published
+        # project with an error envelope and no way to learn which brains did go.
+        return console.fail(
+            "dist.push-all",
+            VitruvioError(
+                f"{result['failed']} of {len(results)} brains were not published",
+                hint="the failures are listed above; each brain is independent, so the rest did publish",
+            ),
+            data=result,
+            view=view,
         )
-    return console.emit(
-        "dist.push-all",
-        {"brains": results, "published": len(published), "skipped": len(skipped)},
-        view=render.stack(render.fields(pairs), "", table),
-    )
+    return console.emit("dist.push-all", result, view=view)
 
 
 def _impact_count(impact: dict[str, Any]) -> str:
