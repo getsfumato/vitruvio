@@ -118,6 +118,13 @@ actually returned.
    authenticity and authorization evidence. A block creator marked `asserted` is provenance, not verified identity;
    call it verified only when the block's `authorship.claims[].actor_verified` is true.
 
+9. **A write into a governed brain leaves the head unsigned until somebody signs it.** After an ingest -- or any
+   other write: `source register`, `catalog apply`, `supersede` -- run `auth status --json`. When `data.trust_root`
+   is set and `data.state` is `unsigned`, ask the user whether to sign the new head, showing the fingerprints that
+   are both loaded in ssh-agent (`auth keys --json`) and authorized by the root (`auth trust-root --json`); on a yes,
+   `auth sign FINGERPRINT --json`, then `auth status --json` again and report `data.state`. Never sign unasked and
+   never choose the key. On an ungoverned brain there is nothing to sign, and saying so is the whole report.
+
 ## Choose governance before creating a brain
 
 Treat both `brain init` and the destination of `brain migrate` as an irreversible trust choice. Governance belongs

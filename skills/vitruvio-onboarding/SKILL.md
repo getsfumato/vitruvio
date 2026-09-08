@@ -92,9 +92,15 @@ both mandatory, both answered by the user and never inferred:
 1. **Which email is the actor.** A lowercase address (`ana@example.org`) that identifies the person; it is hashed
    into every block and cannot be normalized or changed afterwards. Ask for it in so many words. Do not take it
    from git config, `$USER`, a previous project, or your own identity, and do not offer a namespaced name here:
-   the actor is the person, and you are an assistant. In a project, the actor is shared by every brain; if one
-   brain is kept by a different person, ask for that email too and declare it for that brain alone
-   (`project add BRAIN --actor MAIL`, or `[brains.BRAIN.actor] id = "MAIL"`).
+   the actor is the person, and you are an assistant.
+
+   For a brain that goes **into a project**, the question has a second half, and it is asked every time: read the
+   project's actor with `vitruvio --json --project NAME config show` and ask whether this brain is written by
+   **that actor** or by **somebody else**. Name the project's actor in the question -- "the project's actor is
+   `ana@example.org`; is this brain hers, or does another person keep it?" -- and do not pick for the user, because
+   the project's actor is the silent default and a brain attributed to the wrong person cannot be fixed afterwards.
+   The project's actor means plain `project add`; somebody else means `project add BRAIN --actor MAIL` (or
+   `[brains.BRAIN.actor] id = "MAIL"`), which declares that brain's own actor.
 2. **Which agents will assist this brain.** One canonical namespaced id per agent that will write into *this* brain
    (`anthropic/claude-code`, `openai/codex`), optionally with a display name and model. Name yourself if you will
    be one of them. They are declared per brain, so a project with several brains answers this once per brain.
@@ -128,7 +134,8 @@ In a project, ungoverned — `project init` only if step 1 found no project:
 
 ```bash
 vitruvio --json --actor ACTOR project init NAME --namespace HOST/ACCOUNT     # --namespace only if they know where it publishes
-vitruvio --json --project NAME --assisted-by AGENT project add BRAIN --description "..."
+vitruvio --json --project NAME --assisted-by AGENT project add BRAIN --description "..."                 # the project's actor
+vitruvio --json --project NAME --assisted-by AGENT --actor MAIL project add BRAIN --description "..."   # this brain's own actor
 ```
 
 In a project, governed. `project add` has no governance flags and **always creates an ungoverned brain**, so the
@@ -189,6 +196,7 @@ with citations only to block ids the brain returned.
 
 - Run `brain init`, `project add` or `brain migrate` before both decisions are made and stated back to the user.
 - Invent, infer or default the actor's email, or put your own identity in `--actor`.
+- Add a brain to a project without asking whether the project's actor or another person writes into it.
 - Pass `--actor` to any command other than `brain init`, `project init` or `brain migrate` once `vitruvio.toml`
   declares one; it is refused, and the declaration is the thing to change.
 - Pass `--assisted-by` for an agent the brain has not declared. Stop and ask the user to declare it instead.
