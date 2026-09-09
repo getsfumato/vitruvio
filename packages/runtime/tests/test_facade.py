@@ -101,7 +101,7 @@ def test_every_public_domain_operation_is_catalogued(domain: Any) -> None:
     """Adding an operation requires declaring it in the one authoritative place."""
     owner = operation_type(domain.module, domain.class_name)
     public = {name for name, member in getmembers(owner, isfunction) if not name.startswith("_") and name != "config"}
-    assert public == set(domain.operations)
+    assert public == set(domain.method_names)
 
 
 @pytest.mark.parametrize(

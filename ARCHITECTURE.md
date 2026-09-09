@@ -79,31 +79,34 @@ earlier describes the composition that was just replaced. It can only invalidate
 
 > an operations class may hold the session, and may never hold a `Brain`.
 
-| module | operations | capability |
-|---|---|---|
-| `ops/lifecycle.py` | init, state, verify, history, info | INSPECT, creates |
-| `ops/inspection.py` | resolvability, resolve, prove, module, roots | INSPECT |
-| `ops/browsing.py` | blocks, content, export_content, related | BROWSE, INSPECT for content |
-| `ops/registration.py` | register, replace, put_content | WRITE |
-| `ops/tasks.py` | define_task, task_schema, validate_candidates, commit_candidates, ingest_run, pipelines | RETRIEVE, WRITE |
-| `ops/sources.py` | sources, source_kinds, scaffold_source, add_source, remove_source, pull_source, pull_all | INSPECT, WRITE |
-| `ops/fetch.py` | one item of a pull: dedup, the redaction guard, registration | — |
-| `ops/retention.py` | plan_drop, drop, drop_by_producer, supersede, demote, prune, redact, policy | WRITE |
-| `ops/indices.py` | index_list, index_build, index_stats, index_verify, index_gc | INSPECT, RETRIEVE |
-| `ops/remote.py` | reference_for, and the client both publishing and installing need | — |
-| `ops/publish.py` | pack, registry_check, push, tags | INSPECT, WRITE |
-| `ops/install.py` | plan_pull, pull | INSPECT, WRITE |
-| `ops/projects.py` | project, add_brain, remove_brain | INSPECT, WRITE |
-| `ops/benchmarking.py` | bench | RETRIEVE, over its own corpus |
-| `ops/embedders.py` | embedders, test_embedder | — |
-| `ops/diagnosis.py` | doctor | INSPECT; the registry only with `registry=True` |
-| `ops/retrieval.py` | search, explain | RETRIEVE |
-| `ops/compound.py` | compound_search, compound_explain | RETRIEVE, once per member brain |
-| `ops/catalog.py` | catalog_show, catalog_tree, catalog_apply, catalog_browse, catalog_path | BROWSE, INSPECT, WRITE |
-| `ops/authenticity.py` | keys, status, trust_root, sign, pin, attribution, rotation, revocation | INSPECT, WRITE for governance changes |
-| `ops/migration.py` | plan_migration, migrate | INSPECT source; creates a new destination |
+<!-- operations:begin -->
+| module | operations | capability | writes |
+|---|---|---|---|
+| `ops/lifecycle.py` | init, state, verify, history, info | INSPECT | yes |
+| `ops/inspection.py` | resolvability, resolve, prove, module, roots | INSPECT | no |
+| `ops/browsing.py` | blocks, content, export_content, related | INSPECT, BROWSE | yes |
+| `ops/catalog.py` | catalog_show, catalog_tree, catalog_apply, catalog_browse, catalog_path | INSPECT, BROWSE, WRITE | yes |
+| `ops/authenticity.py` | auth_keys, auth_status, auth_trust_root, auth_sign, auth_pin, auth_attribution, auth_plan_rotation, auth_countersign, auth_rotate, auth_revoke | INSPECT, WRITE | yes |
+| `ops/migration.py` | plan_migration, migrate | INSPECT, WRITE | yes |
+| `ops/registration.py` | register, replace, put_content | WRITE | yes |
+| `ops/tasks.py` | define_task, task_schema, validate_candidates, commit_candidates, ingest_run, pipelines | RETRIEVE, WRITE | yes |
+| `ops/sources.py` | sources, source_kinds, scaffold_source, add_source, remove_source, pull_source, pull_all | WRITE | yes |
+| `ops/retention.py` | plan_drop, drop, drop_by_producer, supersede, demote, prune, redact, policy | WRITE | yes |
+| `ops/indices.py` | index_list, index_build, index_stats, index_verify, index_gc | INSPECT, RETRIEVE | yes |
+| `ops/benchmarking.py` | bench | RETRIEVE | no |
+| `ops/embedders.py` | embedders, test_embedder | — | no |
+| `ops/diagnosis.py` | doctor | INSPECT | no |
+| `ops/projects.py` | project, add_brain, remove_brain | INSPECT | yes |
+| `ops/remote.py` | reference_for | — | no |
+| `ops/publish.py` | pack, registry_check, push, tags | INSPECT, WRITE | yes |
+| `ops/install.py` | plan_pull, pull, fetch | INSPECT, WRITE | yes |
+| `ops/reconcile.py` | declared_strategy, contains, plan, reconcile, status, resolve, accept_removals, continue, abort, tree | INSPECT, WRITE | yes |
+| `ops/retrieval.py` | search, explain | RETRIEVE | no |
+| `ops/compound.py` | compound_search, compound_explain | RETRIEVE | no |
+<!-- operations:end -->
 
-`ops/*.py` are the operations, which open brains. `runtime/*.py` beside them — `wire`, `mapping`, `assembly`,
+`ops/fetch.py` is absent because every one of its methods is private: it is one item of a pull, driven by
+`ops/sources.py`. `ops/*.py` are the operations, which open brains. `runtime/*.py` beside them — `wire`, `mapping`, `assembly`,
 `browse`, `block_rows`, `authorship`, `registry`, `distribution`, `indexset`, `vouch`, `query_diagnostics`,
 `cross_brain` — are request-scoped or stateless helpers,
 which do not. The naming is close enough to be worth stating: `ops/publish.py` publishes, `runtime/distribution.py`
@@ -115,9 +118,14 @@ whole canonical-module scan. `AuthorshipAudit` caches joins for that one project
 ask it to rehash a historical brain. The boundary and the compatibility split between retained snapshots and audit
 commits are recorded in [ADR-0017](adr/0017-auditable-browse-projections.md).
 
-`runtime/operation_catalogue.py` is the authoritative list of those protocol operations. It drives the generated
-`BrainService` forwarding surface, documentation metadata and conformance checks; `ops/reconcile.py` is marked there
-as the deliberate property-exposed exception rather than being absent from the catalogue.
+`runtime/operation_catalogue.py` is the authoritative list of those protocol operations, and of what is true about
+each one: which capability it needs, whether it changes anything, what kind of result it hands back, whether it names
+a path on this host, and which coroutine *is* it — `push` and `push_async` are declared as one operation, so an
+interface built over the catalogue offers six distribution operations rather than twelve. The table above is rendered
+from it, as are the generated `BrainService` forwarding surface, the documentation metadata and the conformance
+checks; `ops/reconcile.py` is marked there as the deliberate property-exposed exception rather than being absent.
+Every declared fact is checked against the implementation by `test_operation_catalogue.py`, one-directionally: an
+operation may declare more than it needs, never less. The reasoning is [ADR-0020](adr/0020-what-the-operation-catalogue-declares.md).
 
 **Heavy imports stay inside functions.** `import vitruvio.runtime` costs ~124ms, and eager `vitruvio.indices`
 (+24ms), `asyncio` (+17ms), `stats`, `embeddings` and `bench` would add ~50ms to every invocation, `--help`

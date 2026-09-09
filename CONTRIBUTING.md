@@ -24,10 +24,11 @@ uv run vitruvio bench --tier 800 --queries 12 --gate
 
 Two of them are worth explaining.
 
-**Generated facade.** A pre-commit hook runs when a runtime operation, the operation catalogue or the generator is
-staged. It regenerates `_generated_facade.py` and stages that artifact, so the commit already in progress includes
-the facade matching the operation change. The hook never creates a second commit; CI's `generate_facade --check`
-remains the independent guard for commits made with `--no-verify`.
+**Generated artifacts.** A pre-commit hook runs when a runtime operation, the operation catalogue or the generator
+is staged. It regenerates `_generated_facade.py` and the operations table in `ARCHITECTURE.md`, and stages both, so
+the commit already in progress includes the artifacts matching the operation change. The hook never creates a
+second commit, and it is not the guard: `test_facade.py` and `test_operation_catalogue.py` assert that each
+committed artifact equals what the generator produces, which is what catches a commit made with `--no-verify`.
 
 **`reference --check`.** `skills/vitruvio/references/cli-reference.md` is generated from the cyclopts declarations —
 the same declarations that parse the arguments. A stale reference is worse than none: an agent that trusts a flag
