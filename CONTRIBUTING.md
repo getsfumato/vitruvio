@@ -40,7 +40,8 @@ uv run pytest -p no:xdist --record-shapes
 
 One process, because each xdist worker sees a different slice. `tests/operation_shapes_unobserved.json` lists the
 operations nothing exercised, and a test asserts that list holds nothing an interface elsewhere could call except
-the six needing a registry daemon or a governed brain. Adding an operation means adding a test that runs it, or
+the five still awaiting publication or governance fixtures. Registry preflight is covered with a local registry,
+so its contract can be recorded without Docker. Adding an operation means adding a test that runs it, or
 adding it there and saying why.
 
 **`reference --check`.** `skills/vitruvio/references/cli-reference.md` is generated from the cyclopts declarations —

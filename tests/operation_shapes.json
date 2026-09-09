@@ -9223,6 +9223,45 @@
       ]
     }
   },
+  "registry_check": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "checks": [
+        "array"
+      ],
+      "checks[]": [
+        "object"
+      ],
+      "checks[].check": [
+        "str"
+      ],
+      "checks[].detail": [
+        "str"
+      ],
+      "checks[].ok": [
+        "bool"
+      ],
+      "effective": [
+        "str"
+      ],
+      "hint": [
+        "null",
+        "str"
+      ],
+      "ok": [
+        "bool"
+      ],
+      "reference": [
+        "str"
+      ],
+      "warnings": [
+        "array"
+      ]
+    }
+  },
   "related": {
     "optional": [
       "records[]",

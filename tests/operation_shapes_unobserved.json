@@ -4,6 +4,5 @@
   "auth_revoke",
   "auth_rotate",
   "bench",
-  "pack",
-  "registry_check"
+  "pack"
 ]

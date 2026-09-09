@@ -297,6 +297,41 @@ def published(tmp_path: Path, source_file: Path) -> tuple[Path, str]:
     return registry_root, "demo/brain"
 
 
+class TestLocalPreflight:
+    """The public response contract must be exercised even when Docker is unavailable."""
+
+    def test_the_preflight_accepts_a_brain_shaped_artifact(self, service: BrainService, tmp_path: Path) -> None:
+        result = service.registry_check("demo/brain", local=tmp_path / "registry")
+
+        assert result["ok"] is True
+        assert result["hint"] is None
+        assert {check["check"] for check in result["checks"]} >= {"write", "config_media_type", "artifact_type"}
+        assert result["warnings"] == []
+
+    async def test_the_async_preflight_returns_the_same_contract(self, service: BrainService, tmp_path: Path) -> None:
+        result = await service.registry_check_async("demo/brain", local=tmp_path / "registry")
+
+        assert result["ok"] is True
+        assert result["hint"] is None
+
+    @pytest.mark.parametrize("operation", ["push", "resolve"])
+    def test_a_registry_failure_returns_a_hint(
+        self, service: BrainService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+    ) -> None:
+        from boltzmann.distribution.local import LocalLayoutRegistry
+
+        async def refused(*args: Any, **kwargs: Any) -> Any:
+            raise OSError("registry access refused")
+
+        monkeypatch.setattr(LocalLayoutRegistry, operation, refused)
+        result = service.registry_check("demo/brain", local=tmp_path / "registry")
+
+        assert result["ok"] is False
+        assert result["hint"]
+        assert result["checks"][-1]["ok"] is False
+        assert "registry access refused" in result["checks"][-1]["detail"]
+
+
 class TestLocalRoundTrip:
     """A filesystem registry, over the SDK's real contract. No network, no credentials, same code path."""
 
