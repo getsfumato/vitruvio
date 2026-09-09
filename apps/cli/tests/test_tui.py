@@ -595,6 +595,51 @@ class TestTheInterface:
             assert app.query_one("#blocks", DataTable).row_count == 2
             assert app.selected is not None, "a row is selected on arrival, so the preview is never blank"
 
+    async def test_a_detail_read_that_raced_a_write_is_taken_again(
+        self, brain: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The preview and the four tabs are five reads on one worker thread, and the browser holds a single
+        service for the whole run. A commit landing between them -- classifying a source is one, and it runs on
+        a different worker group -- would leave the pane describing two compositions with nothing saying so."""
+        reads: list[str] = []
+        original = BrainBrowser._load_tabs
+
+        def racing(self: BrainBrowser, row: dict[str, Any]) -> None:
+            reads.append(row["block_id"])
+            if len(reads) == 1:
+                self.opened.session.invalidate()
+            original(self, row)
+
+        monkeypatch.setattr(BrainBrowser, "_load_tabs", racing)
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert len(reads) == 2, "the second read is the one that describes a single composition"
+
+    async def test_a_second_collision_says_so_rather_than_taking_the_browser_down(
+        self, brain: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The retry can race the next write too, and an exception out of a thread worker ends the application."""
+        reads: list[str] = []
+        warnings: list[str] = []
+        original = BrainBrowser._load_tabs
+
+        def always_racing(self: BrainBrowser, row: dict[str, Any]) -> None:
+            reads.append(row["block_id"])
+            self.opened.session.invalidate()
+            original(self, row)
+
+        monkeypatch.setattr(BrainBrowser, "_load_tabs", always_racing)
+        monkeypatch.setattr(
+            BrainBrowser, "notify", lambda self, message, **kwargs: warnings.append(str(message)), raising=False
+        )
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert len(reads) == 2, "twice and no further; the third read would be racing the same write again"
+            assert any("select it again" in warning for warning in warnings)
+            assert app.is_running
+
     async def test_the_tree_lists_every_module_including_the_ones_not_installed(self, brain: Path) -> None:
         """A module absent from this brain is a fact about this brain. Hiding it would make a selectively
         pulled brain indistinguishable from a smaller one."""

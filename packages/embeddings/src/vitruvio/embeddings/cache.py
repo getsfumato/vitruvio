@@ -84,7 +84,13 @@ class EmbeddingCache:
         self.path = path
         self.model_tag = model_tag
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(path)
+        # `check_same_thread` is sqlite3's conservative default, not SQLite's constraint: CPython builds it in
+        # serialized mode, which `threadsafety == 3` reports, and a connection is then safe to share. Leaving the
+        # default on made a cache thread-affine, and a brain is not: the browser opens one on a Textual worker and
+        # the interpreter collects it on another, where `close()` raised `ProgrammingError` into `__del__`'s guard
+        # and the connection was never closed at all. The condition rather than a flat `False` because on a build
+        # that does not report serialized mode, sharing would be unsafe rather than merely noisy.
+        self._connection = sqlite3.connect(path, check_same_thread=sqlite3.threadsafety < 3)
         # WAL so a reader and a writer coexist: two vitruvio processes over one brain is ordinary, and a locked cache
         # would make the second one fail rather than wait.
         self._connection.execute("PRAGMA journal_mode=WAL")

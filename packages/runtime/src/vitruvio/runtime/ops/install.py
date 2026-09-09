@@ -1,8 +1,9 @@
 """Installing a brain from a registry, and saying what that would replace first.
 
-The only module that calls :meth:`~vitruvio.runtime.session.BrainSession.invalidate`, and the reason it exists:
-`pull` advances the pointer, so every brain handed out before it describes the composition that was just replaced.
-`plan_pull` is a separate operation because a caller has to be able to see what it would lose before losing it.
+`pull` advances the pointer, so every brain handed out before it describes the composition that was just
+replaced -- which is why both flows execute inside a session context rather than holding a brain of their own
+across their registry round trips. `plan_pull` is a separate operation because a caller has to be able to see
+what it would lose before losing it.
 """
 
 from __future__ import annotations
@@ -111,26 +112,26 @@ class InstallOps:
             local=local,
         )
 
-        brain = self.session.brain(Capability.INSPECT)
-        manifest = await self.remote._request(remote.client.resolve(remote.effective, remote.tag))
-        if ignore_vector_indices:
-            require_vector_index_ignore(brain.plan_pull)
-            plan = await self.remote._request(
-                brain.plan_pull(
-                    remote.client,
-                    remote.effective,
-                    remote.tag,
-                    modules=chosen,
-                    ignore_vector_indices=True,
+        with self.session.pinned(Capability.INSPECT) as brain:
+            manifest = await self.remote._request(remote.client.resolve(remote.effective, remote.tag))
+            if ignore_vector_indices:
+                require_vector_index_ignore(brain.plan_pull)
+                plan = await self.remote._request(
+                    brain.plan_pull(
+                        remote.client,
+                        remote.effective,
+                        remote.tag,
+                        modules=chosen,
+                        ignore_vector_indices=True,
+                    )
                 )
-            )
-        else:
-            # Keep the ordinary pull compatible with the previous SDK API. Only the new opt-in path requires
-            # the SDK release that added `ignore_vector_indices`.
-            plan = await self.remote._request(
-                brain.plan_pull(remote.client, remote.effective, remote.tag, modules=chosen)
-            )
-        local_work = self._local_work(brain)
+            else:
+                # Keep the ordinary pull compatible with the previous SDK API. Only the new opt-in path requires
+                # the SDK release that added `ignore_vector_indices`.
+                plan = await self.remote._request(
+                    brain.plan_pull(remote.client, remote.effective, remote.tag, modules=chosen)
+                )
+            local_work = self._local_work(brain)
         return {
             "reference": remote.reference,
             "tag": remote.tag,

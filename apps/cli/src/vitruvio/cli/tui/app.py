@@ -43,6 +43,7 @@ from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedCont
 from vitruvio.cli import render
 from vitruvio.cli.tui.screens import ClassificationScreen, SearchScreen, SelectionScreen, SigningKeyScreen
 from vitruvio.cli.tui.theme import install as install_theme
+from vitruvio.kernel import StaleBrainError
 from vitruvio.runtime import BrainService
 
 MODULES = ("canonical", "episodic", "semantic", "procedural", "provenance")
@@ -569,19 +570,46 @@ class BrainBrowser(App[None]):
             row (dict[str, Any]): The selected row.
         """
         width = max(20, self.query_one("#preview", Static).size.width or 80)
-        try:
-            preview = self._preview(row, width=width)
-        except Exception as error:
-            # A worker that raises takes the whole application down -- Textual re-raises `WorkerFailed` and the
-            # interface is gone. That happened over one canonical block whose bytes were not the image its media
-            # type claimed: a decoder exception four calls deep ended the session. Every pane below already
-            # reports its own failure, and the preview draws arbitrary registered bytes, so it is the one most
-            # able to meet something unexpected. It reports too.
-            preview = Text(f"{type(error).__name__}: {error}", style="bad")
-        if self.selected is not row:
-            return
-        self.call_from_thread(self._set, "preview", preview)
-        self._load_tabs(row)
+        for _ in range(2):
+            try:
+                self._read_detail(row, width=width)
+                return
+            except StaleBrainError:
+                # A write landed while the five reads were running, so the panes just painted describe two
+                # compositions. Reading again is the remedy, but the retry can collide too, and an exception out
+                # of a thread worker takes the application down -- so the second collision is reported instead.
+                continue
+        self.call_from_thread(
+            self.notify,
+            "the brain kept changing while reading this block; select it again",
+            severity="warning",
+        )
+
+    def _read_detail(self, row: dict[str, Any], *, width: int) -> None:
+        """
+        Paint the preview and the four tabs from one composition.
+
+        Args:
+            row (dict[str, Any]): The selected row.
+            width (int): The preview pane's width in cells.
+
+        Raises:
+            StaleBrainError: A write replaced the composition while the reads ran.
+        """
+        with self.opened.pinned():
+            try:
+                preview = self._preview(row, width=width)
+            except Exception as error:
+                # A worker that raises takes the whole application down -- Textual re-raises `WorkerFailed` and
+                # the interface is gone. That happened over one canonical block whose bytes were not the image
+                # its media type claimed: a decoder exception four calls deep ended the session. Every pane
+                # below already reports its own failure, and the preview draws arbitrary registered bytes, so it
+                # is the one most able to meet something unexpected. It reports too.
+                preview = Text(f"{type(error).__name__}: {error}", style="bad")
+            if self.selected is not row:
+                return
+            self.call_from_thread(self._set, "preview", preview)
+            self._load_tabs(row)
 
     def _load_tabs(self, row: dict[str, Any]) -> None:
         """

@@ -69,6 +69,7 @@ The point of these is "may I retry, and with what changed".
 | 10 | the cascade needs human review | stop and ask a person |
 | 11 | a declared source was unreachable or refused | retryable |
 | 12 | a reconciliation is open on this brain | `reconcile status`, then `continue` or `abort` |
+| 13 | another caller is writing to this brain, or moved it under a read | retryable |
 
 The distinction that matters most: **2** means you asked wrong, **5** and **6** mean the protocol refused and
 retrying is pointless, **7** means your input was wrong and is fixable.

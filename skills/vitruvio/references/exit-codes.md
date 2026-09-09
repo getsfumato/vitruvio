@@ -18,6 +18,7 @@ differently — which is the only question an automated caller actually has.
 | 10 | REVIEW | the cascade needs human review | ask a person |
 | 11 | SOURCE | a declared source was unreachable or refused | yes |
 | 12 | RECONCILE | a reconciliation is waiting on a decision, or one is open | answer it |
+| 13 | BUSY | another caller moved the brain, or is writing to it, through the same session | yes |
 
 ## The distinctions that matter
 

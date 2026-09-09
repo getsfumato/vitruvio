@@ -110,8 +110,8 @@ class PublishOps:
             insecure=insecure,
             local=local,
         )
-        brain = self.session.brain(Capability.INSPECT)
-        result = await self.remote._request(preflight(remote.reference, remote.client, brain.store))
+        with self.session.pinned(Capability.INSPECT) as brain:
+            result = await self.remote._request(preflight(remote.reference, remote.client, brain.store))
         return {**result, "warnings": remote.warnings}
 
     def push(
