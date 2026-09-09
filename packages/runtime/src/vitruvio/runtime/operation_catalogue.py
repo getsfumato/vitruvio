@@ -177,6 +177,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         (
             Operation("blocks", capability=_BROWSE),
             Operation("content", capability=_INSPECT, result=ResultKind.BINARY),
+            Operation("content_range", capability=_INSPECT),
             Operation("export_content", capability=_INSPECT, mutates=True, remote=Remote.LOCAL),
             Operation("related", capability=_BROWSE),
         ),
@@ -224,9 +225,9 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "RegistrationOps",
         "registration_ops",
         (
-            Operation("register", capability=_WRITE, mutates=True, remote=Remote.LOCAL),
-            Operation("replace", capability=_WRITE, mutates=True, remote=Remote.LOCAL),
-            Operation("put_content", capability=_WRITE, mutates=True, remote=Remote.LOCAL),
+            Operation("register", capability=_WRITE, mutates=True),
+            Operation("replace", capability=_WRITE, mutates=True),
+            Operation("put_content", capability=_WRITE, mutates=True),
         ),
     ),
     OperationDomain(
@@ -238,7 +239,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
             Operation("task_schema", capability=_RETRIEVE),
             Operation("validate_candidates", capability=_WRITE, mutates=True),
             Operation("commit_candidates", capability=_WRITE, mutates=True),
-            Operation("ingest_run", capability=_WRITE, mutates=True, remote=Remote.LOCAL, heavy=True),
+            Operation("ingest_run", capability=_WRITE, mutates=True, heavy=True),
             Operation("pipelines"),
         ),
         exports=("DUPLICATE",),

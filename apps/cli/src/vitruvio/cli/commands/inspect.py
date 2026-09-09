@@ -212,7 +212,7 @@ def content(
         # The media type reaches the file name, not only the drawing: without a suffix the desktop picks a handler
         # by guesswork and lands on a text editor, which for a PDF means a screenful of binary.
         target = out if out is not None else desktop.scratch(None, digest, media_type)
-        result = service.export_content(digest, target)
+        result = service.export_content(digest, target, overwrite=True)
         try:
             ran = desktop.open_path(Path(result["path"]))
         except desktop.NoOpenerError as error:
@@ -231,7 +231,8 @@ def content(
         )
 
     if out is not None:
-        result = service.export_content(digest, out)
+        # A typed `--out` means it: replacing what is there is what every other tool does with one.
+        result = service.export_content(digest, out, overwrite=True)
         return console.emit(
             "inspect.content",
             result,

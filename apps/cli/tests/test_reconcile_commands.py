@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from vitruvio.cli.main import main
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ExitCode, resolve
 from vitruvio.runtime import BrainService
 
@@ -83,7 +84,7 @@ def add_evidence(service: Any, text: str, name: str) -> str:
     incoming.mkdir(parents=True, exist_ok=True)
     path = incoming / name
     path.write_text(text, encoding="utf-8")
-    return str(service.register(path, media_type="text/markdown")["block_id"])
+    return str(service.register(Evidence.from_path(path, media_type="text/markdown"))["block_id"])
 
 
 def derive(service: Any, source: str, label: str) -> str:

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from boltzmann.authenticity import SshPublicKey, rfc4253_signature
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import UsageError, VitruvioError
 from vitruvio.runtime import BrainService
 
@@ -45,7 +46,7 @@ def test_a_governed_write_remains_unsigned_until_explicitly_signed(
     service, party = governed(config, monkeypatch)
     assert service.auth_status()["state"] == "authorized"
 
-    service.register(source_file, media_type="text/markdown")
+    service.register(Evidence.from_path(source_file, media_type="text/markdown"))
     assert service.auth_status()["state"] == "unsigned"
     record = service.auth_sign(party.public_key.fingerprint)
     assert record["key"] == party.public_key.fingerprint
@@ -56,7 +57,7 @@ def test_signed_creation_provenance_verifies_the_configured_actor(
     config: object, source_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     service, party = governed(config, monkeypatch)
-    service.register(source_file, media_type="text/markdown")
+    service.register(Evidence.from_path(source_file, media_type="text/markdown"))
     record = service.auth_sign(party.public_key.fingerprint)
     attribution = service.auth_attribution()
     assert attribution["snapshot"] == record["snapshot"]
@@ -132,7 +133,7 @@ def test_historical_auth_status_verifies_the_requested_snapshot(
     monkeypatch.setattr("boltzmann.authenticity.AgentSigner", lambda _key: party)
     service = BrainService(config)  # type: ignore[arg-type]
     genesis = service.init(governed=True, sign_with=[party.public_key.fingerprint])["snapshot"]["digest"]
-    service.register(source_file, media_type="text/markdown")
+    service.register(Evidence.from_path(source_file, media_type="text/markdown"))
 
     from boltzmann.brain import Brain
 

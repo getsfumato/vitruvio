@@ -43,7 +43,7 @@ from textual.widgets import DataTable, Footer, Header, Input, Static, TabbedCont
 from vitruvio.cli import render
 from vitruvio.cli.tui.screens import ClassificationScreen, SearchScreen, SelectionScreen, SigningKeyScreen
 from vitruvio.cli.tui.theme import install as install_theme
-from vitruvio.kernel import StaleBrainError
+from vitruvio.kernel import EvidenceRefusedError, StaleBrainError
 from vitruvio.runtime import BrainService
 
 MODULES = ("canonical", "episodic", "semantic", "procedural", "provenance")
@@ -1318,16 +1318,13 @@ class BrainBrowser(App[None]):
 
         from vitruvio.cli.render import desktop
 
+        # `within` because the name is derived from the origin recorded in the brain, which for a pulled brain
+        # is somebody else's text: `..` in it would otherwise write outside the directory the user is looking at.
         target = Path.cwd() / desktop.filename(name, blob, media_type)
         try:
-            result = self.opened.export_content(blob, target, overwrite=False)
-        except FileExistsError:
-            self.call_from_thread(
-                self.notify,
-                f"not exported: {target} already exists",
-                severity="warning",
-                timeout=10,
-            )
+            result = self.opened.export_content(blob, target, within=Path.cwd())
+        except EvidenceRefusedError as error:
+            self.call_from_thread(self.notify, f"not exported: {error.message}", severity="warning", timeout=10)
             return
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
@@ -1369,7 +1366,7 @@ class BrainBrowser(App[None]):
 
         target = desktop.scratch(name, blob, media_type)
         try:
-            result = self.opened.export_content(blob, target)
+            result = self.opened.export_content(blob, target, overwrite=True)
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return

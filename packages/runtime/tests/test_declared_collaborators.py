@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import CollaboratorNotDeclaredError, Origin, resolve
 from vitruvio.runtime import BrainService
 
@@ -94,7 +95,7 @@ def test_ingest_refuses_to_run_without_saying_who_assisted(tmp_path: Path, sourc
     ).init()
 
     unsaid = BrainService(resolve(brain=brain))
-    source = unsaid.register(source_file, media_type="text/markdown")["block_id"]
+    source = unsaid.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     task = unsaid.define_task(source, allowed=["semantic"])
     with pytest.raises(CollaboratorRequiredError) as caught:
         unsaid.commit_candidates(_candidates(source), task)
@@ -126,7 +127,7 @@ def test_ingest_refuses_an_actor_the_file_does_not_declare(tmp_path: Path, sourc
     impostor = BrainService(
         resolve(brain=brain, actor_id="other@example.com", assisted_by=[], require_layout=False, declaring=True)
     )
-    source = impostor.register(source_file, media_type="text/markdown")["block_id"]
+    source = impostor.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     task = impostor.define_task(source, allowed=["semantic"])
     with pytest.raises(ActorNotDeclaredError) as caught:
         impostor.commit_candidates(_candidates(source), task)

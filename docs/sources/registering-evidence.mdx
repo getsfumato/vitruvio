@@ -9,6 +9,36 @@ vitruvio source register notes.md --origin "https://example.com/notes" --license
 vitruvio source replace paper-v2.pdf --supersedes <BLOCK_ID>
 ```
 
+## What is refused, and before what
+
+A path is checked before the file is read and before a brain is opened for a write. Four refusals, exit 2:
+
+| refused | why |
+|---|---|
+| a symlink | a link registers the same bytes under a second origin; register the target |
+| outside the declared directory | only reachable when a caller bounds the read, as a declared source does |
+| not a regular file | `read_bytes()` on a FIFO blocks forever, which is a hang and not an error |
+| over `[ingest] max_bytes` | checked against the file's size *before* the read: a refusal rather than an out-of-memory kill |
+
+`max_bytes` is unset by default, which is right for a person registering their own files and wrong for anything
+accepting evidence from elsewhere. It is declared per brain and enforced in the runtime, so bytes assembled in
+memory cannot exceed what bytes read from a file may not.
+
+```toml
+[ingest]
+max_bytes = 52428800
+```
+
+These are the same four a declared source has applied since it existed. What changed is that a path a *person*
+types goes through them too, which is the one that has a symlink in it.
+
+## Where it came from is never guessed
+
+`--origin` is recorded in provenance and is the key a later pull uses to answer "already have this?". Omitted, it
+is the path you named — which is meaningful because you named it. Nothing else invents one: the runtime is handed
+bytes, a media type and an origin, and if a caller has no origin to give it says so rather than having this
+machine's directory layout written into a permanent record. See [ADR-0021](https://github.com/getsfumato/vitruvio/blob/main/adr/0021-transport-neutral-evidence.md).
+
 ## The media type is load-bearing
 
 It is recorded in the block, it travels with the artifact, and it is what **both** normalization dispatch and

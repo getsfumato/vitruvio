@@ -12,12 +12,65 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from vitruvio.kernel import ResolvedConfig
+from vitruvio.kernel import EvidenceRefusedError, ResolvedConfig, UsageError
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.provenance import ProvenanceReader
 from vitruvio.runtime.session import BrainSession
+
+MAX_WINDOW = 8 << 20
+"""The most a single window will put in an envelope. A caller reads a larger object in several."""
+
+_CHUNK = 1 << 20
+
+
+def _window(store: Any, digest: Any, *, offset: int, length: int) -> tuple[bytes, int]:
+    """
+    A window onto stored bytes, and the size of the whole, without ever holding the whole.
+
+    Verification is what forces the entire blob to be read: a sha256 is not checkable from a slice of it, and
+    handing back unverified bytes would make this the one read in the runtime that does not. What it does not
+    force is *keeping* the blob -- the hash is folded a megabyte at a time and only the requested window is
+    retained, so a one-byte window off a gigabyte costs a gigabyte of reading and a byte of memory.
+
+    Falls back to :meth:`get_bytes` for a store that is not an OCI layout on disk, and defers to it for
+    resolvability so that a missing or tombstoned digest fails exactly as it does everywhere else.
+
+    Args:
+        store (Any): The block store.
+        digest (Any): The parsed content address.
+        offset (int): Where the window starts.
+        length (int): How long it is, at most.
+
+    Returns:
+        tuple[bytes, int]: The window, and the total size.
+    """
+    import hashlib
+
+    blobs = getattr(store, "blobs_dir", None)
+    if blobs is None or not store.is_resolvable(digest):
+        data = store.get_bytes(digest)
+        return data[offset : offset + length], len(data)
+
+    from boltzmann.exceptions import BlockIntegrityError
+
+    end = offset + length
+    digester = hashlib.sha256()
+    kept = bytearray()
+    size = 0
+    with (blobs / digest.hex).open("rb") as handle:
+        while chunk := handle.read(_CHUNK):
+            digester.update(chunk)
+            start, size = size, size + len(chunk)
+            lower, upper = max(offset - start, 0), min(end - start, len(chunk))
+            if lower < upper:
+                kept += chunk[lower:upper]
+    if digester.hexdigest() != digest.hex:
+        raise BlockIntegrityError(
+            f"stored bytes for {digest.KIND} {digest.short} do not hash to it: the store is corrupt"
+        )
+    return bytes(kept), size
 
 
 class BrowsingOps:
@@ -169,31 +222,92 @@ class BrowsingOps:
         with translated():
             return brain.store.get_bytes(OciDigest.parse(digest))
 
-    def export_content(self, digest: str, destination: Path, *, overwrite: bool = True) -> dict[str, Any]:
+    def content_range(self, digest: str, *, offset: int = 0, length: int | None = None) -> dict[str, Any]:
         """
-        Write the bytes a block names to a file.
+        A bounded window onto the bytes a block names, as text a caller elsewhere can be handed.
+
+        What :meth:`export_content` is for a caller on this machine, this is for one that is not. A remote
+        caller has no destination path here, and it does not want a whole video in a JSON envelope either, so it
+        asks for a window and is told how big the whole thing is.
+
+        A window is capped at :data:`MAX_WINDOW`, so ``length=None`` means "to the end or to the cap, whichever
+        comes first". Comparing ``offset + length`` with ``size`` says whether to ask again -- which is how a
+        range read works, and the reason the operation reports the total at all.
+
+        Args:
+            digest (str): The content address.
+            offset (int): Where to start, in bytes.
+            length (int | None): How many bytes at most. ``None`` means to the end, within the cap.
+
+        Returns:
+            dict[str, Any]: The digest, the window's ``offset`` and ``length``, the content's total ``size``,
+            and the window itself as base64 in ``content``.
+
+        Raises:
+            UsageError: The window starts before zero, or asks for more than the cap.
+        """
+        import base64
+
+        from boltzmann.identity.digest import OciDigest
+
+        if offset < 0 or (length is not None and length < 0):
+            raise UsageError("a content window cannot start or end before zero")
+        if length is not None and length > MAX_WINDOW:
+            raise UsageError(f"a content window is at most {MAX_WINDOW} bytes", hint="read it in several windows")
+        brain = self.session.brain(Capability.INSPECT)
+        with translated():
+            window, size = _window(brain.store, OciDigest.parse(digest), offset=offset, length=length or MAX_WINDOW)
+        return {
+            "digest": digest,
+            "offset": offset,
+            "length": len(window),
+            "size": size,
+            "content": base64.b64encode(window).decode("ascii"),
+        }
+
+    def export_content(
+        self, digest: str, destination: Path, *, overwrite: bool = False, within: Path | None = None
+    ) -> dict[str, Any]:
+        """
+        Write the bytes a block names to a file on this machine.
 
         For everything a terminal cannot draw: a video to hand to a player, a spreadsheet to open, an original
         PDF to keep. The brain stays the authority -- this is a copy out, not a move, and nothing about the
         block changes.
 
+        The default is to refuse an existing target rather than replace it, which is the opposite of what it was.
+        A default that overwrites is correct for exactly one caller -- a person who typed ``--out`` and meant it --
+        and wrong for every caller that *derives* a destination, which is the shape a bug takes: issue #19 was the
+        browser exporting over a file in the working directory.
+
         Args:
             digest (str): The content address.
             destination (Path): Where to write. A directory is written into, under the digest's hex.
-            overwrite (bool): Whether an existing target may be replaced. Defaults to ``True`` for explicit
-                command-line exports; callers that derive a destination should disable it.
+            overwrite (bool): Whether an existing target may be replaced.
+            within (Path | None): A directory the destination must be inside, for a caller that did not type it.
 
         Returns:
             dict[str, Any]: The digest, the path written, and how many bytes it holds.
+
+        Raises:
+            EvidenceRefusedError: The target exists and may not be replaced, or is outside ``within``.
         """
         data = self.content(digest)
-        target = destination
-        if destination.is_dir():
-            target = destination / digest.replace(":", "-")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("wb" if overwrite else "xb") as exported:
-            exported.write(data)
-        return {"digest": digest, "path": str(target), "size": len(data)}
+        target = destination / digest.replace(":", "-") if destination.is_dir() else destination
+        resolved = target.expanduser().resolve()
+        if within is not None and not resolved.is_relative_to(within.expanduser().resolve()):
+            raise EvidenceRefusedError(f"{resolved} is outside {within}", hint="choose a destination inside it")
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # `xb` rather than a prior `exists()`: between the check and the write another caller can create the
+            # file, and `write_bytes` would then truncate it under a refusal it was promised.
+            with resolved.open("wb" if overwrite else "xb") as exported:
+                exported.write(data)
+        except FileExistsError as collision:
+            raise EvidenceRefusedError(
+                f"{resolved} already exists", hint="ask for a replacement explicitly"
+            ) from collision
+        return {"digest": digest, "path": str(resolved), "size": len(data)}
 
     def related(self, block_id: str, *, limit: int = 50) -> dict[str, Any]:
         """

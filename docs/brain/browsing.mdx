@@ -173,7 +173,10 @@ claim is part of its identity, and a viewer of a verifiable store must not contr
 | `application/pdf` | the page, rasterized, one at a time |
 | video, audio, anything else | its metadata, and `o` hands it to the desktop |
 
-With `--out` the same command writes the bytes somewhere permanent instead.
+With `--out` the same command writes the bytes somewhere permanent instead, replacing what is there — you named
+the destination, so it means it. Every *derived* destination refuses instead: pressing `e` in the browser will not
+write over a file in your working directory, and cannot write outside it either, because the name it derives comes
+from the origin recorded in the block and a pulled brain's origins are somebody else's text.
 
 Images and PDF pages need `vitruvio[vision]` — Pillow and pypdfium2. Without them the preview says which extra
 would draw it rather than pretending there is nothing there.

@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ExitCode, UsageError, VitruvioError, resolve
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.assembly import Capability
@@ -73,7 +74,7 @@ def add_evidence(service: BrainService, text: str, name: str) -> str:
     incoming.mkdir(parents=True, exist_ok=True)
     path = incoming / name
     path.write_text(text, encoding="utf-8")
-    return str(service.register(path, media_type="text/markdown")["block_id"])
+    return str(service.register(Evidence.from_path(path, media_type="text/markdown"))["block_id"])
 
 
 def derive(service: BrainService, source: str, label: str) -> str:
@@ -788,8 +789,8 @@ class TestTheHistoryIsAGraph:
         second = tmp_path / "second.md"
         first.write_text("first", encoding="utf-8")
         second.write_text("second", encoding="utf-8")
-        service.register(first, media_type="text/markdown")
-        service.register(second, media_type="text/markdown")
+        service.register(Evidence.from_path(first, media_type="text/markdown"))
+        service.register(Evidence.from_path(second, media_type="text/markdown"))
 
         sdk_order = [str(snapshot.digest) for snapshot in service.brain().history()]
         history = service.history()

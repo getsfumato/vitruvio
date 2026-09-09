@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import resolve
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.ops.diagnosis import CHECKS, SEVERITIES, row
@@ -32,7 +33,7 @@ class TestRows:
         self, service: BrainService, source_file: Path
     ) -> None:
         """A machine branches on `code` and `severity`; a code that is not in CHECKS is a code the docs cannot list."""
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         report = service.doctor()
         assert report["checks"]
         for item in report["checks"]:
@@ -58,7 +59,7 @@ class TestRows:
     def test_a_healthy_brain_has_no_failures_and_probes_no_registry(
         self, service: BrainService, source_file: Path
     ) -> None:
-        service.register(source_file, media_type="text/markdown", normalize_with="markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown", normalize_with="markdown"))
         service.index_build()
         report = service.doctor()
         assert [item["code"] for item in report["checks"] if item["severity"] == "fail"] == []
@@ -74,7 +75,7 @@ class TestOffline:
     def test_doctor_never_imports_an_embedder(self, service: BrainService, source_file: Path) -> None:
         """Asserted on sys.modules rather than by timing, so it cannot pass by being fast on a good day. The vector
         sidecar is on disk and its tag is checked -- from the header, without constructing what produced it."""
-        service.register(source_file, media_type="text/markdown", normalize_with="markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown", normalize_with="markdown"))
         service.index_build()
         for module in ("torch", "sentence_transformers"):
             sys.modules.pop(module, None)
@@ -88,11 +89,11 @@ class TestOffline:
         self, service: BrainService, source_file: Path, tmp_path: Path
     ) -> None:
         """Register after building and every canonical sidecar describes yesterday's composition."""
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         service.index_build()
         other = tmp_path / "otra.md"
         other.write_text("# Otra nota\n\nUn parrafo mas.\n", encoding="utf-8")
-        service.register(other, media_type="text/markdown")
+        service.register(Evidence.from_path(other, media_type="text/markdown"))
 
         (stale,) = by_code(service.doctor(), "indices.stale")
         assert stale["severity"] == "warn"
@@ -111,7 +112,7 @@ class TestOffline:
         assert by_code(report, "cache.models"), "the environment is still reported"
 
     def test_a_partial_pull_is_reported(self, service: BrainService, source_file: Path, tmp_path: Path) -> None:
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         service.index_build()
         registry_root = tmp_path / "registry"
         registry_root.mkdir()
@@ -178,7 +179,7 @@ class TestAttribution:
     def test_registered_evidence_and_declared_catalogs_are_attributed(
         self, service: BrainService, source_file: Path
     ) -> None:
-        source = service.register(source_file, media_type="text/markdown")["block_id"]
+        source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
         service.catalog_apply(
             {
                 "schema": "vitruvio.catalog/v1",
@@ -198,7 +199,7 @@ class TestAttribution:
         from boltzmann.blocks.memory_type import MemoryType
         from boltzmann.catalog import SchemeDeclaration
 
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         with service.session.write() as writable:
             writable._write(blocks={MemoryType.SEMANTIC: [SchemeDeclaration(scheme="topic").to_block()]}, provenance=[])
 

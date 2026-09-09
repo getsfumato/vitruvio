@@ -408,6 +408,11 @@ class IngestSpec(BaseModel):
             agent wrote, which is the path that keeps the model outside the runtime.
         allowed_memory_types (list[MemoryType] | None): What a proposer may propose. Canonical and
             provenance are never proposable -- the protocol writes those.
+        max_bytes (int | None): The largest piece of evidence this brain accepts. ``None``, the default, is no
+            ceiling, which is right for a person registering their own files and wrong for anything that accepts
+            evidence from elsewhere. Named as ``SourceSpec.max_bytes`` is, because it is the same declaration
+            about the same thing: a declared source bounds what it pulls, this bounds what anything else hands
+            in, and both are checked before the bytes are held rather than after.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -415,6 +420,7 @@ class IngestSpec(BaseModel):
     default_pipeline: str | None = None
     proposer: str = "file"
     allowed_memory_types: list[MemoryType] | None = None
+    max_bytes: int | None = Field(default=None, ge=1)
 
 
 SOURCE_NAME = re.compile(r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")

@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from vitruvio.kernel import ActorUnknownError, VitruvioError, resolve
+from vitruvio.ingest.evidence import Evidence
+from vitruvio.kernel import ActorUnknownError, EvidenceRefusedError, IngestSpec, ResolvedConfig, VitruvioError, resolve
 from vitruvio.runtime import BrainService, Capability, known_codes, report_for, translate
 from vitruvio.runtime.assembly import build_indices
 
@@ -60,7 +61,7 @@ class TestLifecycle:
 class TestRegistration:
     def test_register_creates_a_canonical_block_and_a_version(self, service: BrainService, source_file: Path) -> None:
         before = service.state()["snapshot"]["digest"]
-        result = service.register(source_file, media_type="text/markdown")
+        result = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         assert result["block_id"].startswith("sha256:")
         assert result["duplicate"] is False
         assert result["snapshot"] is not None
@@ -69,16 +70,87 @@ class TestRegistration:
         assert state["snapshot"]["digest"] != before
         assert set(state["installed"]) == {"canonical", "provenance"}
 
+    def test_registering_from_memory_touches_no_filesystem_path(self, service: BrainService) -> None:
+        """The shape a caller elsewhere has: bytes, a media type, and an origin that means something to it."""
+        evidence = Evidence.from_bytes(
+            b"# Series de Fourier\n\nSenos y cosenos.\n",
+            origin="https://example.org/fourier",
+            media_type="text/markdown",
+        )
+
+        result = service.register(evidence)
+
+        assert result["duplicate"] is False
+        links = [row["record"] for row in service.related(result["block_id"])["records"]]
+        assert any(record.get("origin") == "https://example.org/fourier" for record in links)
+
+    def test_an_origin_is_never_invented_from_the_host(self, service: BrainService, source_file: Path) -> None:
+        """The defect this seam exists for: a caller elsewhere would have had this machine's absolute path
+        written into its provenance, permanently, as the thing a consumer audits."""
+        registered = service.register(Evidence.from_bytes(b"x", origin="upload://1", media_type="text/plain"))
+
+        links = [row["record"] for row in service.related(registered["block_id"])["records"]]
+        origins = [record["origin"] for record in links if record.get("origin")]
+        assert origins == ["upload://1"]
+        assert not any(str(source_file.parent) in origin for origin in origins)
+
+    def test_every_intake_records_the_metadata_the_evidence_carried(
+        self, service: BrainService, source_file: Path
+    ) -> None:
+        """One input accepted a licence and a retention policy on every path, and each path built its own
+        registration request: `replace` dropped the policy and `ingest_run` dropped both, so the same evidence
+        produced different provenance depending on which operation took it."""
+        first = Evidence.from_path(
+            source_file, media_type="text/markdown", license="CC-BY-4.0", retention_policy="retain"
+        )
+        registered = service.register(first)
+        replaced = service.replace(
+            Evidence.from_bytes(
+                b"# Series de Fourier\n\nSegunda edicion.\n",
+                origin="https://example.org/fourier",
+                media_type="text/markdown",
+                license="CC-BY-4.0",
+                retention_policy="retain",
+            ),
+            supersedes=registered["block_id"],
+        )
+        ingested = service.ingest_run(
+            Evidence.from_bytes(
+                b"# Series de Fourier\n\nTercera edicion.\n",
+                origin="https://example.org/fourier-3",
+                media_type="text/markdown",
+                license="CC-BY-4.0",
+                retention_policy="retain",
+            ),
+            proposer="structure",
+            dry_run=True,
+        )
+
+        for block in (registered["block_id"], replaced["block_id"], ingested["registration"]["block_id"]):
+            record = next(row["record"] for row in service.related(block)["records"] if row["record"].get("license"))
+            assert (record["license"], record["retention_policy"]) == ("CC-BY-4.0", "retain")
+
+    def test_evidence_over_the_declared_ceiling_is_refused(self, config: ResolvedConfig) -> None:
+        """Declared on the brain, enforced in the runtime, so bytes assembled in memory cannot exceed what a
+        file may not."""
+        bounded = config.model_copy(
+            update={"project": config.project.model_copy(update={"ingest": IngestSpec(max_bytes=8)})}
+        )
+        service = BrainService(bounded)
+
+        with pytest.raises(EvidenceRefusedError, match="over the declared max_bytes"):
+            service.register(Evidence.from_bytes(b"x" * 9, origin="upload://1", media_type="text/plain"))
+
     def test_re_registering_identical_bytes_is_a_no_op(self, service: BrainService, source_file: Path) -> None:
         """Identity is derived from content, so the second call mints no version."""
-        first = service.register(source_file, media_type="text/markdown")
-        second = service.register(source_file, media_type="text/markdown")
+        first = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        second = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         assert second["block_id"] == first["block_id"]
         assert second["duplicate"] is True
         assert second["snapshot"] is None
 
     def test_a_registered_block_proves_into_its_module_root(self, service: BrainService, source_file: Path) -> None:
-        registered = service.register(source_file, media_type="text/markdown")
+        registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         proof = service.prove(registered["block_id"], "canonical")
         assert proof["verified"] is True
         assert proof["root"] == service.roots()["roots"]["canonical"]
@@ -86,7 +158,7 @@ class TestRegistration:
     def test_a_registered_block_resolves_to_bytes_that_hash_to_its_identity(
         self, service: BrainService, source_file: Path
     ) -> None:
-        registered = service.register(source_file, media_type="text/markdown")
+        registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         block = service.resolve(registered["block_id"])
         assert block["memory_type"] == "canonical"
         assert block["payload"]["media_type"] == "text/markdown"
@@ -95,11 +167,11 @@ class TestRegistration:
     def test_replace_records_a_supersession_without_removing_the_old_block(
         self, service: BrainService, source_file: Path, tmp_path: Path
     ) -> None:
-        first = service.register(source_file, media_type="text/markdown")
+        first = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         newer = tmp_path / "fourier-2nd.md"
         newer.write_text("# Series de Fourier, segunda edicion\n", encoding="utf-8")
 
-        result = service.replace(newer, supersedes=first["block_id"], media_type="text/markdown")
+        result = service.replace(Evidence.from_path(newer, media_type="text/markdown"), supersedes=first["block_id"])
         assert result["block_id"] != first["block_id"]
         # The old block stays in the composition and keeps proving: what changed is precedence.
         assert service.prove(first["block_id"], "canonical")["verified"] is True
@@ -109,7 +181,7 @@ class TestRegistration:
         service = BrainService(config)
         service.init()
         with pytest.raises(ActorUnknownError):
-            service.register(source_file, media_type="text/markdown")
+            service.register(Evidence.from_path(source_file, media_type="text/markdown"))
 
     def test_reading_without_an_actor_is_allowed(self, tmp_path: Path) -> None:
         """Inspecting someone else's brain attributes nothing, so it must not require an identity."""
@@ -123,33 +195,35 @@ class TestRegistration:
     ) -> None:
         """The documented first-user flow -- register, index, search -- found nothing: `register` ran no pipeline
         unless named one, while `ingest run` picked the one suggested for the media type. One policy now."""
-        result = service.register(source_file, media_type="text/markdown")
+        result = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         assert result["pipeline"] == "markdown"
         assert service.resolve(result["block_id"])["payload"]["normalized_view"] is not None
 
     def test_none_registers_the_bytes_without_a_view(self, service: BrainService, source_file: Path) -> None:
-        result = service.register(source_file, media_type="text/markdown", normalize_with="none")
+        result = service.register(Evidence.from_path(source_file, media_type="text/markdown", normalize_with="none"))
         assert result["pipeline"] is None
         assert service.resolve(result["block_id"])["payload"].get("normalized_view") is None
 
     def test_implicit_and_explicit_pipelines_yield_one_identity(self, service: BrainService, source_file: Path) -> None:
-        first = service.register(source_file, media_type="text/markdown")
-        second = service.register(source_file, media_type="text/markdown", normalize_with="markdown")
+        first = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        second = service.register(
+            Evidence.from_path(source_file, media_type="text/markdown", normalize_with="markdown")
+        )
         assert second["block_id"] == first["block_id"]
         assert second["duplicate"] is True
 
     def test_a_different_pipeline_is_a_different_block(self, service: BrainService, source_file: Path) -> None:
         """The view is part of the identity, so the same bytes with no view are a second block, not a duplicate."""
-        with_view = service.register(source_file, media_type="text/markdown")
-        without = service.register(source_file, media_type="text/markdown", normalize_with="none")
+        with_view = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        without = service.register(Evidence.from_path(source_file, media_type="text/markdown", normalize_with="none"))
         assert without["block_id"] != with_view["block_id"]
         assert without["duplicate"] is False
 
     def test_replace_applies_the_same_default(self, service: BrainService, source_file: Path, tmp_path: Path) -> None:
-        first = service.register(source_file, media_type="text/markdown")
+        first = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         newer = tmp_path / "second.md"
         newer.write_text("# Segunda edicion\n", encoding="utf-8")
-        result = service.replace(newer, supersedes=first["block_id"], media_type="text/markdown")
+        result = service.replace(Evidence.from_path(newer, media_type="text/markdown"), supersedes=first["block_id"])
         assert result["pipeline"] == "markdown"
 
 
@@ -157,13 +231,13 @@ class TestInspection:
     def test_resolvability_is_intact_for_a_freshly_written_brain(
         self, service: BrainService, source_file: Path
     ) -> None:
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         report = service.resolvability()
         assert report["intact"] is True
         assert report["counts"]["resolvable"]["canonical"] == 1
 
     def test_module_reports_its_shape_and_truncates_its_sample(self, service: BrainService, source_file: Path) -> None:
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         module = service.module("canonical", limit=0)
         assert module["block_count"] == 1
         assert module["block_ids"] == []
@@ -181,7 +255,7 @@ class TestInspection:
 
 class TestSearch:
     def test_search_returns_a_verified_bundle_and_never_prose(self, service: BrainService, source_file: Path) -> None:
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         bundle = service.search("fourier")
         assert "answer" not in bundle
         assert bundle["matches"], "a bundle with the right shape and no matches is what issue #52 looked like"
@@ -192,7 +266,7 @@ class TestSearch:
         self, service: BrainService, source_file: Path
     ) -> None:
         """Issue #52: the exhaustive scan is the plan a small brain gets, and it used to read only the media type."""
-        registered = service.register(source_file, media_type="text/markdown")
+        registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         found = {match["block_id"] for match in service.search("fourier")["matches"]}
         assert registered["block_id"] in found
 
@@ -200,7 +274,7 @@ class TestSearch:
         self, service: BrainService, source_file: Path
     ) -> None:
         """Every generator observes the same text, so the answer does not depend on which one the planner picks."""
-        registered = service.register(source_file, media_type="text/markdown")
+        registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         service.index_build()
         for kwargs in ({}, {"mode": "lexical"}, {"memory_types": ["canonical"]}):
             found = {match["block_id"] for match in service.search("fourier", **kwargs)["matches"]}
@@ -212,14 +286,14 @@ class TestSearch:
 
     def test_scores_stay_strings(self, service: BrainService, source_file: Path) -> None:
         """The protocol renders a score as a decimal string; parsing it would invent precision."""
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         for match in service.search("markdown", memory_types=["canonical"])["matches"]:
             assert isinstance(match["score"], str)
 
     def test_visual_diagnostics_are_opt_in_and_share_the_executed_plan(
         self, service: BrainService, source_file: Path
     ) -> None:
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         ordinary = service.search("fourier")
         visual = service.search("fourier", diagnostics=True)
         assert "diagnostics" not in ordinary
@@ -230,7 +304,7 @@ class TestSearch:
     def test_a_time_filter_cannot_admit_a_block_without_a_timestamp(
         self, service: BrainService, source_file: Path
     ) -> None:
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         assert service.search("fourier", since="2026-01-01T00:00:00Z")["matches"] == []
 
     def test_time_filtering_happens_before_the_result_limit(self, service: BrainService, source_file: Path) -> None:
@@ -239,7 +313,7 @@ class TestSearch:
         from boltzmann.identity.digest import BlockId
         from boltzmann.ingest.proposer import Candidate, CandidateSet
 
-        registered = service.register(source_file, media_type="text/markdown")
+        registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
         brain = service.brain(Capability.WRITE)
         source = BlockId.parse(registered["block_id"])
         task = brain.define_task(source, allowed=[MemoryType.EPISODIC])

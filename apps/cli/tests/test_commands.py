@@ -201,11 +201,36 @@ class TestSource:
         assert payload["data"]["snapshot"] is None
         assert any("already registered" in warning for warning in payload["warnings"])
 
+    def test_ingest_run_reports_a_missing_file_before_the_brain_is_opened(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, tmp_path: Path
+    ) -> None:
+        """It used to skip the check `source register` did, so a typo surfaced as an OSError from inside the
+        write transaction."""
+        code, payload = envelope(
+            capsys, "--brain", str(brain), "--empty-assisted-by", "ingest", "run", str(tmp_path / "absent.md")
+        )
+        assert code == ExitCode.USAGE
+        assert "does not exist" in payload["error"]["message"]
+
+    def test_registering_a_symlink_is_refused(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, tmp_path: Path
+    ) -> None:
+        """A declared source has refused these since ADR-0011; a path a person types is the one that has one."""
+        real = tmp_path / "real.md"
+        real.write_text("# Fourier", encoding="utf-8")
+        link = tmp_path / "link.md"
+        link.symlink_to(real)
+
+        code, payload = envelope(capsys, "--brain", str(brain), "source", "register", str(link))
+
+        assert code == ExitCode.USAGE
+        assert payload["error"]["code"] == "EVIDENCE_REFUSED"
+
     def test_a_missing_file_is_reported_before_the_brain_is_opened(
         self, capsys: pytest.CaptureFixture[str], brain: Path, tmp_path: Path
     ) -> None:
         code, payload = envelope(capsys, "--brain", str(brain), "source", "register", str(tmp_path / "absent.md"))
-        assert code == ExitCode.INTERNAL or payload["ok"] is False
+        assert code == ExitCode.USAGE, "naming a file that is not there is a typo, not a bug in vitruvio"
         assert "does not exist" in payload["error"]["message"]
 
     def test_registering_without_an_actor_is_refused(

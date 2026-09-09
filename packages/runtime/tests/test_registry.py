@@ -14,6 +14,7 @@ import pytest
 from boltzmann.authenticity import AuthorshipState, UnsignedPolicy, VerificationPolicy
 from boltzmann.exceptions import AuthenticityError
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import AuthenticitySpec, CredentialError, VitruvioError, resolve
 from vitruvio.runtime import BrainService, Capability
 from vitruvio.runtime.ops.remote import RemoteOps
@@ -264,7 +265,7 @@ def published(tmp_path: Path, source_file: Path) -> tuple[Path, str]:
     config = resolve(brain=tmp_path / "producer", actor_id="producer@example.com", require_layout=False, declaring=True)
     service = BrainService(config)
     service.init()
-    registered = service.register(source_file, media_type="text/markdown")
+    registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
 
     from boltzmann.identity.digest import BlockId
 
@@ -393,7 +394,7 @@ class TestLocalRoundTrip:
             resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False, declaring=True)
         )
         producer.init()
-        producer.register(source_file, media_type="text/markdown")
+        producer.register(Evidence.from_path(source_file, media_type="text/markdown"))
 
         pushed = await producer.push_async("demo/async", tag="v1", local=registry_root)
 
@@ -593,7 +594,7 @@ class TestTwoCallersOnOneLoop:
             resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False, declaring=True)
         )
         producer.init()
-        producer.register(source_file, media_type="text/markdown")
+        producer.register(Evidence.from_path(source_file, media_type="text/markdown"))
 
         at_the_registry = asyncio.Event()
         release = asyncio.Event()
@@ -635,7 +636,7 @@ class TestContainerRegistry:
         config = resolve(brain=tmp_path / "brain", actor_id="p@example.com", require_layout=False, declaring=True)
         service = BrainService(config)
         service.init()
-        service.register(source_file, media_type="text/markdown")
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
 
         result = service.registry_check(f"{endpoint}/demo/brain", anonymous=True, insecure=True)
         assert result["ok"] is True, result
@@ -644,7 +645,7 @@ class TestContainerRegistry:
         config = resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False, declaring=True)
         producer = BrainService(config)
         producer.init()
-        producer.register(source_file, media_type="text/markdown")
+        producer.register(Evidence.from_path(source_file, media_type="text/markdown"))
         producer.index_build()
         producer.push(f"{endpoint}/demo/brain", tag="v1", anonymous=True, insecure=True)
 
@@ -706,7 +707,7 @@ class TestWhatAPullReplaces:
     ) -> None:
         """`plan-pull` exists to answer "what would this cost" before paying it, and losing local work is a cost."""
         registry_root, reference = published
-        consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        consumer.register(Evidence.from_path(mine, media_type="text/markdown", origin="local://mine"))
 
         work = consumer.plan_pull(reference, tag="v1", local=registry_root)["local_work"]
         assert work["diverged"] is True
@@ -719,7 +720,7 @@ class TestWhatAPullReplaces:
         self, consumer: BrainService, published: tuple[Path, str], mine: Path
     ) -> None:
         registry_root, reference = published
-        local = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        local = consumer.register(Evidence.from_path(mine, media_type="text/markdown", origin="local://mine"))
 
         plan = consumer.plan_pull(reference, tag="v1", modules=["semantic"], local=registry_root)
         result = consumer.pull(reference, tag="v1", modules=["semantic"], local=registry_root, allow_rollback=True)
@@ -738,7 +739,7 @@ class TestWhatAPullReplaces:
         """Counted here rather than estimated: this is the one moment both compositions are known, so the report can
         say what happened instead of what was likely to."""
         registry_root, reference = published
-        registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        registered = consumer.register(Evidence.from_path(mine, media_type="text/markdown", origin="local://mine"))
 
         result = consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
         assert result["discarded"] > 0
@@ -749,7 +750,7 @@ class TestWhatAPullReplaces:
         self, consumer: BrainService, published: tuple[Path, str], mine: Path
     ) -> None:
         registry_root, reference = published
-        registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        registered = consumer.register(Evidence.from_path(mine, media_type="text/markdown", origin="local://mine"))
         before = consumer.state()["snapshot"]["digest"]
 
         with pytest.raises(VitruvioError) as caught:
@@ -764,7 +765,7 @@ class TestWhatAPullReplaces:
         """The report would be worthless if it were describing something that had not happened. Checked against the
         module rather than against the report."""
         registry_root, reference = published
-        registered = consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        registered = consumer.register(Evidence.from_path(mine, media_type="text/markdown", origin="local://mine"))
         consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)
 
         held = consumer.module("canonical", limit=100)["block_ids"]
@@ -777,7 +778,7 @@ class TestWhatAPullReplaces:
         """What makes this a warning rather than an error: the state is still there to go back to by hand. If this
         ever stops being true, the warning has to become a refusal."""
         registry_root, reference = published
-        consumer.register(mine, media_type="text/markdown", origin="local://mine")
+        consumer.register(Evidence.from_path(mine, media_type="text/markdown", origin="local://mine"))
         before = str(consumer.state()["snapshot"]["digest"])
 
         consumer.pull(reference, tag="v1", local=registry_root, allow_rollback=True)

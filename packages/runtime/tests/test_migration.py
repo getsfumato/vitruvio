@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import UsageError, resolve
 from vitruvio.runtime import BrainService
 
@@ -32,7 +33,7 @@ def add_semantic(service: BrainService, source: str) -> str:
 def test_migration_recreates_current_canonical_state_without_touching_source(
     service: BrainService, source_file: Path, tmp_path: Path
 ) -> None:
-    registered = service.register(source_file, media_type="text/markdown")
+    registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
     source_snapshot = service.state()["snapshot"]["digest"]
     destination = tmp_path / "migrated"
 
@@ -58,7 +59,7 @@ def test_migration_dry_run_creates_nothing(service: BrainService, tmp_path: Path
 
 
 def test_migration_preserves_derived_identities(service: BrainService, source_file: Path, tmp_path: Path) -> None:
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     semantic = add_semantic(service, source)
 
     result = service.migrate(tmp_path / "with-semantic", governed=False)
@@ -69,11 +70,11 @@ def test_migration_preserves_derived_identities(service: BrainService, source_fi
 def test_dry_run_reports_an_open_evidence_chain_before_real_migration_refuses(
     service: BrainService, source_file: Path, tmp_path: Path
 ) -> None:
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     semantic = add_semantic(service, source)
     replacement = tmp_path / "replacement.md"
     replacement.write_text("# Replacement\n", encoding="utf-8")
-    service.replace(replacement, supersedes=source, media_type="text/markdown")
+    service.replace(Evidence.from_path(replacement, media_type="text/markdown"), supersedes=source)
     destination = tmp_path / "incomplete"
 
     report = service.migrate(destination, governed=False, dry_run=True)
@@ -94,7 +95,7 @@ def test_dry_run_reports_an_open_evidence_chain_before_real_migration_refuses(
 def test_catalog_placements_whose_source_is_not_migrated_are_reported(
     service: BrainService, source_file: Path, tmp_path: Path
 ) -> None:
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
     service.catalog_apply(
         {
             "schema": "vitruvio.catalog/v1",
@@ -105,7 +106,7 @@ def test_catalog_placements_whose_source_is_not_migrated_are_reported(
     )
     replacement = tmp_path / "replacement.md"
     replacement.write_text("# Replacement\n", encoding="utf-8")
-    service.replace(replacement, supersedes=source, media_type="text/markdown")
+    service.replace(Evidence.from_path(replacement, media_type="text/markdown"), supersedes=source)
 
     destination = tmp_path / "catalog-migration"
     plan = service.migrate(destination, governed=False, dry_run=True)
@@ -126,7 +127,7 @@ def test_partial_migration_preflights_canonical_identity_before_installing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source = service.register(source_file, media_type="text/markdown")["block_id"]
+    source = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
 
     from boltzmann.brain import Brain
     from boltzmann.identity.digest import BlockId

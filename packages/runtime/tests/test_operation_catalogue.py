@@ -250,13 +250,11 @@ class TestTheCatalogueIsComplete:
         assert len([name for _, name in facade_operations() if name.endswith("_async")]) == 5
 
     def test_nothing_host_local_is_offered_to_a_caller_elsewhere(self) -> None:
+        """What is left after #56: writing to a destination here, and reading or creating a layout here."""
         offered = {operation.name for _, operation in protocol_operations()}
         assert not offered & {
-            "register",
-            "replace",
-            "put_content",
-            "ingest_run",
             "export_content",
+            "plan_migration",
             "migrate",
             "bench",
             # These three name a place on this machine as a plain string, which is the shape the annotation check
@@ -265,6 +263,7 @@ class TestTheCatalogueIsComplete:
             "add_source",
             "add_brain",
         }
+        assert {"register", "replace", "put_content", "ingest_run"} <= offered
 
     def test_the_heavy_operations_are_a_reviewed_list(self) -> None:
         """Unlike capability, mutation and network, "heavy" has no seam to check it against: it is a judgment

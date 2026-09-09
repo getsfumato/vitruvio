@@ -16,15 +16,16 @@ which of the two happened in order to find the command.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from cyclopts import App, Parameter
 from rich.text import Text
 
 from vitruvio.cli import render
 from vitruvio.cli.context import current
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.ingest.media import EXTRA_MEDIA_TYPES, FALLBACK_MEDIA_TYPE, media_type_for
-from vitruvio.kernel import ExitCode, UsageError, VitruvioError
+from vitruvio.kernel import ExitCode, UsageError
 
 app = App(name="source", help="Register canonical evidence.", result_action="return_value", exit_on_error=False)
 
@@ -37,13 +38,20 @@ than relocated silently so that every reference to them keeps resolving where it
 """
 
 
-def _require_file(path: Path) -> Path:
-    """Reject a missing or non-file path before opening a brain for a write."""
-    resolved = path.expanduser()
-    if not resolved.is_file():
-        detail = "does not exist" if not resolved.exists() else "is not a file"
-        raise VitruvioError(f"{resolved} {detail}", hint="pass the path of a file to register")
-    return resolved
+def _read(service: Any, path: Path, media_type: str | None, **fields: str | None) -> Evidence:
+    """Read a file the user named, refusing it before a brain is opened for a write.
+
+    The refusals -- a symlink, something that is not a regular file, bytes over the declared ceiling -- are the
+    ones a declared source has always applied, reached through the same function. The runtime takes bytes, so
+    turning a path into them is the adapter's job, and the ceiling is read here as well as enforced there so an
+    oversized file is refused before it is held in memory rather than after.
+    """
+    return Evidence.from_path(
+        path,
+        media_type=media_type,
+        max_bytes=service.config.project.ingest.max_bytes,
+        **fields,  # type: ignore[arg-type]
+    )
 
 
 @app.command(name="register")
@@ -81,20 +89,18 @@ def register(
         too: still evidence for ingestion, not consolidated knowledge.
     """
     console = current().console
-    file = _require_file(path)
-
-    result = (
-        current()
-        .service()
-        .register(
-            file,
-            media_type=media_type_for(file, media_type),
-            origin=origin,
-            license_id=license_id,
-            retention_policy=retention_policy,
-            normalize_with=normalize_with,
-        )
+    service = current().service()
+    evidence = _read(
+        service,
+        path,
+        media_type,
+        origin=origin,
+        license=license_id,
+        retention_policy=retention_policy,
+        normalize_with=normalize_with,
     )
+
+    result = service.register(evidence)
 
     if result["duplicate"]:
         console.warn("identical bytes were already registered; no new version was created")
@@ -141,20 +147,10 @@ def replace(
         to keep only the original bytes.
     """
     console = current().console
-    file = _require_file(path)
+    service = current().service()
+    evidence = _read(service, path, media_type, origin=origin, license=license_id, normalize_with=normalize_with)
 
-    result = (
-        current()
-        .service()
-        .replace(
-            file,
-            supersedes=supersedes,
-            media_type=media_type_for(file, media_type),
-            origin=origin,
-            license_id=license_id,
-            normalize_with=normalize_with,
-        )
-    )
+    result = service.replace(evidence, supersedes=supersedes)
     view = render.fields(
         [
             ("block", render.digest(result["block_id"], full=True)),
@@ -185,8 +181,8 @@ def put(
         What the bytes are.
     """
     console = current().console
-    file = _require_file(path)
-    result = current().service().put_content(file, media_type=media_type_for(file, media_type))
+    service = current().service()
+    result = service.put_content(_read(service, path, media_type))
     return console.emit(
         "source.put",
         result,
