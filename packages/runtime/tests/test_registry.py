@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Awaitable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from boltzmann.authenticity import AuthorshipState, UnsignedPolicy, VerificationPolicy
@@ -14,6 +16,7 @@ from boltzmann.exceptions import AuthenticityError
 
 from vitruvio.kernel import AuthenticitySpec, CredentialError, VitruvioError, resolve
 from vitruvio.runtime import BrainService, Capability
+from vitruvio.runtime.ops.remote import RemoteOps
 from vitruvio.runtime.registry import (
     HUB_INDEX_HOSTS,
     HUB_REGISTRY_HOST,
@@ -577,6 +580,45 @@ def endpoint() -> Iterator[str]:
 @pytest.mark.slow
 @pytest.mark.registry
 @pytest.mark.skipif(not _docker_available(), reason="needs a running Docker daemon")
+class TestTwoCallersOnOneLoop:
+    """The shape an async adapter has and the CLI never does: one session, two requests, one event loop."""
+
+    async def test_a_second_push_is_refused_while_the_first_is_at_the_registry(
+        self, tmp_path: Path, source_file: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`push_async` holds `session.write()` open across the round trip, so the overlap is the normal case."""
+        registry_root = tmp_path / "registry"
+        registry_root.mkdir()
+        producer = BrainService(
+            resolve(brain=tmp_path / "producer", actor_id="p@example.com", require_layout=False, declaring=True)
+        )
+        producer.init()
+        producer.register(source_file, media_type="text/markdown")
+
+        at_the_registry = asyncio.Event()
+        release = asyncio.Event()
+        request = RemoteOps._request
+
+        async def gated(self: RemoteOps, operation: Awaitable[Any]) -> Any:
+            at_the_registry.set()
+            await release.wait()
+            return await request(self, operation)
+
+        monkeypatch.setattr(RemoteOps, "_request", gated)
+        first = asyncio.create_task(producer.push_async("demo/one", tag="v1", local=registry_root))
+        try:
+            await asyncio.wait_for(at_the_registry.wait(), timeout=5)
+            with pytest.raises(VitruvioError) as caught:
+                await producer.push_async("demo/two", tag="v1", local=registry_root)
+        finally:
+            release.set()
+            pushed = await first
+
+        assert caught.value.code == "SESSION_BUSY"
+        assert caught.value.retryable is True
+        assert pushed["digest"]
+
+
 class TestContainerRegistry:
     """The real HTTP path, against ``registry:2`` in a container.
 

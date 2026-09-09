@@ -66,6 +66,14 @@ class ExitCode(IntEnum):
     a 10 means a cascade exceeded the policy's threshold and someone must approve *that*, a 12 means there are
     verdicts to decide and `vitruvio reconcile status` lists them. An agent that could not tell them apart would
     reach for the wrong one half the time."""
+    BUSY = 13
+    """Another caller moved the brain, or is writing to it, through the same session.
+
+    The only status in this table that means "nothing is wrong, ask again". A long-lived interface -- the TUI
+    today, a protocol adapter later -- runs several operations against one session, and two of them can meet: a
+    read whose composition was replaced underneath it, or a write starting while another is in flight. Both are
+    answered rather than guessed at, because the alternative is returning the composition that was just
+    superseded."""
 
 
 class VitruvioError(Exception):
@@ -189,6 +197,34 @@ class CollaboratorNotDeclaredError(ConfigError):
     """
 
     code = "COLLABORATOR_NOT_DECLARED"
+
+
+class SessionBusyError(VitruvioError):
+    """A write started while another write was already running on the same session.
+
+    Refused rather than queued: the writes it separates are registry pushes and pulls, which take as long as the
+    network does, and a caller parked behind one has no way to learn it is waiting. A refusal it can retry is
+    information; a silent wait is not.
+    """
+
+    code = "SESSION_BUSY"
+    exit_code = ExitCode.BUSY
+    retryable = True
+    http_status = 409
+
+
+class StaleBrainError(VitruvioError):
+    """A brain was still being read when something else replaced the composition it describes.
+
+    Clearing the session's cache forgets its own references; it cannot reach one already handed out. So the
+    holder is told, at the point where the answer would have been returned, that the answer is from a
+    composition that no longer exists.
+    """
+
+    code = "BRAIN_STALE"
+    exit_code = ExitCode.BUSY
+    retryable = True
+    http_status = 409
 
 
 class UsageError(VitruvioError):
