@@ -1237,7 +1237,7 @@ class BrainBrowser(App[None]):
         except Exception as error:
             self.call_from_thread(self.notify, str(error), severity="error", timeout=10)
             return
-        actor = state.get("actor") or {}
+        actor = state["actor"]
         where = f"selected by {self.origin}"
         if self.brain_name:
             where += f", as {self.project or 'the project'}'s {self.brain_name!r}"

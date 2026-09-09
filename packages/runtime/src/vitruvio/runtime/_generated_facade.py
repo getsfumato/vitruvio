@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from vitruvio.ingest.evidence import Evidence
+from vitruvio.runtime.lifecycle_result import StateResult
 from vitruvio.runtime.ops.authenticity import AuthenticityOps
 from vitruvio.runtime.ops.benchmarking import BenchmarkOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
@@ -65,7 +66,7 @@ class GeneratedFacade:
             write_config=write_config,
         )
 
-    def state(self) -> dict[str, Any]:
+    def state(self) -> StateResult:
         """The brain's head pointer, snapshot and installed modules.
 
         See :meth:`vitruvio.runtime.ops.lifecycle.LifecycleOps.state`."""

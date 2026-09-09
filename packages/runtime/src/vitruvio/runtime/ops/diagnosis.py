@@ -331,17 +331,17 @@ class DiagnosisOps:
         detail = ", ".join(installed) if installed else "nothing is installed yet"
         rows = [row("modules.installed", OK if installed else WARN, detail, data={"installed": installed})]
 
-        origin = state.get("origin") or {}
-        if origin:
-            partial = bool(origin.get("partial"))
-            where = f"{origin.get('reference')}:{origin.get('tag')}"
+        origin = state["origin"]
+        if origin is not None:
+            partial = origin["partial"]
+            where = f"{origin['reference']}:{origin['tag']}"
             detail = (
                 f"a selective pull from {where}: the modules it did not ask for are absent, and a push over that tag "
                 "is refused"
                 if partial
                 else f"a complete pull from {where}"
             )
-            rows.append(row("modules.partial", WARN if partial else OK, detail, data={"origin": origin}))
+            rows.append(row("modules.partial", WARN if partial else OK, detail, data={"origin": dict(origin)}))
         return rows
 
     def _blocks(self) -> list[dict[str, Any]]:

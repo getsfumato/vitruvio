@@ -34,6 +34,7 @@ from vitruvio.runtime.coerce import block_id, snapshot_digest
 from vitruvio.runtime.coerce import strategy as coerce_strategy
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.reconcile_result import (
+    ReconcileAbortedResult,
     ReconcileCommittedResult,
     ReconcileOperationResult,
     ReconcilePlanResult,
@@ -251,7 +252,7 @@ class ReconcileOps:
             result = brain.reconcile_continue()
         return serialize_committed(result)
 
-    def abort(self) -> dict[str, Any]:
+    def abort(self) -> ReconcileAbortedResult:
         """
         Abandon the reconciliation being resolved.
 
@@ -259,14 +260,14 @@ class ReconcileOps:
         goes is the record of the decisions taken so far.
 
         Returns:
-            dict[str, Any]: What was abandoned, so the report can name it rather than say "done".
+            ReconcileAbortedResult: What was abandoned, so the report can name it rather than say "done".
         """
         with self.session.write() as brain, translated():
             try:
                 status = brain.reconcile_status()
             except ReconciliationError:
                 brain.reconcile_abort()
-                return {"aborted": True, "theirs": None, "strategy": None, "decisions": None, "stale": True}
+                return ReconcileAbortedResult(aborted=True, theirs=None, strategy=None, decisions=None, stale=True)
 
             if status is None:
                 raise UsageError(
@@ -274,13 +275,13 @@ class ReconcileOps:
                     hint="`vitruvio reconcile status` reports whether one is open",
                 )
             brain.reconcile_abort()
-        return {
-            "aborted": True,
-            "theirs": str(status.state.theirs),
-            "strategy": str(status.state.strategy),
-            "decisions": len(status.state.resolutions),
-            "stale": False,
-        }
+        return ReconcileAbortedResult(
+            aborted=True,
+            theirs=str(status.state.theirs),
+            strategy=str(status.state.strategy),
+            decisions=len(status.state.resolutions),
+            stale=False,
+        )
 
     def tree(self, theirs: str | None = None, *, ancestor: str | None = None) -> dict[str, Any]:
         """

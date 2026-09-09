@@ -152,7 +152,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "lifecycle_ops",
         (
             Operation("init", capability=_INSPECT, mutates=True),
-            Operation("state", capability=_INSPECT),
+            Operation("state", capability=_INSPECT, result=ResultKind.TYPED),
             Operation("verify", capability=_INSPECT),
             Operation("history", capability=_INSPECT),
             Operation("info", capability=_INSPECT),
@@ -353,7 +353,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
             Operation("resolve", capability=_WRITE, mutates=True, result=ResultKind.TYPED),
             Operation("accept_removals", capability=_WRITE, mutates=True, result=ResultKind.TYPED),
             Operation("continue_", capability=_WRITE, mutates=True, result=ResultKind.TYPED),
-            Operation("abort", capability=_WRITE, mutates=True),
+            Operation("abort", capability=_WRITE, mutates=True, result=ResultKind.TYPED),
             Operation("tree", capability=_INSPECT),
         ),
         exposure=Exposure.PROPERTY,

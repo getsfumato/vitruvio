@@ -10,11 +10,12 @@ an embedder.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from vitruvio.kernel import Origin, ResolvedConfig, UsageError, VitruvioError
 from vitruvio.runtime import wire
 from vitruvio.runtime.assembly import Capability, open_brain
+from vitruvio.runtime.lifecycle_result import StateResult
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
 
@@ -179,27 +180,30 @@ class LifecycleOps:
             "signatures": len(brain.signatures()),
         }
 
-    def state(self) -> dict[str, Any]:
+    def state(self) -> StateResult:
         """
         The brain's head pointer, snapshot and installed modules.
 
         Returns:
-            dict[str, Any]: Enough to answer "what is installed, at which version, pulled from where".
+            StateResult: Enough to answer "what is installed, at which version, pulled from where".
         """
         brain = self.session.brain(Capability.INSPECT)
         with translated():
             snapshot = brain.snapshot()
-            return {
-                "brain": str(self.config.brain),
-                "brain_origin": self.config.brain_origin.value,
-                "state": brain.state(),
-                "snapshot": wire.snapshot(snapshot),
-                "installed": [kind.value for kind in snapshot.installed],
-                "block_count": snapshot.block_count,
-                "origin": brain.origin.model_dump(mode="json") if brain.origin else None,
-                "ancestry": [str(digest) for digest in brain.ancestry()],
-                "actor": self.config.project.actor.model_dump(mode="json"),
-            }
+            return cast(
+                StateResult,
+                {
+                    "brain": str(self.config.brain),
+                    "brain_origin": self.config.brain_origin.value,
+                    "state": brain.state(),
+                    "snapshot": wire.snapshot(snapshot),
+                    "installed": [kind.value for kind in snapshot.installed],
+                    "block_count": snapshot.block_count,
+                    "origin": brain.origin.model_dump(mode="json") if brain.origin else None,
+                    "ancestry": [str(digest) for digest in brain.ancestry()],
+                    "actor": self.config.project.actor.model_dump(mode="json"),
+                },
+            )
 
     def verify(self) -> dict[str, Any]:
         """

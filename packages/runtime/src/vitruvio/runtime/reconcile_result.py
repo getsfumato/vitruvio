@@ -134,6 +134,20 @@ class ReconcileOpenStatusResult(ReconcileStatusResult):
     open: Literal[True]
 
 
+class ReconcileAbortedResult(TypedDict):
+    """What an abandoned reconciliation was, so the report can name it rather than say "done".
+
+    Every field but ``aborted`` is nullable because of ``stale``: a reconciliation whose state cannot be read
+    back is still abandonable, and there is nothing left to say about what it was.
+    """
+
+    aborted: bool
+    theirs: str | None
+    strategy: str | None
+    decisions: int | None
+    stale: bool
+
+
 ReconcileOperationResult = ReconcileCommittedResult | ReconcileHaltedResult
 ReconcileStatusEnvelope = ReconcileClosedStatusResult | ReconcileOpenStatusResult
 
@@ -241,6 +255,7 @@ class StatusView:
 __all__ = [
     "AttributionResult",
     "PlanView",
+    "ReconcileAbortedResult",
     "ReconcileClosedStatusResult",
     "ReconcileCommittedResult",
     "ReconcileHaltedResult",

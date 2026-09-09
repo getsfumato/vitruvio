@@ -26,7 +26,7 @@ computed properties to surface.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from boltzmann.blocks.base import Block
 from boltzmann.blocks.memory_type import MemoryType
@@ -51,8 +51,10 @@ from boltzmann.retention.requests import (
 )
 from pydantic import BaseModel
 
+from vitruvio.runtime.lifecycle_result import SnapshotResult
 
-def snapshot(value: Snapshot) -> dict[str, Any]:
+
+def snapshot(value: Snapshot) -> SnapshotResult:
     """
     A version, with the digest that names it.
 
@@ -60,16 +62,19 @@ def snapshot(value: Snapshot) -> dict[str, Any]:
         value (Snapshot): The snapshot.
 
     Returns:
-        dict[str, Any]: Its fields, plus ``digest`` -- computed from the document rather than stored in it,
+        SnapshotResult: Its fields, plus ``digest`` -- computed from the document rather than stored in it,
         because a snapshot cannot contain its own hash -- and ``block_count``, likewise derived by summing the
         module references.
     """
-    return {
-        "digest": str(value.digest),
-        "block_count": value.block_count,
-        "installed": [kind.value for kind in value.installed],
-        **value.model_dump(mode="json"),
-    }
+    return cast(
+        SnapshotResult,
+        {
+            "digest": str(value.digest),
+            "block_count": value.block_count,
+            "installed": [kind.value for kind in value.installed],
+            **value.model_dump(mode="json"),
+        },
+    )
 
 
 def _versioned(result: BaseModel, version: Snapshot) -> dict[str, Any]:

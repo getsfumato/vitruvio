@@ -1,0 +1,8 @@
+[
+  "auth_countersign",
+  "auth_plan_rotation",
+  "auth_revoke",
+  "auth_rotate",
+  "bench",
+  "pack"
+]

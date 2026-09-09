@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+import wire_contract
+
 # Everything vitruvio reads from the environment. Listed exhaustively and asserted against the kernel's own
 # tables below, so that adding a variable without adding it here is a test failure rather than a leak.
 REDIRECTED = ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "HF_HOME", "SENTENCE_TRANSFORMERS_HOME")
@@ -42,6 +44,26 @@ CLEARED = (
     "HF_TOKEN",
     "HUGGING_FACE_HUB_TOKEN",
 )
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Recording the wire contract is opt-in; checking it is not."""
+    parser.addoption(
+        "--record-shapes",
+        action="store_true",
+        help="rewrite tests/operation_shapes.json from this run instead of checking against it",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Observe every operation result the suite produces. See ``wire_contract``."""
+    wire_contract.install(record=bool(config.getoption("--record-shapes")))
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """Write the recorded shapes, when recording."""
+    if session.config.getoption("--record-shapes"):
+        wire_contract.write()
 
 
 @pytest.fixture(autouse=True)
