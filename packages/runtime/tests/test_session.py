@@ -3,17 +3,23 @@
 `BrainSession` exists so that the operations can be split across modules without each of them deciding for itself
 what "the brain" is. Its whole value is that there is exactly one cache, so these tests are about identity: the same
 capability hands back the same object, a different capability does not, and invalidating drops all of them.
+
+The concurrency tests are here rather than beside the TUI because that is where the shared session lives, but the
+TUI is what reaches them: it holds one session for the whole run and drives it from worker threads whose
+exclusivity groups do not span reads and writes.
 """
 
 from __future__ import annotations
 
 import ast
+import asyncio
+import threading
 from pathlib import Path
 
 import pytest
 
 from vitruvio.ingest.evidence import Evidence
-from vitruvio.kernel import ResolvedConfig
+from vitruvio.kernel import ResolvedConfig, SessionBusyError, StaleBrainError
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.session import BrainSession
@@ -120,3 +126,131 @@ class TestInvalidation:
                 raise RuntimeError("after commit")
 
         assert opened._cache == {}
+
+
+class TestConcurrency:
+    """What happens when two threads reach one session, which is what the TUI does on every classification."""
+
+    def test_two_threads_opening_at_once_share_one_brain(self, opened: BrainSession) -> None:
+        """The loser of the race must not walk away with a brain the session never held.
+
+        A second instance is not merely wasteful: it is unreachable from `invalidate`, so the thread holding it
+        would keep answering from a composition that had been replaced.
+        """
+        start = threading.Barrier(2)
+        opened_brains = []
+
+        def open_one() -> None:
+            start.wait()
+            opened_brains.append(opened.brain(Capability.RETRIEVE))
+
+        threads = [threading.Thread(target=open_one) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert opened_brains[0] is opened_brains[1]
+
+    def test_a_read_whose_composition_was_replaced_is_refused(self, opened: BrainSession) -> None:
+        with pytest.raises(StaleBrainError, match="replaced while this read was running"):
+            with opened.pinned(Capability.INSPECT):
+                opened.invalidate()
+
+    def test_a_read_nothing_disturbed_returns_normally(self, opened: BrainSession) -> None:
+        with opened.pinned(Capability.INSPECT) as brain:
+            assert brain is opened.brain(Capability.INSPECT)
+
+    def test_a_failing_read_reports_its_own_failure_rather_than_staleness(self, opened: BrainSession) -> None:
+        """The body's exception is the one worth seeing; a staleness check that masked it would hide the cause."""
+
+        def read_and_fail() -> None:
+            with opened.pinned(Capability.INSPECT):
+                opened.invalidate()
+                raise RuntimeError("during the read")
+
+        with pytest.raises(RuntimeError, match="during the read"):
+            read_and_fail()
+
+    def test_a_second_thread_cannot_start_a_write(self, opened: BrainSession) -> None:
+        inside = threading.Event()
+        release = threading.Event()
+
+        def hold_the_write() -> None:
+            with opened.write():
+                inside.set()
+                release.wait(timeout=5)
+
+        holder = threading.Thread(target=hold_the_write)
+        holder.start()
+        try:
+            assert inside.wait(timeout=5)
+            with pytest.raises(SessionBusyError, match="another write is already running"):
+                with opened.write():
+                    pass
+        finally:
+            release.set()
+            holder.join(timeout=5)
+
+        with opened.write() as brain:
+            assert brain is opened.brain(Capability.WRITE)
+
+    def test_the_same_thread_may_nest_a_write(self, opened: BrainSession) -> None:
+        """`migrate` and the reconciliation flows nest one write inside another; only a second thread is refused."""
+        with opened.write():
+            with opened.write() as inner:
+                assert inner is opened.brain(Capability.WRITE)
+
+
+class TestConcurrentTasks:
+    """Two coroutines on one event loop, which a thread-reentrant lock could not tell apart.
+
+    They share a thread identity, and `push_async` and `pull_async` hold the write open across the registry round
+    trip -- so this is the overlap an adapter serving two requests on one loop would produce, not a hypothetical.
+    """
+
+    async def test_a_second_task_is_refused_across_an_await(self, opened: BrainSession) -> None:
+        inside = asyncio.Event()
+        release = asyncio.Event()
+
+        async def hold_the_write() -> None:
+            with opened.write():
+                inside.set()
+                await release.wait()
+
+        holder = asyncio.create_task(hold_the_write())
+        try:
+            await asyncio.wait_for(inside.wait(), timeout=5)
+            with pytest.raises(SessionBusyError, match="another write is already running"):
+                with opened.write():
+                    await asyncio.sleep(0)
+        finally:
+            release.set()
+            await holder
+
+        with opened.write() as brain:
+            assert brain is opened.brain(Capability.WRITE)
+
+    async def test_one_task_may_still_nest_a_write_across_an_await(self, opened: BrainSession) -> None:
+        with opened.write():
+            await asyncio.sleep(0)
+            with opened.write() as inner:
+                assert inner is opened.brain(Capability.WRITE)
+
+    async def test_a_cancelled_write_leaves_the_session_writable(self, opened: BrainSession) -> None:
+        """A registry round trip is the likeliest thing a caller gives up on, and it is inside the write."""
+        inside = asyncio.Event()
+
+        async def hold_the_write() -> None:
+            with opened.write():
+                inside.set()
+                await asyncio.sleep(60)
+
+        holder = asyncio.create_task(hold_the_write())
+        await asyncio.wait_for(inside.wait(), timeout=5)
+        holder.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await holder
+
+        with opened.write() as brain:
+            assert brain is opened.brain(Capability.WRITE)
