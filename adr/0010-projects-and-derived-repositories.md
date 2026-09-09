@@ -94,6 +94,27 @@ A brain that fails for a real reason does not stop the others. Publishing five o
 not go is better than publishing two and stopping, because the four that would have worked are still not published
 and nobody knows that either. The command exits non-zero if anything genuinely failed.
 
+**Amended (2026-09-08, issue #60): the workflow moved to `PublishOps.push_all`.** It was written in the CLI, and
+by the time `ops/sources.py` and `ops/compound.py` had each declined to copy it -- both saying so in their own
+docstrings, both naming this command as the thing left behind -- the duplication had produced two answers to one
+question: the runtime *raised* on `publish = false` while the CLI *skipped*. Both now read one predicate. The
+decisions above are unchanged and the JSON keeps its keys; what changed is who owns them, and that a partial
+failure now carries the per-brain results in the same envelope instead of raising after computing them.
+
+*On the trigger.* Issue #60 asked for a second consumer to be confirmed first, and there is none: the trigger
+used instead is the divergence above, which is a defect that exists today rather than a symmetry that might
+matter later. The issue's other criterion -- that the CLI and a second adapter produce equivalent outcomes --
+cannot be demonstrated until a second adapter exists, and is not claimed here. What is claimed is narrower and
+checkable: one predicate for `publish = false`, one loop, and the six behaviour tests in
+`apps/cli/tests/test_project.py` passing unchanged across the move.
+
+*On the failure boundary.* Every brain's preparation is inside it, not only its push. Opening a working copy and
+reading its head are the likeliest things to fail on a project that holds somebody else's brain, and while they
+sat outside the `try` one unreadable brain ended the batch: it discarded the results of every brain before it and
+never reached the ones after. The module selection is materialized once for a related reason -- the signature
+accepts an `Iterable[str]`, and a one-shot one was drained by the first brain, leaving the second asked to
+publish nothing.
+
 ## Consequences
 
 - Verified end to end against **real Docker Hub**: a three-subject `facultad` project, `--brain algebra` writing to

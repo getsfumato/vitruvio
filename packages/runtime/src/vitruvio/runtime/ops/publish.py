@@ -204,6 +204,22 @@ class PublishOps:
             "warnings": remote.warnings,
         }
 
+    @staticmethod
+    def _refusal(config: ResolvedConfig) -> str | None:
+        """
+        Why this brain may not be published, or ``None``.
+
+        One reading of the declaration, two responses to it: :meth:`push` raises, :meth:`push_all` skips. They
+        used to be two readings, in two packages, and they had already drifted into meaning different things.
+
+        Args:
+            config (ResolvedConfig): The brain's resolved configuration.
+
+        Returns:
+            str | None: The reason, short enough for a table cell.
+        """
+        return None if config.publish_allowed else "publish = false"
+
     def _require_publishable(self) -> None:
         """
         Refuse a push the project declared off-limits.
@@ -218,7 +234,7 @@ class PublishOps:
         """
         from vitruvio.kernel import PublishForbiddenError
 
-        if self.config.publish_allowed:
+        if self._refusal(self.config) is None:
             return
         name = self.config.brain_name or str(self.config.brain)
         raise PublishForbiddenError(
@@ -228,6 +244,105 @@ class PublishOps:
                 f"publish = true under [brains.{name}] and give it its own `reference` first"
             ),
         )
+
+    def push_all(
+        self,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        force: bool = False,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """
+        Publish every brain in the project, each to the repository it derives.
+
+        Keeps going after a failure rather than stopping at the first, for the reason ``pull_all`` gives: being
+        told which one of six failed is better than stopping at the first and leaving four that would have worked
+        unpublished and unmentioned.
+
+        The loop lives here rather than in the CLI, which is where it was. ``ops/sources.py`` and ``ops/compound.py``
+        both declined to copy it and said so in their docstrings, and the duplication had already produced two
+        answers to one question: this module raised on ``publish = false`` while the CLI skipped. Both now read
+        :meth:`_refusal`.
+
+        Resolved once. Every brain in a project shares its actor, its policy and its registry, so the only thing
+        that varies is which layout is open -- and re-reading the file per brain would let a project change
+        underneath a half-finished publish. The module selection is materialized once for the same reason: a
+        one-shot iterable would be drained by the first brain, and the second would be asked to publish nothing.
+
+        Args:
+            tag (str | None): The tag to publish under.
+            modules (Iterable[str] | None): Which modules travel. All of them when unsaid.
+            force (bool): Allow a push that is not a fast-forward.
+            anonymous (bool): Ignore stored credentials.
+            insecure (bool | None): Allow plain HTTP.
+            local (Path | None): Publish into a local OCI layout instead of a registry.
+
+        Returns:
+            dict[str, Any]: A record per brain -- published, skipped with a reason, or failed with a code -- plus
+            the counts and whether every one that was attempted succeeded. Carried even when some failed, because
+            a caller reading JSON needs to know *which*.
+
+        Raises:
+            ConfigError: If the project holds no brain that exists on disk.
+        """
+        from vitruvio.kernel import ConfigError, VitruvioError
+        from vitruvio.runtime.ops.lifecycle import LifecycleOps
+        from vitruvio.runtime.ops.projects import ProjectOps
+
+        base = self.config
+        chosen = None if modules is None else list(modules)
+        brains = [brain for brain in ProjectOps(self.session).project()["brains"] if brain["exists"]]
+        if not brains:
+            raise ConfigError(
+                "this project holds no brains to publish",
+                hint="add one with `vitruvio project add <name>`",
+            )
+
+        results: list[dict[str, Any]] = []
+        for brain in brains:
+            name = str(brain["name"])
+            # Opening the brain and reading its head are inside the boundary too, not only the push. They are the
+            # likeliest thing to fail on a project holding somebody else's working copy, and a corrupt one there
+            # used to end the batch and discard what had already gone.
+            try:
+                config = base.model_copy(update={"brain": Path(str(brain["path"])), "brain_name": name})
+                session = BrainSession(config)
+
+                # A brain declared unpublishable is skipped rather than attempted, for the same reason an empty
+                # one is: it is the project working as configured, and reporting it as a failure would make this
+                # exit non-zero on a project holding one upstream brain, the normal shape for a team.
+                reason = self._refusal(config) or (
+                    "nothing committed yet" if LifecycleOps(session).state()["block_count"] == 0 else None
+                )
+                if reason is not None:
+                    results.append({"brain": name, "ok": True, "skipped": True, "reason": reason})
+                    continue
+
+                outcome = PublishOps(session).push(
+                    None, tag=tag, modules=chosen, force=force, anonymous=anonymous, insecure=insecure, local=local
+                )
+                results.append({"brain": name, "ok": True, "skipped": False, **outcome})
+            except VitruvioError as error:
+                results.append(
+                    {
+                        "brain": name,
+                        "ok": False,
+                        "skipped": False,
+                        "error": error.message,
+                        "code": error.code,
+                    }
+                )
+
+        return {
+            "brains": results,
+            "published": sum(1 for item in results if item["ok"] and not item["skipped"]),
+            "skipped": sum(1 for item in results if item["skipped"]),
+            "failed": sum(1 for item in results if not item["ok"]),
+            "ok": all(bool(item["ok"]) for item in results),
+        }
 
     def tags(
         self,

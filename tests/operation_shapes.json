@@ -8615,6 +8615,86 @@
       ]
     }
   },
+  "push_all": {
+    "optional": [
+      "brains[].code",
+      "brains[].digest",
+      "brains[].effective",
+      "brains[].error",
+      "brains[].reason",
+      "brains[].reference",
+      "brains[].tag",
+      "brains[].vouched",
+      "brains[].vouched.canonical",
+      "brains[].vouched.semantic",
+      "brains[].warnings"
+    ],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "brains": [
+        "array"
+      ],
+      "brains[]": [
+        "object"
+      ],
+      "brains[].brain": [
+        "str"
+      ],
+      "brains[].code": [
+        "str"
+      ],
+      "brains[].digest": [
+        "str"
+      ],
+      "brains[].effective": [
+        "str"
+      ],
+      "brains[].error": [
+        "str"
+      ],
+      "brains[].ok": [
+        "bool"
+      ],
+      "brains[].reason": [
+        "str"
+      ],
+      "brains[].reference": [
+        "str"
+      ],
+      "brains[].skipped": [
+        "bool"
+      ],
+      "brains[].tag": [
+        "str"
+      ],
+      "brains[].vouched": [
+        "object"
+      ],
+      "brains[].vouched.canonical": [
+        "str"
+      ],
+      "brains[].vouched.semantic": [
+        "str"
+      ],
+      "brains[].warnings": [
+        "array"
+      ],
+      "failed": [
+        "int"
+      ],
+      "ok": [
+        "bool"
+      ],
+      "published": [
+        "int"
+      ],
+      "skipped": [
+        "int"
+      ]
+    }
+  },
   "put_content": {
     "optional": [],
     "paths": {

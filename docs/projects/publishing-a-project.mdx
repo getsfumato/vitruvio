@@ -42,7 +42,8 @@ skip  dynamics           nothing committed yet
 ```
 
 An empty brain is **skipped, not failed**: a subject you have not started yet is the ordinary state of a project. A
-brain that fails for a real reason does not stop the others, and the command exits non-zero at the end.
+brain that fails for a real reason does not stop the others, and the command exits non-zero at the end — carrying
+the per-brain results with it, so `--json` on a half-published project still tells you which ones went.
 
 Run `vitruvio registry check <repository>` once before the first push to a new host. Docker Hub is verified to accept
 the protocol's manifest shape; the next registry is the one that refuses.

@@ -327,6 +327,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
             Operation("pack", capability=_WRITE, mutates=True),
             Operation("registry_check", capability=_INSPECT, network=True, async_name="registry_check_async"),
             Operation("push", capability=_WRITE, mutates=True, network=True, async_name="push_async"),
+            Operation("push_all", capability=_WRITE, mutates=True, network=True),
             Operation("tags", network=True),
         ),
     ),

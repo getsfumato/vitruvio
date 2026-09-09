@@ -312,20 +312,87 @@ class TestPushAll:
         Silent in the worst direction: the user asked for no credentials and got whatever was in the keyring.
         Asserted on the call, because `--local` needs no credentials and so no observable outcome differs.
         """
-        from vitruvio.runtime import BrainService
+        from vitruvio.runtime.ops.publish import PublishOps
 
         seen: list[bool] = []
-        original = BrainService.push
+        original = PublishOps.push
 
-        def spy(self: BrainService, reference: str | None = None, **kwargs: object) -> dict[str, Any]:
+        def spy(self: PublishOps, reference: str | None = None, **kwargs: object) -> dict[str, Any]:
             seen.append(bool(kwargs.get("anonymous")))
             return original(self, reference, **kwargs)  # type: ignore[arg-type]
 
-        monkeypatch.setattr(BrainService, "push", spy)
+        # On `PublishOps` rather than the facade: the loop lives in the runtime now, so it reaches `push` on the
+        # operations object and a facade spy would see nothing.
+        monkeypatch.setattr(PublishOps, "push", spy)
         code, _ = envelope(capsys, "dist", "push", "--all", "--anonymous", "--local", str(project / "registry"))
         assert code == ExitCode.OK
         assert seen, "no brain was pushed, so the flag was never exercised"
         assert all(seen), "every brain in an --all run must be pushed with the flag the user passed"
+
+    def test_a_partial_failure_still_reports_which_brains_went(
+        self, capsys: pytest.CaptureFixture[str], project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """It used to raise after building the results, so a `--json` reader of a half-published project got an
+        error envelope with no data and no way to learn which brains had published."""
+        from vitruvio.kernel import CredentialError
+        from vitruvio.runtime.ops.publish import PublishOps
+
+        def refuse(self: PublishOps, reference: str | None = None, **kwargs: object) -> dict[str, Any]:
+            raise CredentialError("the registry refused the credentials")
+
+        monkeypatch.setattr(PublishOps, "push", refuse)
+        code, payload = envelope(capsys, "dist", "push", "--all", "--local", str(project / "registry"))
+
+        assert code != ExitCode.OK
+        assert payload["error"]["message"].startswith("1 of 2 brains")
+        failed = [item for item in payload["data"]["brains"] if not item["ok"]]
+        assert [item["brain"] for item in failed] == ["algebra"]
+        assert failed[0]["code"] == "CREDENTIAL_MISSING"
+
+    def test_a_one_shot_module_selection_reaches_every_brain(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        """The runtime signature promises an `Iterable[str]`, and the first brain drained it: the second was
+        asked to publish no modules at all, which the SDK refuses. The CLI happened to pass a list."""
+        from vitruvio.kernel import resolve
+        from vitruvio.runtime import BrainService
+
+        second = project / "analisis.md"
+        second.write_text(DOCUMENT, encoding="utf-8")
+        code, _ = envelope(
+            capsys, "--actor", "a@b.c", "--brain", "analisis-ii", "--empty-assisted-by", "ingest", "run", str(second)
+        )
+        assert code == ExitCode.OK
+
+        result = BrainService(resolve(require_brain=False, require_layout=False)).push_all(
+            modules=iter(["canonical"]), local=project / "registry"
+        )
+
+        assert result["published"] == 2
+        assert result["ok"] is True
+
+    def test_a_brain_whose_state_cannot_be_read_does_not_end_the_batch(
+        self, capsys: pytest.CaptureFixture[str], project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Opening a brain and reading its head used to sit outside the per-brain boundary, so one unreadable
+        working copy discarded every result before it and skipped every brain after it."""
+        from vitruvio.kernel import VitruvioError
+        from vitruvio.runtime.ops.lifecycle import LifecycleOps
+
+        original = LifecycleOps.state
+
+        def refuse(self: LifecycleOps) -> Any:
+            if self.config.brain_name == "algebra":
+                raise VitruvioError("this brain's head does not verify")
+            return original(self)
+
+        monkeypatch.setattr(LifecycleOps, "state", refuse)
+        code, payload = envelope(capsys, "dist", "push", "--all", "--local", str(project / "registry"))
+
+        assert code != ExitCode.OK
+        assert [item["brain"] for item in payload["data"]["brains"]] == ["algebra", "analisis-ii"]
+        assert payload["data"]["failed"] == 1
+        assert payload["data"]["skipped"] == 1, "the brain after the failure was still reached"
 
     def test_all_refuses_a_reference_because_it_names_one_repository(
         self, capsys: pytest.CaptureFixture[str], project: Path

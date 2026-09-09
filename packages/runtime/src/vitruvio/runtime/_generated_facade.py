@@ -785,6 +785,23 @@ class GeneratedFacade:
             local=local,
         )
 
+    def push_all(
+        self,
+        *,
+        tag: str | None = None,
+        modules: Iterable[str] | None = None,
+        force: bool = False,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Publish every brain in the project, each to the repository it derives.
+
+        See :meth:`vitruvio.runtime.ops.publish.PublishOps.push_all`."""
+        return self.publish_ops.push_all(
+            tag=tag, modules=modules, force=force, anonymous=anonymous, insecure=insecure, local=local
+        )
+
     def tags(
         self,
         reference: str | None = None,
