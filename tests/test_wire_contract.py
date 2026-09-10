@@ -58,12 +58,10 @@ class TestCoverage:
             if operation.remote is Remote.EXPOSED and operation.result in (ResultKind.JSON, ResultKind.TYPED)
         }
 
-        # What is left still needs publication or governance fixtures. Registry preflight now has a local
-        # round trip, so recording its contract no longer depends on Docker being available. Four operations that
-        # had no excuse -- catalog_show, index_stats, index_gc, test_embedder -- were found by this assertion
-        # and now have tests instead of a line here.
-        allowed = {"pack", "auth_rotate", "auth_revoke", "auth_countersign", "auth_plan_rotation"}
-        assert unobserved & exposed <= allowed
+        # Empty today. Asserted rather than deleted because this is how the operations no test had ever
+        # called -- catalog_show, index_stats, index_gc, test_embedder, then pack and the auth rotations -- were
+        # found, and how the next one will be.
+        assert not unobserved & exposed
 
     def test_no_recorded_field_name_is_really_a_value(self) -> None:
         """The guard on `DYNAMIC_KEYS`: a map that is not declared there gets its keys pinned as schema, and a

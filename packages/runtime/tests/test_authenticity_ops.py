@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from boltzmann.authenticity import SshPublicKey, rfc4253_signature
@@ -18,8 +19,8 @@ serialization = pytest.importorskip("cryptography.hazmat.primitives.serializatio
 class Party:
     """A deterministic test key implementing the signing seam."""
 
-    def __init__(self) -> None:
-        self._private = ed25519.Ed25519PrivateKey.from_private_bytes(bytes([0x42]) * 32)
+    def __init__(self, seed: int = 0x42) -> None:
+        self._private = ed25519.Ed25519PrivateKey.from_private_bytes(bytes([seed]) * 32)
         line = self._private.public_key().public_bytes(
             serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH
         )
@@ -29,11 +30,13 @@ class Party:
         return rfc4253_signature("ssh-ed25519", self._private.sign(data))
 
 
-def governed(config: object, monkeypatch: pytest.MonkeyPatch) -> tuple[BrainService, Party]:
+def governed(config: object, monkeypatch: pytest.MonkeyPatch, *others: Party) -> tuple[BrainService, Party]:
     """Open a genuinely governed brain while replacing only the process-external SSH agent."""
     party = Party()
-    monkeypatch.setattr("boltzmann.authenticity.AgentSigner", lambda _key: party)
-    monkeypatch.setattr("vitruvio.runtime.ops.authenticity.AgentSigner", lambda _key: party)
+    # Keyed by fingerprint, so a second authority signs through the same seam `--sign-with` reaches.
+    parties = {each.public_key.fingerprint: each for each in (party, *others)}
+    monkeypatch.setattr("boltzmann.authenticity.AgentSigner", parties.__getitem__)
+    monkeypatch.setattr("vitruvio.runtime.ops.authenticity.AgentSigner", parties.__getitem__)
     service = BrainService(config)  # type: ignore[arg-type]
     created = service.init(governed=True, sign_with=[party.public_key.fingerprint])
     assert created["governed"] is True
@@ -140,3 +143,62 @@ def test_historical_auth_status_verifies_the_requested_snapshot(
     monkeypatch.setattr(Brain, "verify", lambda brain: str(brain.snapshot().digest) == genesis)
     assert service.auth_status(snapshot=genesis)["integrity"] is True
     assert service.auth_status()["integrity"] is False
+
+
+def _admitting(root: dict[str, Any], newcomer: Party) -> dict[str, Any]:
+    """Revision 2 over the root in force: the same keys, the newcomer beside them, and a quorum that needs both."""
+    keys = [
+        {"key": entry["public_key"], "subject": entry["subject"], "scopes": entry["scopes"], "since": entry["since"]}
+        for entry in root["keys"]
+    ]
+    keys.append(
+        {
+            "key": newcomer.public_key.authorized_key,
+            "subject": "second@example.com",
+            "scopes": ["govern", "commit"],
+            "since": 2,
+        }
+    )
+    return {"revision": 2, "govern_quorum": 2, "keys": keys}
+
+
+def test_a_second_authority_is_admitted_by_plan_countersign_and_rotate(
+    config: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The distributed flow, with the countersignature standing in for one that arrived from another machine."""
+    second = Party(0x43)
+    service, party = governed(config, monkeypatch, second)
+
+    plan = service.auth_plan_rotation(_admitting(service.auth_trust_root(), second))
+    assert plan["quorum_required"] == 1
+    assert plan["eligible"] == [party.public_key.fingerprint]
+
+    record = service.auth_countersign(plan, party.public_key.fingerprint)
+    assert record["snapshot"] == plan["digest"]
+
+    rotated = service.auth_rotate(plan=plan, records=[record])
+    assert (rotated["revision"], rotated["quorum_met"]) == (2, 1)
+    root = service.auth_trust_root()
+    assert root["trust_root"]["govern_quorum"] == 2
+    assert [entry["active"] for entry in root["keys"]] == [True, True]
+    assert service.auth_status()["state"] == "authorized"
+
+
+def test_retiring_a_key_needs_the_quorum_the_revised_root_set(config: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    second = Party(0x43)
+    service, party = governed(config, monkeypatch, second)
+    plan = service.auth_plan_rotation(_admitting(service.auth_trust_root(), second))
+    service.auth_rotate(plan=plan, records=[service.auth_countersign(plan, party.public_key.fingerprint)])
+
+    with pytest.raises(VitruvioError) as alone:
+        service.auth_revoke(second.public_key.fingerprint, sign_with=[party.public_key.fingerprint])
+    assert alone.value.code == "AUTHENTICITY_FAILED"
+
+    revoked = service.auth_revoke(
+        second.public_key.fingerprint, sign_with=[party.public_key.fingerprint, second.public_key.fingerprint]
+    )
+    assert (revoked["revision"], revoked["quorum_required"], revoked["quorum_met"]) == (3, 2, 2)
+    keys = service.auth_trust_root()["keys"]
+    retired = next(entry for entry in keys if entry["fingerprint"] == second.public_key.fingerprint)
+    assert (retired["active"], retired["retired_from"]) == (False, 3)
+    assert service.auth_status()["state"] == "authorized"

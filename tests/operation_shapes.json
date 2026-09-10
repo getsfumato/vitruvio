@@ -509,6 +509,35 @@
       ]
     }
   },
+  "auth_countersign": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "boltzmann": [
+        "int"
+      ],
+      "key": [
+        "str"
+      ],
+      "namespace": [
+        "str"
+      ],
+      "scopes": [
+        "array"
+      ],
+      "scopes[]": [
+        "str"
+      ],
+      "signature": [
+        "str"
+      ],
+      "snapshot": [
+        "str"
+      ]
+    }
+  },
   "auth_keys": {
     "optional": [],
     "paths": {
@@ -554,6 +583,123 @@
         "str"
       ],
       "trust_root": [
+        "str"
+      ]
+    }
+  },
+  "auth_plan_rotation": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "digest": [
+        "str"
+      ],
+      "document_b64": [
+        "str"
+      ],
+      "eligible": [
+        "array"
+      ],
+      "eligible[]": [
+        "str"
+      ],
+      "quorum_required": [
+        "int"
+      ]
+    }
+  },
+  "auth_revoke": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "quorum_met": [
+        "int"
+      ],
+      "quorum_required": [
+        "int"
+      ],
+      "records": [
+        "array"
+      ],
+      "records[]": [
+        "object"
+      ],
+      "records[].boltzmann": [
+        "int"
+      ],
+      "records[].key": [
+        "str"
+      ],
+      "records[].namespace": [
+        "str"
+      ],
+      "records[].scopes": [
+        "array"
+      ],
+      "records[].scopes[]": [
+        "str"
+      ],
+      "records[].signature": [
+        "str"
+      ],
+      "records[].snapshot": [
+        "str"
+      ],
+      "revision": [
+        "int"
+      ],
+      "snapshot": [
+        "str"
+      ]
+    }
+  },
+  "auth_rotate": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "quorum_met": [
+        "int"
+      ],
+      "quorum_required": [
+        "int"
+      ],
+      "records": [
+        "array"
+      ],
+      "records[]": [
+        "object"
+      ],
+      "records[].boltzmann": [
+        "int"
+      ],
+      "records[].key": [
+        "str"
+      ],
+      "records[].namespace": [
+        "str"
+      ],
+      "records[].scopes": [
+        "array"
+      ],
+      "records[].scopes[]": [
+        "str"
+      ],
+      "records[].signature": [
+        "str"
+      ],
+      "records[].snapshot": [
+        "str"
+      ],
+      "revision": [
+        "int"
+      ],
+      "snapshot": [
         "str"
       ]
     }
@@ -792,6 +938,7 @@
         "str"
       ],
       "keys[].retired_from": [
+        "int",
         "null"
       ],
       "keys[].scopes": [
@@ -7489,6 +7636,104 @@
       ],
       "truncated": [
         "bool"
+      ]
+    }
+  },
+  "pack": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "annotations": [
+        "object"
+      ],
+      "annotations.ai.gaussia.boltzmann.protocol-version": [
+        "str"
+      ],
+      "annotations.ai.gaussia.boltzmann.schema-versions": [
+        "str"
+      ],
+      "annotations.ai.gaussia.boltzmann.source-snapshot": [
+        "str"
+      ],
+      "artifact_type": [
+        "str"
+      ],
+      "config": [
+        "object"
+      ],
+      "config.annotations": [
+        "object"
+      ],
+      "config.artifact_type": [
+        "null"
+      ],
+      "config.digest": [
+        "str"
+      ],
+      "config.media_type": [
+        "str"
+      ],
+      "config.size": [
+        "int"
+      ],
+      "digest": [
+        "str"
+      ],
+      "layers": [
+        "array"
+      ],
+      "layers[]": [
+        "object"
+      ],
+      "layers[].annotations": [
+        "object"
+      ],
+      "layers[].annotations.ai.gaussia.boltzmann.block-count": [
+        "str"
+      ],
+      "layers[].annotations.ai.gaussia.boltzmann.embedding-model": [
+        "str"
+      ],
+      "layers[].annotations.ai.gaussia.boltzmann.index-kind": [
+        "str"
+      ],
+      "layers[].annotations.ai.gaussia.boltzmann.memory-type": [
+        "str"
+      ],
+      "layers[].annotations.ai.gaussia.boltzmann.merkle-layout": [
+        "str"
+      ],
+      "layers[].annotations.ai.gaussia.boltzmann.merkle-root": [
+        "str"
+      ],
+      "layers[].annotations.ai.gaussia.boltzmann.snapshot-count": [
+        "str"
+      ],
+      "layers[].artifact_type": [
+        "null"
+      ],
+      "layers[].digest": [
+        "str"
+      ],
+      "layers[].media_type": [
+        "str"
+      ],
+      "layers[].size": [
+        "int"
+      ],
+      "media_type": [
+        "str"
+      ],
+      "schema_version": [
+        "int"
+      ],
+      "vouched": [
+        "object"
+      ],
+      "vouched.canonical": [
+        "str"
       ]
     }
   },

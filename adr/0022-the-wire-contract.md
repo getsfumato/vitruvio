@@ -56,11 +56,14 @@ enter it unnoticed.
 
 **What went unobserved is a list somebody chose.** `tests/operation_shapes_unobserved.json` names the operations
 no test reached. It is asserted to cover the surface together with the recording, and asserted to hold nothing
-that an interface elsewhere could call except the six that need a registry daemon or a governed brain with two
-authorities. It found four with no excuse — `catalog_show`, `index_stats`, `index_gc`, `test_embedder`, which no
-test had ever called — and those got tests rather than a line on the list. The six that remain are tracked in
-issue #75: 76 of the 82 exposed operations have a contract, and the other six have a fixture to build rather
-than a decision to make.
+that an interface elsewhere could call. It found four with no excuse — `catalog_show`, `index_stats`, `index_gc`,
+`test_embedder`, which no test had ever called — and those got tests rather than a line on the list. Six more
+were believed to need a registry daemon or a governed brain with two authorities, and were tracked in issue #75
+until it turned out that none needed more than the fast suite affords: `registry_check` runs against the local
+OCI layout, `pack` builds its artifact with no registry at all, and the four `auth_*` rotation operations need
+two authorities but no SSH agent — two in-process keys behind the signer seam. `bench`, host-local and never
+required, runs in under a second at a tier of 100 and was recorded too. The list is empty, and stays as the place
+a new operation lands when nothing runs it.
 
 **Typing continues one domain at a time.** Lifecycle is this one: `StateResult` and the `SnapshotResult` that
 `state`, `verify`, `history`, every distribution operation and the diagnosis all embed through `wire.snapshot`.

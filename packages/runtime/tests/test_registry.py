@@ -297,6 +297,31 @@ def published(tmp_path: Path, source_file: Path) -> tuple[Path, str]:
     return registry_root, "demo/brain"
 
 
+class TestPack:
+    """The half of `push` a registry never sees. No test had called it, so nothing had pinned what it returns."""
+
+    def test_the_artifact_is_built_without_a_registry(self, service: BrainService, source_file: Path) -> None:
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+
+        manifest = service.pack()
+
+        assert manifest["digest"].startswith("sha256:")
+        assert {layer["annotations"].get("ai.gaussia.boltzmann.memory-type") for layer in manifest["layers"]} >= {
+            "canonical",
+            "provenance",
+        }
+        assert manifest["vouched"] == {"canonical": "vouched"}
+
+    def test_a_module_restriction_leaves_the_others_out(self, service: BrainService, source_file: Path) -> None:
+        service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+
+        manifest = service.pack(modules=["canonical"])
+
+        layers = [layer["media_type"] for layer in manifest["layers"]]
+        assert any("module.canonical" in layer for layer in layers)
+        assert not any("module.provenance" in layer for layer in layers)
+
+
 class TestLocalPreflight:
     """The public response contract must be exercised even when Docker is unavailable."""
 
