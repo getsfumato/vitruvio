@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-import wire_contract
+from tests import wire_contract
 
 # Everything vitruvio reads from the environment. Listed exhaustively and asserted against the kernel's own
 # tables below, so that adding a variable without adding it here is a test failure rather than a leak.
