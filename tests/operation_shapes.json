@@ -834,6 +834,110 @@
       ]
     }
   },
+  "bench": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "blocks": [
+        "int"
+      ],
+      "embedder": [
+        "str"
+      ],
+      "indices_built": [
+        "int"
+      ],
+      "measurements": [
+        "array"
+      ],
+      "measurements[]": [
+        "object"
+      ],
+      "measurements[].configuration": [
+        "str"
+      ],
+      "measurements[].failure_count": [
+        "int"
+      ],
+      "measurements[].failures": [
+        "array"
+      ],
+      "measurements[].mean_ms": [
+        "float"
+      ],
+      "measurements[].ndcg@10": [
+        "float"
+      ],
+      "measurements[].p50_ms": [
+        "float"
+      ],
+      "measurements[].p95_ms": [
+        "float"
+      ],
+      "measurements[].p99_ms": [
+        "float"
+      ],
+      "measurements[].queries": [
+        "int"
+      ],
+      "measurements[].recall": [
+        "object"
+      ],
+      "measurements[].recall.@1": [
+        "float"
+      ],
+      "measurements[].recall.@10": [
+        "float"
+      ],
+      "measurements[].recall.@5": [
+        "float"
+      ],
+      "queries": [
+        "int"
+      ],
+      "seed": [
+        "int"
+      ],
+      "verdict": [
+        "object"
+      ],
+      "verdict.gated": [
+        "bool"
+      ],
+      "verdict.p95_ms": [
+        "object"
+      ],
+      "verdict.p95_ms.budget": [
+        "float"
+      ],
+      "verdict.p95_ms.passed": [
+        "bool"
+      ],
+      "verdict.p95_ms.planner": [
+        "float"
+      ],
+      "verdict.p95_ms.scan": [
+        "float"
+      ],
+      "verdict.passed": [
+        "bool"
+      ],
+      "verdict.recall_at_10": [
+        "object"
+      ],
+      "verdict.recall_at_10.passed": [
+        "bool"
+      ],
+      "verdict.recall_at_10.planner": [
+        "float"
+      ],
+      "verdict.recall_at_10.scan": [
+        "float"
+      ]
+    }
+  },
   "blocks": {
     "optional": [
       "provenance.complete",

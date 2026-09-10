@@ -72,11 +72,10 @@ class BenchmarkOps:
 
             # A service over the generated brain, sharing this project's embedder and index configuration -- so the
             # numbers describe *your* setup rather than a default one. Which is what makes the comparison actionable:
-            # switching to Ollama and re-running is how you find out whether it helped.
-            from vitruvio.kernel import resolve as resolve_config
-
-            config = resolve_config(brain=root, config=self.config.config_file, actor_id="vitruvio/bench")
-            corpus_session = BrainSession(config)
+            # switching to Ollama and re-running is how you find out whether it helped. The configuration in hand
+            # rather than a second resolution: re-reading the file under an actor of its own was refused wherever
+            # the project declared one, which is every project after `init`.
+            corpus_session = BrainSession(self.config.model_copy(update={"brain": root, "brain_name": None}))
 
             index_report = IndexOps(corpus_session).index_build()
 
