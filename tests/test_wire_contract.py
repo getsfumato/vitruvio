@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-import wire_contract
+from tests import wire_contract
 from vitruvio.runtime.operation_catalogue import OPERATION_CATALOGUE, Remote, ResultKind
 
 

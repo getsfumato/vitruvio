@@ -27,8 +27,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-GOLDEN = Path(__file__).with_name("tests") / "operation_shapes.json"
-UNOBSERVED = Path(__file__).with_name("tests") / "operation_shapes_unobserved.json"
+GOLDEN = Path(__file__).with_name("operation_shapes.json")
+UNOBSERVED = Path(__file__).with_name("operation_shapes_unobserved.json")
 
 # Fields whose value is a map keyed by *data* -- a digest, a block id, a label somebody chose -- rather than an
 # object with fields. Their keys are recorded as `{}`, so a contract taken over one brain's content still

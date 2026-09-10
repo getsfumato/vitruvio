@@ -34,7 +34,7 @@ default writes the bare words `NaN`, `Infinity` and `-Infinity`, a strict parser
 a statistic that came out non-finite reaches a consumer as an unparseable envelope instead of a named field.
 `data.statistics.mean is not finite` is the same trade as above — the path, which `json` never gives.
 
-**The suite that exists is the corpus.** `wire_contract.py` wraps every operation whose result is JSON, on the
+**The suite that exists is the corpus.** `tests/wire_contract.py` wraps every operation whose result is JSON, on the
 class that implements it, and compares the *shape* of each result — a set of dotted paths, each with the JSON
 types seen there — against one checked-in file. A path or a type that file does not know fails the test that
 produced it, naming the operation and the path. Recording is `pytest -p no:xdist --record-shapes`, one process,
