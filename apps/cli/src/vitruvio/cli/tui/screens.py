@@ -36,6 +36,7 @@ from textual.widgets.selection_list import Selection
 from vitruvio.cli import render
 from vitruvio.cli.tui.query_views import btree_view, graph_view, plan_view, vector_view
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.browse_result import BrowseRowResult
 from vitruvio.runtime.retrieval_result import MatchResult, MatchView, SearchResult
 
 LIMIT = 25
@@ -59,7 +60,7 @@ class ClassificationScreen(ModalScreen[list[str] | None]):
         Binding("escape", "cancel", "cancel"),
     ]
 
-    def __init__(self, source: dict[str, Any], classes: list[dict[str, Any]]) -> None:
+    def __init__(self, source: BrowseRowResult, classes: list[dict[str, Any]]) -> None:
         super().__init__()
         self.source = source
         self.class_options = classes

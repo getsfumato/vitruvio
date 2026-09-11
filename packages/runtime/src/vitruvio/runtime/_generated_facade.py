@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from vitruvio.ingest.evidence import Evidence
+from vitruvio.runtime.browse_result import BlocksResult
 from vitruvio.runtime.compound_result import CompoundExplainResult, CompoundSearchResult
 from vitruvio.runtime.lifecycle_result import StateResult
 from vitruvio.runtime.ops.authenticity import AuthenticityOps
@@ -134,7 +135,7 @@ class GeneratedFacade:
 
     def blocks(
         self, memory_type: str, *, limit: int = 100, offset: int = 0, contains: str | None = None
-    ) -> dict[str, Any]:
+    ) -> BlocksResult:
         """One module's blocks, as rows, in the module's own order.
 
         See :meth:`vitruvio.runtime.ops.browsing.BrowsingOps.blocks`."""

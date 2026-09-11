@@ -175,7 +175,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "BrowsingOps",
         "browsing_ops",
         (
-            Operation("blocks", capability=_BROWSE),
+            Operation("blocks", capability=_BROWSE, result=ResultKind.TYPED),
             Operation("content", capability=_INSPECT, result=ResultKind.BINARY),
             Operation("content_range", capability=_INSPECT),
             Operation("export_content", capability=_INSPECT, mutates=True, remote=Remote.LOCAL),

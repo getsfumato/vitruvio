@@ -17,6 +17,7 @@ import pytest
 from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import resolve
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.browse_result import ProjectedRowResult
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def assisted(tmp_path: Path) -> BrainService:
     return service
 
 
-def _row(service: BrainService, memory_type: str, block_id: str) -> dict[str, Any]:
+def _row(service: BrainService, memory_type: str, block_id: str) -> ProjectedRowResult:
     return next(item for item in service.blocks(memory_type)["rows"] if item["block_id"] == block_id)
 
 

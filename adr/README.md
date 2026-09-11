@@ -32,3 +32,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0021](0021-transport-neutral-evidence.md) | Evidence arrives as bytes, and an origin is never invented |
 | [0022](0022-the-wire-contract.md) | Results are strictly serializable, and their shapes are recorded rather than described |
 | [0023](0023-typed-retrieval-results.md) | Retrieval results are typed, and a polymorphic payload is a union over the memory type |
+| [0024](0024-typed-browse-rows.md) | The browse row is typed, and its interpretation has one owner |
