@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from vitruvio.runtime.compound_result import BrainOriginResult, SkippedBrainResult
 from vitruvio.runtime.cross_brain import compose, fused, grouped, summarize
-from vitruvio.runtime.retrieval_result import MatchResult, SearchResult
+from vitruvio.runtime.retrieval_result import MatchResult, SearchPlanResult, SearchResult
 
 
 def match(block: str, score: str, **extra: Any) -> MatchResult:
@@ -47,16 +49,36 @@ def origin(brain: str, rank: int, score: str, **state: Any) -> BrainOriginResult
     )
 
 
+def search_plan(signature: str = "SeqScan") -> SearchPlanResult:
+    """A complete plan, because a partial one under a `cast` is the bug this suite is meant to catch."""
+    return {
+        "signature": signature,
+        "intent": "lookup",
+        "indices_consulted": {},
+        "indices_available": {},
+        "operators": [],
+        "est_cost_us": 0.0,
+        "est_recall": 1.0,
+        "degradations": [],
+    }
+
+
 def bundle(*matches: MatchResult, truncated: bool = False, root: str = "sha256:root") -> SearchResult:
-    """One brain's payload."""
+    """One brain's payload, complete in every field ``SearchResult`` requires.
+
+    ``authorship`` and a whole ``plan`` are here rather than left out under the ``cast`` because ``summarize`` now
+    reads a bundle by subscript: a fixture missing a required key would be asserting that a partial payload works,
+    which is exactly what stopped being true.
+    """
     return cast(
         SearchResult,
         {
             "matches": list(matches),
             "verified_against": {"semantic": root},
             "truncated": truncated,
+            "authorship": None,
             "all_verified": True,
-            "plan": {"signature": "SeqScan"},
+            "plan": search_plan(),
         },
     )
 
@@ -207,9 +229,19 @@ class TestCompose:
         assert payload["brains"] == ["a", "b"]
 
     def test_a_summary_carries_the_plan_when_one_ran(self) -> None:
-        plan = summarize("a", bundle())["plan"]
-        assert plan is not None
-        assert plan["signature"] == "SeqScan"
+        carried = summarize("a", bundle())["plan"]
+        assert carried is not None
+        assert carried["signature"] == "SeqScan"
         without = bundle()
         del without["plan"]
         assert summarize("a", without)["plan"] is None
+
+    def test_a_summary_refuses_a_bundle_that_is_missing_a_required_key(self) -> None:
+        """`summarize` reads the bundle by subscript now, where it used to supply defaults.
+
+        That is a deliberate hardening and this is what pins it: a caller handing over half a result has a bug, and
+        `all_verified` defaulting to `True` would have carried it into the compound payload as a plausible answer
+        nobody would question. Only `plan` keeps `.get`, because it is `NotRequired` on the bundle itself.
+        """
+        with pytest.raises(KeyError):
+            summarize("a", cast(SearchResult, {"matches": []}))

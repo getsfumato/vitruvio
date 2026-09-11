@@ -301,7 +301,9 @@ class TestTheFusedViewIsAsHonestAsTheGroupedOne:
             "verified": False,
             "resolvable": True,
             "superseded_by": None,
-            "brains": [{"brain": "a", "rank": 1}],
+            "brains": [
+                {"brain": "a", "rank": 1, "score": "1.00", "resolvable": True, "superseded_by": None, "sources": []}
+            ],
         }
         data = {
             "project": "p",

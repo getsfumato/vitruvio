@@ -78,8 +78,10 @@ stated here rather than papered over.
 writes it down: five compound variants, each a subclass of its single-brain variant with the brains that returned
 the block, so the typed renderer that draws a bundle draws a compound section unchanged. Not one match type with
 `brains` optional -- a bundle's match never carries it and a compound's always does. `members` keeps each brain's
-own summary, roots and plan, as before; `compose`, `grouped` and `fused` build typed literals, with a `cast` at
-the two places a union is spread into a new dictionary.
+own summary, roots and plan, as before; `compose` builds a typed literal, and `cross_brain` carries three casts of
+the second and third kinds above -- `grouped` and `fused` each spread the match union into a new dictionary, and
+`_merge` copies one match and mutates it field by field, which mypy cannot follow back to the variant it started
+from. `summarize`, `_origin` and the rest read the bundle by its keys.
 
 **The recorded shape is the oracle, and it is walked through the type.** Every path recorded for `search` and
 `explain` must resolve through the `TypedDict`s — a list descends to its element, a mapping keyed by data admits any
@@ -111,6 +113,10 @@ documentation of a contract is part of the contract.
 - The readers are typed on the way: `render.bundle` takes a `SearchResult`, the TUI's `_fill` and the four query
   views take the plan and diagnostics types, and a key they misspell is a type error. Hand-built payloads in the
   tests grew the fields every match has.
+- `summarize` reads a bundle by subscript where it used to supply defaults, so a partial payload now raises
+  `KeyError` instead of being summarised as though it were whole. That is the intended trade: a caller holding half
+  a result has a bug, and `all_verified` defaulting to `True` would have carried it into the compound payload as an
+  answer nobody would question. A test pins it rather than leaving it to be discovered.
 - `compound_search` and `compound_explain` return `CompoundSearchResult` and `CompoundExplainResult`, declared
   `TYPED` in the catalogue and walked against the recording like the other two. Retrieval is typed end to end; the
   remaining `dict[str, Any]` domains -- authenticity, catalog, retention, sources, install -- are pinned by the

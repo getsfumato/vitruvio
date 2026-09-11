@@ -96,11 +96,17 @@ def _rows(
     is drawn. The two views used to assemble their rows separately, and two copies of "position, score, memory,
     block, identity" is how a change to the row format reaches one table and not the other.
 
+    The brains travel beside the matches rather than on them so this stays typed on ``MatchResult``: a compound
+    match is a single-brain match plus ``brains``, and taking the compound type here would make the bundle's own
+    matches unassignable. The cost is that the pairing is positional and the type cannot express it, so the loop
+    zips ``strict=True`` -- a caller that ever hands over lists of different lengths gets a ``ValueError`` at the
+    first row instead of a table silently attributing each match to the previous one's brains.
+
     Args:
         matches (Sequence[MatchResult]): The matches, in the order to print.
         content (bool): Append each block's full payload after the table.
-        brains (Sequence[Sequence[BrainOriginResult]] | None): Per match, the brains that returned it, for a
-            ranking that spans brains; drawn as a ``brains`` column.
+        brains (Sequence[Sequence[BrainOriginResult]] | None): Per match and in the same order, the brains that
+            returned it, for a ranking that spans brains; drawn as a ``brains`` column.
     """
     columns: list[str | tuple[str, str]] = [("#", "right"), ("score", "right")]
     if brains is not None:
@@ -108,10 +114,11 @@ def _rows(
     columns.extend(["memory", "block", "identity"])
     rows = theme.table(*columns)
     detail: list[RenderableType] = []
-    for position, match in enumerate(matches, start=1):
+    paired: Sequence[Sequence[BrainOriginResult] | None] = brains if brains is not None else [None] * len(matches)
+    for position, (match, origins) in enumerate(zip(matches, paired, strict=True), start=1):
         cells: list[RenderableType] = [str(position), Text(match["score"], style="score")]
-        if brains is not None:
-            cells.append(_origins(brains[position - 1]))
+        if origins is not None:
+            cells.append(_origins(origins))
         cells.extend([theme.kind(match["memory_type"]), theme.digest(match["block_id"]), _identity(match)])
         rows.add_row(*cells)
         if content:
@@ -223,7 +230,9 @@ def _grouped(data: CompoundSearchResult, *, content: bool) -> list[RenderableTyp
     sections: list[RenderableType] = []
     for member in data["members"]:
         name = member["brain"]
-        own = [match for match in data["matches"] if match["brains"][0]["brain"] == name]
+        # A match with no brains belongs to no section rather than raising: `grouped` always emits one, but
+        # this renders whatever a caller hands it, and an IndexError here would be a crash over a cell.
+        own = [match for match in data["matches"] if match["brains"] and match["brains"][0]["brain"] == name]
         sections.append("")
         sections.append(Text(name, style="heading"))
         sections.extend(
