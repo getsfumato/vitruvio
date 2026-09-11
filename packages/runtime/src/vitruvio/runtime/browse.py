@@ -21,10 +21,12 @@ payload would put ``"registration"`` in the title column of a provenance record 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from boltzmann.blocks.base import Block
 from boltzmann.blocks.memory_type import MemoryType
+
+from vitruvio.runtime.browse_result import UNNAMED, BrowseRowResult
 
 TITLE_FIELDS: Mapping[str, tuple[str, ...]] = {
     "canonical": ("media_type",),
@@ -134,10 +136,6 @@ def _semantic_title(payload: Mapping[str, Any]) -> str:
     return f"Relation · {', '.join(predicates)}" if predicates else "Relation"
 
 
-UNNAMED = "(unnamed)"
-"""What a block is called when nothing in its payload names it. One sentinel, so every interface says the same."""
-
-
 def identify(memory_type: str, payload: Mapping[str, Any], *, origin: str | None = None) -> tuple[str, str]:
     """
     What a block is called, and what it says, from its payload alone.
@@ -176,7 +174,9 @@ def identify(memory_type: str, payload: Mapping[str, Any], *, origin: str | None
     return title, detail
 
 
-def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, resolvable: bool = True) -> dict[str, Any]:
+def row(
+    block: Block, memory_type: MemoryType, *, origin: str | None = None, resolvable: bool = True
+) -> BrowseRowResult:
     """
     One block, as a line in a list.
 
@@ -191,7 +191,7 @@ def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, res
             than a row that silently vanishes from the list.
 
     Returns:
-        dict[str, Any]: The row. ``title`` and ``detail`` are always present and always strings; everything
+        BrowseRowResult: The row. ``title`` and ``detail`` are always present and always strings; everything
         else is present only when that memory type has it.
     """
     kind = memory_type.value
@@ -237,10 +237,12 @@ def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, res
         value = payload.get(field)
         if isinstance(value, list) and value:
             result[f"{field}_count"] = len(value)
-    return result
+    # The optional half is accreted under names held in variables, which no checker can relate to a `TypedDict`.
+    # ADR-0023's rule, and its cost: one `cast` here rather than an untyped row reaching every reader.
+    return cast(BrowseRowResult, result)
 
 
-def unreadable(block_id: str, memory_type: str, reason: str) -> dict[str, Any]:
+def unreadable(block_id: str, memory_type: str, reason: str) -> BrowseRowResult:
     """
     A row for a block the store could not produce.
 
@@ -253,7 +255,7 @@ def unreadable(block_id: str, memory_type: str, reason: str) -> dict[str, Any]:
         reason (str): Why it could not be read.
 
     Returns:
-        dict[str, Any]: A row shaped like any other, with ``resolvable`` false.
+        BrowseRowResult: A row shaped like any other, with ``resolvable`` false.
     """
     return {
         "block_id": block_id,

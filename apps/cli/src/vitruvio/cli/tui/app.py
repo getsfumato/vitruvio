@@ -46,6 +46,7 @@ from vitruvio.cli.tui.theme import install as install_theme
 from vitruvio.kernel import EvidenceRefusedError, StaleBrainError
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.browse import UNNAMED
+from vitruvio.runtime.browse_result import BrowseRowResult, BrowseRowView, ProjectedRowResult, RowContentResult
 
 MODULES = ("canonical", "episodic", "semantic", "procedural", "provenance")
 """The five modules, in the order the protocol introduces them: what was observed, what happened, what is
@@ -71,7 +72,7 @@ because a record is a set of fields rather than a text, and the payload tab show
 """
 
 
-def named_bytes(row: dict[str, Any]) -> tuple[str, str | None, str] | None:
+def named_bytes(row: BrowseRowResult) -> tuple[str, str | None, str] | None:
     """
     The bytes a row lets ``o`` and ``e`` act on: content address, a name for the file, and the media type.
 
@@ -81,7 +82,7 @@ def named_bytes(row: dict[str, Any]) -> tuple[str, str | None, str] | None:
     diagram-bearing semantic block that it "names no content".
 
     Args:
-        row (dict[str, Any]): A row from ``service.blocks``.
+        row (BrowseRowResult): A row from ``service.blocks``.
 
     Returns:
         tuple[str, str | None, str] | None: ``(blob, name, media_type)``, or ``None`` when the row names no
@@ -271,8 +272,8 @@ class BrainBrowser(App[None]):
         self.project = project
         self.config_file = config_file
         self.kind: str = MODULES[0]
-        self.rows: list[dict[str, Any]] = []
-        self.selected: dict[str, Any] | None = None
+        self.rows: list[ProjectedRowResult] = []
+        self.selected: ProjectedRowResult | None = None
         self.offset = 0
         self.filter: str | None = None
         self.pdf_page = 0
@@ -280,7 +281,7 @@ class BrainBrowser(App[None]):
         self.counts: dict[str, int] = {}
         self.catalog: dict[str, Any] = {"schemes": [], "unclassified": []}
         self.catalog_context: str | None = None
-        self.catalog_rows: list[dict[str, Any]] = []
+        self.catalog_rows: list[ProjectedRowResult] = []
         self._filter_timer: Any = None
         self._select_timer: Any = None
         self._land_timer: Any = None
@@ -490,17 +491,18 @@ class BrainBrowser(App[None]):
             return
         table.clear()
         for row in self.rows:
-            # The size and type columns fall back to the content a derived block names: a semantic block whose
-            # datum is a 2 MB diagram has a size the same way a canonical PDF does, and blank columns would say
-            # otherwise.
-            content = row.get("content") or {}
+            # Every interpreted cell comes from `BrowseRowView`, which is also what the CLI table reads. The type
+            # column's fall-through to the content a derived block names used to live here alone: a semantic block
+            # whose datum is a 2 MB diagram has a media type the same way a canonical PDF does, and a blank column
+            # said otherwise. It is the shared rule now rather than this table's private one.
+            view = BrowseRowView(row)
             actor, verified = render.creator(row.get("authorship"))
             table.add_row(
                 render.digest(row.get("block_id")),
-                Text(str(row.get("title", "")), style="value" if row.get("resolvable", True) else "bad"),
+                Text(view.title, style="value" if view.resolvable else "bad"),
                 actor,
                 verified,
-                Text(str(row.get("media_type") or row.get("kind") or content.get("media_type") or ""), style="muted"),
+                Text(view.media_label, style="muted"),
                 key=row["block_id"],
             )
         shown = f"{len(self.rows)} of {result['matched']}"
@@ -514,7 +516,7 @@ class BrainBrowser(App[None]):
         table.move_cursor(row=0)
         self.select(self.rows[0])
 
-    def select(self, row: dict[str, Any]) -> None:
+    def select(self, row: ProjectedRowResult) -> None:
         """
         Make a row the selected block and load its detail.
 
@@ -523,11 +525,11 @@ class BrainBrowser(App[None]):
         opens on its bytes, which for a PDF or an image is the only view a terminal can draw.
 
         Args:
-            row (dict[str, Any]): The row.
+            row (ProjectedRowResult): The row.
         """
         self.selected = row
         self.pdf_page = 0
-        view = row.get("normalized_view") or {}
+        view: RowContentResult | dict[str, str] = row.get("normalized_view") or {}
         self.normalized = render.media.prefers_text(str(row.get("media_type", ""))) and bool(view.get("blob"))
         self._set("preview", render.empty("reading..."))
         # Debounced, for the same reason the filter is: holding an arrow key crosses a row every few dozen
@@ -538,7 +540,7 @@ class BrainBrowser(App[None]):
             self._select_timer.stop()
         self._select_timer = self.set_timer(0.12, lambda: self._load_selected(row))
 
-    def _load_selected(self, row: dict[str, Any]) -> None:
+    def _load_selected(self, row: ProjectedRowResult) -> None:
         """
         The debounce firing: read the row that was still selected when the cursor stopped.
 
@@ -547,14 +549,14 @@ class BrainBrowser(App[None]):
         worker against a DOM that no longer had a preview pane, and the worker's failure was the exit's.
 
         Args:
-            row (dict[str, Any]): The row that armed the timer.
+            row (ProjectedRowResult): The row that armed the timer.
         """
         self._select_timer = None
         if self.selected is row and self.is_running:
             self.load_detail(row)
 
     @work(thread=True, exclusive=True, group="detail")
-    def load_detail(self, row: dict[str, Any]) -> None:
+    def load_detail(self, row: ProjectedRowResult) -> None:
         """
         Read everything the right-hand pane shows about one block.
 
@@ -568,7 +570,7 @@ class BrainBrowser(App[None]):
         than the whole read, because the alternative is a preview of the wrong block.
 
         Args:
-            row (dict[str, Any]): The selected row.
+            row (ProjectedRowResult): The selected row.
         """
         width = max(20, self.query_one("#preview", Static).size.width or 80)
         for _ in range(2):
@@ -586,12 +588,12 @@ class BrainBrowser(App[None]):
             severity="warning",
         )
 
-    def _read_detail(self, row: dict[str, Any], *, width: int) -> None:
+    def _read_detail(self, row: ProjectedRowResult, *, width: int) -> None:
         """
         Paint the preview and the four tabs from one composition.
 
         Args:
-            row (dict[str, Any]): The selected row.
+            row (ProjectedRowResult): The selected row.
             width (int): The preview pane's width in cells.
 
         Raises:
@@ -612,12 +614,12 @@ class BrainBrowser(App[None]):
             self.call_from_thread(self._set, "preview", preview)
             self._load_tabs(row)
 
-    def _load_tabs(self, row: dict[str, Any]) -> None:
+    def _load_tabs(self, row: ProjectedRowResult) -> None:
         """
         The payload, links, authorship and proof tabs, read in that order on the detail worker's thread.
 
         Args:
-            row (dict[str, Any]): The selected row. Each tab is painted only while this is still the selection;
+            row (ProjectedRowResult): The selected row. Each tab is painted only while this is still the selection;
                 the first one that finds the selection moved ends the read.
         """
         identity = row["block_id"]
@@ -657,12 +659,12 @@ class BrainBrowser(App[None]):
             ]
         )
 
-    def _preview(self, row: dict[str, Any], *, width: int) -> RenderableType:
+    def _preview(self, row: ProjectedRowResult, *, width: int) -> RenderableType:
         """
         What to show in the preview tab.
 
         Args:
-            row (dict[str, Any]): The selected row.
+            row (ProjectedRowResult): The selected row.
             width (int): Cells available, for the drawings.
 
         Returns:
@@ -674,7 +676,7 @@ class BrainBrowser(App[None]):
         if not row.get("resolvable", True):
             return Group(head, "", Text(str(row.get("detail", "not resolvable")), style="bad"))
 
-        view = row.get("normalized_view") or {}
+        view: RowContentResult | dict[str, str] = row.get("normalized_view") or {}
         if self.normalized and view.get("blob"):
             try:
                 data = self.opened.content(str(view["blob"]))
@@ -698,12 +700,12 @@ class BrainBrowser(App[None]):
 
         return Group(head, "", self._reading(row))
 
-    def _blob_preview(self, row: dict[str, Any], blob: str, *, head: RenderableType, width: int) -> RenderableType:
+    def _blob_preview(self, row: BrowseRowResult, blob: str, *, head: RenderableType, width: int) -> RenderableType:
         """
         A canonical block's bytes, drawn. The block *is* its bytes, so they are the whole preview.
 
         Args:
-            row (dict[str, Any]): The selected row.
+            row (ProjectedRowResult): The selected row.
             blob (str): The content address.
             head (RenderableType): The metadata block above the drawing.
             width (int): Cells available.
@@ -739,7 +741,7 @@ class BrainBrowser(App[None]):
         return Group(head, "", body, *(("", hint) if hint is not None else ()))
 
     def _content_preview(
-        self, row: dict[str, Any], content: dict[str, Any], *, head: RenderableType, width: int
+        self, row: BrowseRowResult, content: RowContentResult, *, head: RenderableType, width: int
     ) -> RenderableType:
         """
         A derived block that names bytes shows both halves, text first.
@@ -748,7 +750,7 @@ class BrainBrowser(App[None]):
         it before the drawing keeps the preview in the same order retrieval sees the block in.
 
         Args:
-            row (dict[str, Any]): The selected row.
+            row (ProjectedRowResult): The selected row.
             content (dict[str, Any]): The reference the block names: ``blob``, ``media_type``, ``size``.
             head (RenderableType): The metadata block above the text.
             width (int): Cells available.
@@ -782,12 +784,12 @@ class BrainBrowser(App[None]):
             parts += ["", Text(f"page {self.pdf_page + 1} of {pages}   [ ] to turn", style="muted")]
         return Group(*parts)
 
-    def _keys(self, row: dict[str, Any], *, normalized: bool) -> str:
+    def _keys(self, row: BrowseRowResult, *, normalized: bool) -> str:
         """
         The keys that act on what the preview is showing, as the line under it names them.
 
         Args:
-            row (dict[str, Any]): The selected row.
+            row (ProjectedRowResult): The selected row.
             normalized (bool): Whether the pane is showing the normalized view rather than the bytes.
 
         Returns:
@@ -797,12 +799,12 @@ class BrainBrowser(App[None]):
         keys: list[str] = []
         if normalized:
             keys.append("t original bytes")
-        elif (row.get("normalized_view") or {}).get("blob"):
+        elif (row.get("normalized_view") or {"blob": ""})["blob"]:
             keys.append("t text view")
         keys += ["o open", "e export"]
         return ", ".join(keys)
 
-    def _reading(self, row: dict[str, Any]) -> RenderableType:
+    def _reading(self, row: BrowseRowResult) -> RenderableType:
         """
         The reading view of a block that names no bytes.
 
@@ -810,7 +812,7 @@ class BrainBrowser(App[None]):
         goal. Shown as prose here and as the document in the payload tab, because both questions get asked.
 
         Args:
-            row (dict[str, Any]): The selected row.
+            row (ProjectedRowResult): The selected row.
 
         Returns:
             RenderableType: The rendering.
@@ -891,7 +893,7 @@ class BrainBrowser(App[None]):
             row = data["row"]
             self._show_catalog(str(row.get("title") or "catalog source"), [row])
 
-    def _show_catalog(self, label: str, rows: list[dict[str, Any]]) -> None:
+    def _show_catalog(self, label: str, rows: list[ProjectedRowResult]) -> None:
         """Fill the middle pane from an already-resolved virtual catalog folder."""
         self.kind = "canonical"
         self.offset = 0
@@ -1285,7 +1287,8 @@ class BrainBrowser(App[None]):
 
     def action_toggle_view(self) -> None:
         """Swap between the original bytes and the normalized view of them."""
-        if not self.selected or not (self.selected.get("normalized_view") or {}).get("blob"):
+        view = self.selected.get("normalized_view") if self.selected is not None else None
+        if self.selected is None or view is None or not view.get("blob"):
             self.notify("this block names no normalized view", severity="warning")
             return
         self.normalized = not self.normalized

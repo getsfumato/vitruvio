@@ -14,6 +14,7 @@ from typing import Any
 
 from vitruvio.kernel import EvidenceRefusedError, ResolvedConfig, UsageError
 from vitruvio.runtime.assembly import Capability
+from vitruvio.runtime.browse_result import BlocksResult, ProjectedRowResult
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.provenance import ProvenanceReader
@@ -100,7 +101,7 @@ class BrowsingOps:
         limit: int = 100,
         offset: int = 0,
         contains: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> BlocksResult:
         """
         One module's blocks, as rows, in the module's own order.
 
@@ -119,7 +120,7 @@ class BrowsingOps:
             contains (str | None): Case-insensitive substring the row must contain.
 
         Returns:
-            dict[str, Any]: The module's shape, the rows, and whether more remain.
+            BlocksResult: The module's shape, the rows, and whether more remain.
         """
         from vitruvio.runtime import browse
 
@@ -150,7 +151,7 @@ class BrowsingOps:
             module = brain.module(kind)
             identities = module.block_ids
 
-            rows: list[dict[str, Any]] = []
+            rows: list[ProjectedRowResult] = []
             if contains is None:
                 # Only the page is read. Without a filter every row matches, so `matched` is the module's own count
                 # and there is nothing to learn from the rest -- while the walk below resolves a block per identity,

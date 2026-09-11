@@ -31,6 +31,7 @@ from vitruvio.cli.render import evidence, media, theme
 from vitruvio.cli.tui import BrainBrowser
 from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ExitCode
+from vitruvio.runtime.browse_result import ProjectedRowResult
 from vitruvio.runtime.retrieval_result import VectorScopeResult
 
 
@@ -620,7 +621,7 @@ class TestTheInterface:
         reads: list[str] = []
         original = BrainBrowser._load_tabs
 
-        def racing(self: BrainBrowser, row: dict[str, Any]) -> None:
+        def racing(self: BrainBrowser, row: ProjectedRowResult) -> None:
             reads.append(row["block_id"])
             if len(reads) == 1:
                 self.opened.session.invalidate()
@@ -640,7 +641,7 @@ class TestTheInterface:
         warnings: list[str] = []
         original = BrainBrowser._load_tabs
 
-        def always_racing(self: BrainBrowser, row: dict[str, Any]) -> None:
+        def always_racing(self: BrainBrowser, row: ProjectedRowResult) -> None:
             reads.append(row["block_id"])
             self.opened.session.invalidate()
             original(self, row)
@@ -1094,7 +1095,9 @@ class TestTheInterface:
         async with app.run_test(size=(140, 40)) as pilot:
             await _settle(pilot)
             assert app.selected is not None
-            app.selected["origin"] = None
+            # `browse.row` sets `origin` only when there is one, so a row without a recorded file name has
+            # no such key -- it never holds `None`. Removing it is the state the runtime can produce.
+            app.selected.pop("origin", None)
             await pilot.press("o")
             await _settle(pilot)
 

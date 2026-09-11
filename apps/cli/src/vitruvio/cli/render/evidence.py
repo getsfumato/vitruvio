@@ -23,6 +23,7 @@ from rich.console import RenderableType
 from rich.text import Text
 
 from vitruvio.cli.render import theme
+from vitruvio.runtime.browse_result import BlocksResult, BrowseRowView
 from vitruvio.runtime.compound_result import BrainOriginResult, CompoundMemberResult, CompoundSearchResult
 from vitruvio.runtime.retrieval_result import MatchResult, MatchView, SearchResult
 
@@ -382,7 +383,7 @@ def modules(entries: Sequence[Mapping[str, Any]]) -> list[RenderableType]:
     return [rows]
 
 
-def rows(result: Mapping[str, Any]) -> list[RenderableType]:
+def rows(result: BlocksResult) -> list[RenderableType]:
     """
     Render a page of blocks from ``service.blocks`` -- one module, in its own order.
 
@@ -390,23 +391,26 @@ def rows(result: Mapping[str, Any]) -> list[RenderableType]:
     column, because there is no ranking: these rows are the module's own order, and a reader who wants
     relevance is running a query.
 
+    Every cell that interprets a row comes from :class:`BrowseRowView`, so this table and the TUI's cannot answer
+    the same question differently -- which they had already begun to do.
+
     Args:
-        result (Mapping[str, Any]): What ``service.blocks`` produced.
+        result (BlocksResult): What ``service.blocks`` produced.
 
     Returns:
         list[RenderableType]: What to print.
     """
-    entries: Sequence[Mapping[str, Any]] = result.get("rows", [])
-    head: list[tuple[str, Any]] = [("module", theme.kind(result.get("memory_type")))]
-    if result.get("installed", True):
+    entries = result["rows"]
+    head: list[tuple[str, Any]] = [("module", theme.kind(result["memory_type"]))]
+    if result["installed"]:
         head += [
-            ("root", theme.digest(result.get("root"), full=True)),
-            ("blocks", str(result.get("block_count", 0))),
+            ("root", theme.digest(result["root"], full=True)),
+            ("blocks", str(result["block_count"])),
         ]
-    if result.get("filter"):
-        head.append(("filter", Text(f"{result['filter']!r} -- {result.get('matched', 0)} matching")))
+    if result["filter"]:
+        head.append(("filter", Text(f"{result['filter']!r} -- {result['matched']} matching")))
 
-    if not result.get("installed", True):
+    if not result["installed"]:
         # Said as its own sentence rather than as an empty table. "Nothing matched" and "this module was never
         # installed" are different facts, and a reader who cannot tell them apart will go looking for blocks
         # that are not missing at all -- they are somewhere else, in the brain this one was pulled from.
@@ -422,21 +426,20 @@ def rows(result: Mapping[str, Any]) -> list[RenderableType]:
 
     table = theme.table("block", "title", "creator", "identity", "detail", ("size", "right"), "type")
     for entry in entries:
-        title = Text(str(entry.get("title", "")), style="value" if entry.get("resolvable", True) else "bad")
-        size = entry.get("size")
-        actor, verified = creator(entry.get("authorship"))
+        view = BrowseRowView(entry)
+        actor, verified = creator(entry["authorship"])
         table.add_row(
-            theme.digest(entry.get("block_id")),
-            title,
+            theme.digest(entry["block_id"]),
+            Text(view.title, style="value" if view.resolvable else "bad"),
             actor,
             verified,
-            Text(str(entry.get("detail", "")), style="muted"),
-            Text(theme.filesize(size) if isinstance(size, int) else "-", style="muted"),
-            Text(str(entry.get("media_type") or entry.get("kind") or ""), style="muted"),
+            Text(view.detail, style="muted"),
+            Text(theme.filesize(view.size) if view.size is not None else "-", style="muted"),
+            Text(view.media_label, style="muted"),
         )
     footer = None
-    if result.get("truncated"):
-        remaining = result.get("matched", 0) - result.get("offset", 0) - len(entries)
+    if result["truncated"]:
+        remaining = result["matched"] - result["offset"] - len(entries)
         footer = Text(f"... {remaining} more -- raise --limit or pass --offset", style="muted")
     return theme.stack(theme.fields(head), "", table, footer)
 

@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from vitruvio.kernel import ResolvedConfig, UsageError
 from vitruvio.runtime.assembly import Capability
+from vitruvio.runtime.browse_result import ProjectedRowResult
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
 
@@ -282,7 +283,7 @@ class CatalogOps:
         payload["source_rows"] = self._canonical_rows(wanted)
         return payload
 
-    def _canonical_rows(self, wanted: set[str] | None = None) -> list[dict[str, Any]]:
+    def _canonical_rows(self, wanted: set[str] | None = None) -> list[ProjectedRowResult]:
         """Project the requested canonical sources without widening a directory read to the whole module."""
         from vitruvio.runtime.block_rows import project_rows
 

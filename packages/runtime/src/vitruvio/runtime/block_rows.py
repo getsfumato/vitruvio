@@ -9,13 +9,14 @@ the caller, so its provenance and authorship work stays proportional to that sel
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.brain import Brain
 
 from vitruvio.runtime import browse
 from vitruvio.runtime.authorship import AuthorshipAudit
+from vitruvio.runtime.browse_result import ProjectedRowResult, RowAuthorshipResult
 from vitruvio.runtime.provenance import ProvenanceReader, registration_origins
 
 
@@ -25,7 +26,7 @@ def project_rows(
     identities: Sequence[Any],
     *,
     policy: Any,
-) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+) -> tuple[list[ProjectedRowResult], Any]:
     """Read only the selected identities and attach the evidence needed to judge their creator.
 
     A provenance row is itself evidence, not a subject whose creation is recursively attributed. Marking that
@@ -55,7 +56,9 @@ def project_rows(
                 identity,
                 resolvable=resolvable,
                 origins=origins,
-                authorship=claims.get(str(identity), audit.empty(read)),
+                # `AuthorshipAudit` belongs to the authenticity domain, which #74 puts out of scope, so its
+                # shape is claimed here rather than declared there. The recorded wire shape pins it meanwhile.
+                authorship=cast(RowAuthorshipResult, claims.get(str(identity), audit.empty(read))),
             )
             for identity in identities
         ],
@@ -70,9 +73,13 @@ def _entry(
     *,
     resolvable: dict[Any, bool],
     origins: dict[str, str],
-    authorship: dict[str, Any] | None,
-) -> dict[str, Any]:
-    """Keep composition membership visible even when the referenced block cannot be read."""
+    authorship: RowAuthorshipResult | None,
+) -> ProjectedRowResult:
+    """Keep composition membership visible even when the referenced block cannot be read.
+
+    The row arrives as a ``BrowseRowResult`` and leaves as a ``ProjectedRowResult``: authorship is attached here,
+    never by ``browse.row``, which is why the two are different types rather than one type with an optional key.
+    """
     block_id = str(identity)
     if not resolvable.get(identity, True):
         entry = browse.unreadable(block_id, kind.value, "not resolvable (redacted or not installed)")
@@ -81,12 +88,13 @@ def _entry(
             entry = browse.row(module.get(identity), kind, origin=origins.get(block_id))
         except Exception as error:
             entry = browse.unreadable(block_id, kind.value, f"{type(error).__name__}: {error}")
-    entry["authorship"] = (
+    projected = cast(ProjectedRowResult, entry)
+    projected["authorship"] = (
         authorship
         if authorship is not None
         else {"applicable": False, "complete": True, "provenance": None, "claims": []}
     )
-    return entry
+    return projected
 
 
 __all__ = ["project_rows"]
