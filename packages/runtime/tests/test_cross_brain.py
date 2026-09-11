@@ -6,48 +6,81 @@ is under test is the composition rule, not retrieval.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
+import pytest
+
+from vitruvio.runtime.compound_result import BrainOriginResult, SkippedBrainResult
 from vitruvio.runtime.cross_brain import compose, fused, grouped, summarize
+from vitruvio.runtime.retrieval_result import MatchResult, SearchPlanResult, SearchResult
 
 
-def match(block: str, score: str, **extra: Any) -> dict[str, Any]:
+def match(block: str, score: str, **extra: Any) -> MatchResult:
     """One match as ``wire.evidence`` renders it."""
-    return {
-        "block_id": f"sha256:{block}",
-        "memory_type": "semantic",
-        "content": {"label": block},
-        "score": score,
-        "sources": [],
-        "verified": True,
-        "resolvable": True,
-        "superseded_by": None,
-        **extra,
-    }
+    return cast(
+        MatchResult,
+        {
+            "block_id": f"sha256:{block}",
+            "memory_type": "semantic",
+            "content": {"label": block},
+            "score": score,
+            "sources": [],
+            "verified": True,
+            "resolvable": True,
+            "superseded_by": None,
+            **extra,
+        },
+    )
 
 
-def origin(brain: str, rank: int, score: str, **state: Any) -> dict[str, Any]:
+def origin(brain: str, rank: int, score: str, **state: Any) -> BrainOriginResult:
     """One entry of ``brains[]``: where a match came from, and that brain's installation of the block."""
+    return cast(
+        BrainOriginResult,
+        {
+            "brain": brain,
+            "rank": rank,
+            "score": score,
+            "resolvable": True,
+            "superseded_by": None,
+            "sources": [],
+            **state,
+        },
+    )
+
+
+def search_plan(signature: str = "SeqScan") -> SearchPlanResult:
+    """A complete plan, because a partial one under a `cast` is the bug this suite is meant to catch."""
     return {
-        "brain": brain,
-        "rank": rank,
-        "score": score,
-        "resolvable": True,
-        "superseded_by": None,
-        "sources": [],
-        **state,
+        "signature": signature,
+        "intent": "lookup",
+        "indices_consulted": {},
+        "indices_available": {},
+        "operators": [],
+        "est_cost_us": 0.0,
+        "est_recall": 1.0,
+        "degradations": [],
     }
 
 
-def bundle(*matches: dict[str, Any], truncated: bool = False, root: str = "sha256:root") -> dict[str, Any]:
-    """One brain's payload."""
-    return {
-        "matches": list(matches),
-        "verified_against": {"semantic": root},
-        "truncated": truncated,
-        "all_verified": True,
-        "plan": {"signature": "SeqScan"},
-    }
+def bundle(*matches: MatchResult, truncated: bool = False, root: str = "sha256:root") -> SearchResult:
+    """One brain's payload, complete in every field ``SearchResult`` requires.
+
+    ``authorship`` and a whole ``plan`` are here rather than left out under the ``cast`` because ``summarize`` now
+    reads a bundle by subscript: a fixture missing a required key would be asserting that a partial payload works,
+    which is exactly what stopped being true.
+    """
+    return cast(
+        SearchResult,
+        {
+            "matches": list(matches),
+            "verified_against": {"semantic": root},
+            "truncated": truncated,
+            "authorship": None,
+            "all_verified": True,
+            "plan": search_plan(),
+        },
+    )
 
 
 class TestGrouped:
@@ -190,11 +223,25 @@ class TestCompose:
         assert [item["truncated"] for item in payload["members"]] == [True, False]
 
     def test_skipped_brains_are_reported_not_hidden(self) -> None:
-        skipped = [{"brain": "c", "reason": "no layout at /nowhere"}]
+        skipped: list[SkippedBrainResult] = [{"brain": "c", "reason": "no layout at /nowhere"}]
         payload = compose(None, [("a", bundle()), ("b", bundle())], fuse=False, skipped=skipped)
         assert payload["skipped"] == skipped
         assert payload["brains"] == ["a", "b"]
 
     def test_a_summary_carries_the_plan_when_one_ran(self) -> None:
-        assert summarize("a", bundle())["plan"] == {"signature": "SeqScan"}
-        assert summarize("a", {"matches": []})["plan"] is None
+        carried = summarize("a", bundle())["plan"]
+        assert carried is not None
+        assert carried["signature"] == "SeqScan"
+        without = bundle()
+        del without["plan"]
+        assert summarize("a", without)["plan"] is None
+
+    def test_a_summary_refuses_a_bundle_that_is_missing_a_required_key(self) -> None:
+        """`summarize` reads the bundle by subscript now, where it used to supply defaults.
+
+        That is a deliberate hardening and this is what pins it: a caller handing over half a result has a bug, and
+        `all_verified` defaulting to `True` would have carried it into the compound payload as a plausible answer
+        nobody would question. Only `plan` keeps `.get`, because it is `NotRequired` on the bundle itself.
+        """
+        with pytest.raises(KeyError):
+            summarize("a", cast(SearchResult, {"matches": []}))

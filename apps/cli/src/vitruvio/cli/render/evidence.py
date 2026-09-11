@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any, cast
+from typing import Any
 
 from rich.console import RenderableType
 from rich.text import Text
 
 from vitruvio.cli.render import theme
+from vitruvio.runtime.compound_result import BrainOriginResult, CompoundMemberResult, CompoundSearchResult
 from vitruvio.runtime.retrieval_result import MatchResult, MatchView, SearchResult
 
 SHORT = theme.SHORT
@@ -85,7 +86,9 @@ def _unverified(matches: Sequence[MatchResult], all_verified: bool) -> Text | No
     return None
 
 
-def _rows(matches: Sequence[MatchResult], *, content: bool, origins: bool = False) -> list[RenderableType]:
+def _rows(
+    matches: Sequence[MatchResult], *, content: bool, brains: Sequence[Sequence[BrainOriginResult]] | None = None
+) -> list[RenderableType]:
     """
     The match table, followed by each match's full payload when ``--content`` asked for it.
 
@@ -93,21 +96,29 @@ def _rows(matches: Sequence[MatchResult], *, content: bool, origins: bool = Fals
     is drawn. The two views used to assemble their rows separately, and two copies of "position, score, memory,
     block, identity" is how a change to the row format reaches one table and not the other.
 
+    The brains travel beside the matches rather than on them so this stays typed on ``MatchResult``: a compound
+    match is a single-brain match plus ``brains``, and taking the compound type here would make the bundle's own
+    matches unassignable. The cost is that the pairing is positional and the type cannot express it, so the loop
+    zips ``strict=True`` -- a caller that ever hands over lists of different lengths gets a ``ValueError`` at the
+    first row instead of a table silently attributing each match to the previous one's brains.
+
     Args:
         matches (Sequence[MatchResult]): The matches, in the order to print.
         content (bool): Append each block's full payload after the table.
-        origins (bool): Draw the ``brains`` column, for a ranking that spans brains.
+        brains (Sequence[Sequence[BrainOriginResult]] | None): Per match and in the same order, the brains that
+            returned it, for a ranking that spans brains; drawn as a ``brains`` column.
     """
     columns: list[str | tuple[str, str]] = [("#", "right"), ("score", "right")]
-    if origins:
+    if brains is not None:
         columns.append("brains")
     columns.extend(["memory", "block", "identity"])
     rows = theme.table(*columns)
     detail: list[RenderableType] = []
-    for position, match in enumerate(matches, start=1):
+    paired: Sequence[Sequence[BrainOriginResult] | None] = brains if brains is not None else [None] * len(matches)
+    for position, (match, origins) in enumerate(zip(matches, paired, strict=True), start=1):
         cells: list[RenderableType] = [str(position), Text(match["score"], style="score")]
-        if origins:
-            cells.append(_origins(match))
+        if origins is not None:
+            cells.append(_origins(origins))
         cells.extend([theme.kind(match["memory_type"]), theme.digest(match["block_id"]), _identity(match)])
         rows.add_row(*cells)
         if content:
@@ -177,7 +188,7 @@ def _evidence(
     return theme.stack(header, roots, unverified, "", *_rows(matches, content=content))
 
 
-def _member_roots(members: Sequence[Mapping[str, Any]]) -> RenderableType | None:
+def _member_roots(members: Sequence[CompoundMemberResult]) -> RenderableType | None:
     """
     One ``verified against`` line per brain, never one merged line.
 
@@ -186,11 +197,11 @@ def _member_roots(members: Sequence[Mapping[str, Any]]) -> RenderableType | None
     """
     pairs: list[tuple[str, Any]] = []
     for member in members:
-        roots: Mapping[str, str] = member.get("verified_against") or {}
+        roots = member["verified_against"]
         if roots:
             pairs.append(
                 (
-                    str(member["brain"]),
+                    member["brain"],
                     Text("  ").join(
                         Text.assemble(theme.kind(name), " ", theme.digest(root)) for name, root in sorted(roots.items())
                     ),
@@ -199,56 +210,44 @@ def _member_roots(members: Sequence[Mapping[str, Any]]) -> RenderableType | None
     return theme.fields(pairs, title="verified against") if pairs else None
 
 
-def _origins(match: Mapping[str, Any]) -> Text:
+def _origins(origins: Sequence[BrainOriginResult]) -> Text:
     """
     ``metrica-a#1  metrica-b#3``: each brain that returned the match, with its rank there.
 
     Rank rather than each brain's score, because rank is the quantity fusion actually used -- and printing two
     per-brain scores side by side would invite comparing numbers that were each normalised to a different ``1.00``.
     """
-    return Text("  ".join(f"{item['brain']}#{item['rank']}" for item in match.get("brains", [])), style="muted")
+    return Text("  ".join(f"{item['brain']}#{item['rank']}" for item in origins), style="muted")
 
 
-def _returning_brain(match: MatchResult) -> object:
-    """Which brain returned this match -- the compound path's one step outside the type.
-
-    ``brains`` is what a compound result adds to a match, and that result is still ``dict[str, Any]`` until the next
-    slice declares it. Reading it here, named, keeps the sequence itself typed: the alternative was annotating every
-    compound match as ``Any``, which also switched off the checking on the six keys the renderer does rely on.
+def _grouped(data: CompoundSearchResult, *, content: bool) -> list[RenderableType]:
     """
-    return cast(Mapping[str, Any], match).get("brains", [{}])[0].get("brain")
-
-
-def _grouped(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
-    """
-    One section per brain, each drawn by :func:`bundle`.
+    One section per brain, each drawn the way :func:`bundle` draws a single brain.
 
     A compound section and a ``search`` result are then the same table: a reader who has learnt one has learnt the
     other, and the two cannot drift, because there is one renderer rather than a copy of it.
     """
-    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
-    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
-    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
-    matches = cast(Sequence[MatchResult], data.get("matches", []))
     sections: list[RenderableType] = []
-    for member in data.get("members", []):
-        name = str(member["brain"])
-        own = [match for match in matches if _returning_brain(match) == name]
+    for member in data["members"]:
+        name = member["brain"]
+        # A match with no brains belongs to no section rather than raising: `grouped` always emits one, but
+        # this renders whatever a caller hands it, and an IndexError here would be a crash over a cell.
+        own = [match for match in data["matches"] if match["brains"] and match["brains"][0]["brain"] == name]
         sections.append("")
         sections.append(Text(name, style="heading"))
         sections.extend(
             _evidence(
                 own,
-                member.get("verified_against") or {},
-                truncated=member.get("truncated", False),
-                all_verified=member.get("all_verified", True),
+                member["verified_against"],
+                truncated=member["truncated"],
+                all_verified=member["all_verified"],
                 content=content,
             )
         )
     return sections
 
 
-def _fused(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
+def _fused(data: CompoundSearchResult, *, content: bool) -> list[RenderableType]:
     """
     One table across brains, with a ``brains`` column, rather than one section per brain.
 
@@ -256,47 +255,40 @@ def _fused(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
     order. The verification warning is drawn here too: a member that returned something unverified is not less
     alarming for having been fused with others.
     """
-    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
-    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
-    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
-    matches = cast(Sequence[MatchResult], data.get("matches", []))
+    matches = data["matches"]
     if not matches:
         return theme.stack("", theme.empty("No brain holds anything matching. That is an answer, not an error."))
-    return theme.stack(
-        _unverified(matches, data.get("all_verified", True)), "", *_rows(matches, content=content, origins=True)
-    )
+    rows = _rows(matches, content=content, brains=[match["brains"] for match in matches])
+    return theme.stack(_unverified(matches, data["all_verified"]), "", *rows)
 
 
-def compound(data: Mapping[str, Any], *, content: bool = False) -> list[RenderableType]:
+def compound(data: CompoundSearchResult, *, content: bool = False) -> list[RenderableType]:
     """
     Render a compound: several brains' evidence for one query.
 
-    Grouped output reuses :func:`bundle` per brain, so a compound section and a single-brain result are the same
-    table -- one shape to learn. Fused output is one table with a ``brains`` column, because the ranking is across
-    brains and a per-brain section would misstate it.
+    Grouped output reuses the single-brain renderer per brain, so a compound section and a single-brain result are
+    the same table -- one shape to learn. Fused output is one table with a ``brains`` column, because the ranking is
+    across brains and a per-brain section would misstate it.
 
     Args:
-        data (Mapping[str, Any]): What ``CompoundOps.compound_search`` produced.
+        data (CompoundSearchResult): What ``CompoundOps.compound_search`` produced.
         content (bool): Print each block's full payload rather than one identifying line.
 
     Returns:
         list[RenderableType]: What to print.
     """
-    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
-    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
-    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
-    matches = cast(Sequence[MatchResult], data.get("matches", []))
-    members: Sequence[Mapping[str, Any]] = data.get("members", [])
+    matches = data["matches"]
+    members = data["members"]
     header = Text.assemble(
         (str(len(matches)), "count"),
         f" match{'' if len(matches) == 1 else 'es'} across ",
         (str(len(members)), "count"),
         f" brain{'' if len(members) == 1 else 's'}",
-        ("  (truncated -- there may be more)", "warn") if data.get("truncated") else "",
+        ("  (truncated -- there may be more)", "warn") if data["truncated"] else "",
     )
-    skipped = data.get("skipped") or []
-    note = Text(f"skipped: {', '.join(str(item['brain']) for item in skipped)}", style="muted") if skipped else None
-    if data.get("fused"):
+    skipped = data["skipped"]
+    note = Text(f"skipped: {', '.join(item['brain'] for item in skipped)}", style="muted") if skipped else None
+    if data["fused"]:
         return theme.stack(header, _member_roots(members), note, *_fused(data, content=content))
     return theme.stack(header, note, *_grouped(data, content=content))
 

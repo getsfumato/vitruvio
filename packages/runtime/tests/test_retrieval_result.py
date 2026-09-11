@@ -31,7 +31,8 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from vitruvio.planner import explain
-from vitruvio.runtime import block_result, retrieval_result, wire
+from vitruvio.runtime import block_result, compound_result, retrieval_result, wire
+from vitruvio.runtime.ops.compound import CompoundOps
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.query_diagnostics import query_diagnostics
 from vitruvio.runtime.retrieval_result import (
@@ -213,6 +214,15 @@ class TestAnnotations:
         assert get_type_hints(RetrievalOps.explain)["return"] is ExplanationResult
         assert get_type_hints(wire.evidence)["return"] is SearchResult
         assert get_type_hints(query_diagnostics)["return"] is DiagnosticsResult
+        assert get_type_hints(CompoundOps.compound_search)["return"] is compound_result.CompoundSearchResult
+        assert get_type_hints(CompoundOps.compound_explain)["return"] is compound_result.CompoundExplainResult
+
+    def test_a_compound_match_is_its_single_brain_match_plus_where_it_came_from(self) -> None:
+        compound = {get_type_hints(v)["memory_type"]: v for v in get_args(compound_result.CompoundMatchResult)}
+        for variant in get_args(retrieval_result.MatchResult):
+            wider = get_type_hints(compound[get_type_hints(variant)["memory_type"]])
+            assert wider.pop("brains") == list[compound_result.BrainOriginResult]
+            assert wider == get_type_hints(variant)
 
 
 _MISSING = object()
@@ -257,7 +267,15 @@ def _reachable(path: str, root: Any) -> bool:
 class TestTheRecordedShapeIsReachable:
     """Every path the suite has observed resolves through the type; a field the type forgot fails here."""
 
-    @pytest.mark.parametrize(("operation", "root"), [("search", SearchResult), ("explain", ExplanationResult)])
+    @pytest.mark.parametrize(
+        ("operation", "root"),
+        [
+            ("search", SearchResult),
+            ("explain", ExplanationResult),
+            ("compound_search", compound_result.CompoundSearchResult),
+            ("compound_explain", compound_result.CompoundExplainResult),
+        ],
+    )
     def test_every_recorded_path_resolves(self, operation: str, root: type) -> None:
         paths = [path for path in GOLDEN[operation]["paths"] if path != "."]
         assert [path for path in paths if not _reachable(path, root)] == []

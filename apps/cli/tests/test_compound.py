@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from vitruvio.cli.main import main
 from vitruvio.kernel import ExitCode
+from vitruvio.runtime.compound_result import CompoundSearchResult
 
 SHARED = """# Espacio vectorial
 
@@ -276,7 +277,7 @@ class TestTheFusedViewIsAsHonestAsTheGroupedOne:
             "truncated": False,
             "all_verified": False,
         }
-        text = rendered(render.compound(data))
+        text = rendered(render.compound(cast(CompoundSearchResult, data)))
         assert "WARNING: not every match verified" in text
         assert "a#1" in text
 
@@ -300,7 +301,18 @@ class TestTheFusedViewIsAsHonestAsTheGroupedOne:
             "verified": False,
             "resolvable": True,
             "superseded_by": None,
-            "brains": [{"brain": "a", "rank": 1}],
+            "brains": [
+                {"brain": "a", "rank": 1, "score": "1.00", "resolvable": True, "superseded_by": None, "sources": []}
+            ],
         }
-        data = {"fused": False, "members": [member], "matches": [match], "brains": ["a"], "skipped": []}
-        assert "WARNING: not every match verified" in rendered(render.compound(data))
+        data = {
+            "project": "p",
+            "brains": ["a"],
+            "skipped": [],
+            "fused": False,
+            "members": [member],
+            "matches": [match],
+            "truncated": False,
+            "all_verified": False,
+        }
+        assert "WARNING: not every match verified" in rendered(render.compound(cast(CompoundSearchResult, data)))

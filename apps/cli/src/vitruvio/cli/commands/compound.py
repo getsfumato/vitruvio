@@ -15,6 +15,7 @@ brain, and a block two brains both hold rises for it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Annotated, Any
 
 from cyclopts import App, Parameter
@@ -22,6 +23,7 @@ from cyclopts import App, Parameter
 from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import ExitCode
+from vitruvio.runtime.compound_result import CompoundMemberResult, SkippedBrainResult
 
 app = App(
     name="compound",
@@ -50,12 +52,14 @@ def _names(values: list[str] | None) -> list[str] | None:
     return [part.strip() for value in values for part in value.split(",") if part.strip()]
 
 
-def _warn_about(console: Any, result: dict[str, Any]) -> None:
+def _warn_about(
+    console: Any, skipped: Sequence[SkippedBrainResult], members: Sequence[CompoundMemberResult] = ()
+) -> None:
     """Say which declared brains were skipped and which members were truncated, each by name."""
-    for item in result.get("skipped", []):
+    for item in skipped:
         console.warn(f"{item['brain']}: skipped, {item['reason']}")
-    for member in result.get("members", []):
-        if member.get("truncated"):
+    for member in members:
+        if member["truncated"]:
             console.warn(f"{member['brain']}: the result is truncated: candidates were dropped, so there may be more")
 
 
@@ -143,7 +147,7 @@ def search(
             expand_depth=expand_depth,
         )
     )
-    _warn_about(console, result)
+    _warn_about(console, result["skipped"], result["members"])
     return console.emit("compound.search", result, view=render.compound(result, content=content))
 
 
@@ -222,11 +226,11 @@ def explain(
             analyze=analyze,
         )
     )
-    _warn_about(console, result)
+    _warn_about(console, result["skipped"])
     parts: list[Any] = []
     for member in result["members"]:
         explanation = member["explanation"]
-        for degradation in explanation.get("degradations", []):
+        for degradation in explanation["degradations"]:
             console.warn(f"{member['brain']}: {degradation['kind']}: {degradation['detail']}")
         if parts:
             parts.append("")

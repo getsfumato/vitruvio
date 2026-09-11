@@ -22,10 +22,17 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from functools import partial
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from vitruvio.kernel import ResolvedConfig, UsageError, VitruvioError, is_layout
+from vitruvio.runtime.compound_result import (
+    CompoundExplainMemberResult,
+    CompoundExplainResult,
+    CompoundSearchResult,
+    SkippedBrainResult,
+)
 from vitruvio.runtime.ops.retrieval import RetrievalOps
+from vitruvio.runtime.retrieval_result import SearchResult
 from vitruvio.runtime.session import BrainSession
 
 T = TypeVar("T")
@@ -61,7 +68,7 @@ class CompoundOps:
 
     def _members(
         self, brains: Iterable[str] | None, all_brains: bool
-    ) -> tuple[list[tuple[str, RetrievalOps]], list[dict[str, Any]]]:
+    ) -> tuple[list[tuple[str, RetrievalOps]], list[SkippedBrainResult]]:
         """
         Which brains to consult, each behind its own retrieval operations, and which declared brains were skipped.
 
@@ -70,7 +77,7 @@ class CompoundOps:
             all_brains (bool): Every declared brain whose layout exists on this machine.
 
         Returns:
-            tuple[list[tuple[str, RetrievalOps]], list[dict[str, Any]]]: The members, and the skipped brains with
+            tuple[list[tuple[str, RetrievalOps]], list[SkippedBrainResult]]: The members, and the skipped brains with
             the reason each was skipped.
 
         Raises:
@@ -92,7 +99,7 @@ class CompoundOps:
             )
 
         names: list[str] = []
-        skipped: list[dict[str, Any]] = []
+        skipped: list[SkippedBrainResult] = []
         if all_brains:
             for name in sorted(document.brains):
                 path = document.brain_path(name)
@@ -160,7 +167,7 @@ class CompoundOps:
         mode: str | None = None,
         limit: int = 10,
         expand_depth: int = 0,
-    ) -> dict[str, Any]:
+    ) -> CompoundSearchResult:
         """
         Retrieve evidence from several brains of this project for one query.
 
@@ -187,14 +194,14 @@ class CompoundOps:
             expand_depth (int): How far to expand along graph edges, in every brain.
 
         Returns:
-            dict[str, Any]: The composed payload: ``members`` with each brain's own summary, roots and plan, and
+            CompoundSearchResult: The composed payload: ``members`` with each brain's own summary, roots and plan, and
             ``matches`` each naming the brain or brains it came from. Never prose.
         """
         from vitruvio.runtime.cross_brain import compose
 
         memory_types, tags, evidence = _frozen(memory_types), _frozen(tags), _frozen(evidence)
         members, skipped = self._members(brains, all_brains)
-        results = []
+        results: list[tuple[str, SearchResult]] = []
         for name, retrieval in members:
             payload = self._consult(
                 name,
@@ -232,7 +239,7 @@ class CompoundOps:
         limit: int = 10,
         expand_depth: int = 0,
         analyze: bool = False,
-    ) -> dict[str, Any]:
+    ) -> CompoundExplainResult:
         """
         Report how each brain of a compound would answer the query, side by side.
 
@@ -247,11 +254,11 @@ class CompoundOps:
             analyze (bool): Execute in every brain and record actuals beside the estimates.
 
         Returns:
-            dict[str, Any]: ``members``, each with its brain's full explanation.
+            CompoundExplainResult: ``members``, each with its brain's full explanation.
         """
         memory_types, tags = _frozen(memory_types), _frozen(tags)
         members, skipped = self._members(brains, all_brains)
-        explanations = []
+        explanations: list[CompoundExplainMemberResult] = []
         for name, retrieval in members:
             explanation = self._consult(
                 name,
@@ -271,7 +278,7 @@ class CompoundOps:
                 ),
             )
             explanations.append({"brain": name, "explanation": explanation})
-        payload: dict[str, Any] = {
+        payload: CompoundExplainResult = {
             "project": self.config.project.project.name,
             "brains": [name for name, _ in members],
             "skipped": skipped,
