@@ -395,14 +395,30 @@ class MatchView:
     match: MatchResult
 
     @property
+    def _identified(self) -> tuple[str, str]:
+        """Both halves at once, because :func:`identify` decides them together.
+
+        Kept private and recomputed rather than cached: the dataclass is ``slots=True``, so ``cached_property`` has
+        nowhere to store anything, and dropping slots to buy a cache would cost more than the string work it saves.
+        What this does buy is that the two properties cannot drift into calling ``identify`` with different
+        arguments.
+        """
+        return identify(self.match["memory_type"], self.match["content"])
+
+    @property
     def title(self) -> str:
         """What the block is called, or ``(unnamed)``."""
-        return identify(self.match["memory_type"], self.match["content"])[0] or UNNAMED
+        return self._identified[0] or UNNAMED
 
     @property
     def detail(self) -> str:
-        """What the block says, as distinct from what it is called."""
-        return identify(self.match["memory_type"], self.match["content"])[1]
+        """What the block says, as distinct from what it is called.
+
+        No production reader today: the evidence table and the TUI workspace print the title beside their own
+        flags. It stays because ``test_block_identity`` asserts a match and a browse row of the same block agree on
+        *both* halves, which is the property this class exists to guarantee -- half an agreement is not one.
+        """
+        return self._identified[1]
 
 
 __all__ = [

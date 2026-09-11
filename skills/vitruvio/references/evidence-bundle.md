@@ -69,6 +69,11 @@ apply to a row: an episodic block by its `summary`, a semantic one by its `label
 its predicates as `Relation · classified_as`, a procedural one by its `label`, a canonical one by its `media_type`,
 and a provenance block by its `record_type`. When nothing names the block, every interface says `(unnamed)`.
 
+One difference from a browse row, and it is deliberate: a canonical **match** is named by its `media_type`, where a
+browse **row** of the same block is named by its file. The file name lives in the registration record, which a
+browse listing reads and a bundle does not carry — so do not expect `application/pdf` here and `notes.pdf` there to
+be two blocks. ADR-0023 records why this is stated rather than papered over.
+
 `evidence` inside a derived block's `content` names the canonical blocks it cites; `sources` below is the same
 citation with a locator. For a canonical block, `blob` is the content address of its bytes — pass it to
 `vitruvio inspect content` — and `normalized_view`, when present, names the extracted text.

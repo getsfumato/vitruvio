@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from rich.console import RenderableType
 from rich.text import Text
@@ -209,6 +209,16 @@ def _origins(match: Mapping[str, Any]) -> Text:
     return Text("  ".join(f"{item['brain']}#{item['rank']}" for item in match.get("brains", [])), style="muted")
 
 
+def _returning_brain(match: MatchResult) -> object:
+    """Which brain returned this match -- the compound path's one step outside the type.
+
+    ``brains`` is what a compound result adds to a match, and that result is still ``dict[str, Any]`` until the next
+    slice declares it. Reading it here, named, keeps the sequence itself typed: the alternative was annotating every
+    compound match as ``Any``, which also switched off the checking on the six keys the renderer does rely on.
+    """
+    return cast(Mapping[str, Any], match).get("brains", [{}])[0].get("brain")
+
+
 def _grouped(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
     """
     One section per brain, each drawn by :func:`bundle`.
@@ -216,11 +226,14 @@ def _grouped(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
     A compound section and a ``search`` result are then the same table: a reader who has learnt one has learnt the
     other, and the two cannot drift, because there is one renderer rather than a copy of it.
     """
-    matches: Sequence[Any] = data.get("matches", [])
+    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
+    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
+    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
+    matches = cast(Sequence[MatchResult], data.get("matches", []))
     sections: list[RenderableType] = []
     for member in data.get("members", []):
         name = str(member["brain"])
-        own = [match for match in matches if match.get("brains", [{}])[0].get("brain") == name]
+        own = [match for match in matches if _returning_brain(match) == name]
         sections.append("")
         sections.append(Text(name, style="heading"))
         sections.extend(
@@ -243,7 +256,10 @@ def _fused(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
     order. The verification warning is drawn here too: a member that returned something unverified is not less
     alarming for having been fused with others.
     """
-    matches: Sequence[Any] = data.get("matches", [])
+    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
+    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
+    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
+    matches = cast(Sequence[MatchResult], data.get("matches", []))
     if not matches:
         return theme.stack("", theme.empty("No brain holds anything matching. That is an answer, not an error."))
     return theme.stack(
@@ -266,7 +282,10 @@ def compound(data: Mapping[str, Any], *, content: bool = False) -> list[Renderab
     Returns:
         list[RenderableType]: What to print.
     """
-    matches: Sequence[Any] = data.get("matches", [])
+    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
+    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
+    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
+    matches = cast(Sequence[MatchResult], data.get("matches", []))
     members: Sequence[Mapping[str, Any]] = data.get("members", [])
     header = Text.assemble(
         (str(len(matches)), "count"),

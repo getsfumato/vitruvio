@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from rich.console import Console
 
+from tests.match_payloads import match as _match
 from vitruvio.cli import render
 from vitruvio.runtime.retrieval_result import SearchResult
 
@@ -19,20 +20,6 @@ def _rendered(parts: list[Any]) -> str:
     for part in parts:
         console.print(part)
     return console.export_text()
-
-
-def _match(memory_type: str, content: dict[str, Any], **flags: Any) -> dict[str, Any]:
-    return {
-        "block_id": "sha256:" + "a" * 64,
-        "memory_type": memory_type,
-        "score": "1.00",
-        "sources": [],
-        "verified": True,
-        "resolvable": True,
-        "superseded_by": None,
-        "content": content,
-        **flags,
-    }
 
 
 def test_a_match_is_named_the_way_a_browse_row_is() -> None:

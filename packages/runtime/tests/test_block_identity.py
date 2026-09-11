@@ -7,8 +7,6 @@ the sentinel. This drives every one of them over the same payload and expects th
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 import pytest
 from boltzmann.blocks.base import Block
 from boltzmann.blocks.canonical import CanonicalBlock
@@ -19,9 +17,10 @@ from boltzmann.blocks.semantic import SemanticBlock, SemanticKind
 from boltzmann.catalog_models import PlacementDeclaration
 from boltzmann.identity.digest import BlockId, OciDigest
 
+from tests.match_payloads import match as _match
 from vitruvio.runtime.browse import UNNAMED, identify, row
 from vitruvio.runtime.query_diagnostics import _node, _short
-from vitruvio.runtime.retrieval_result import MatchResult, MatchView
+from vitruvio.runtime.retrieval_result import MatchView
 
 SOURCE = BlockId.parse("sha256:" + "1" * 64)
 AT = "2026-03-01T10:00:00Z"
@@ -51,22 +50,6 @@ CASES: list[tuple[Block, tuple[str, str]]] = [
         ("registration", f"{SOURCE}  by tester@example.com  {AT}"),
     ),
 ]
-
-
-def _match(memory_type: str, content: dict[str, Any]) -> MatchResult:
-    return cast(
-        MatchResult,
-        {
-            "block_id": "sha256:" + "a" * 64,
-            "memory_type": memory_type,
-            "score": "1.00",
-            "sources": [],
-            "verified": True,
-            "resolvable": True,
-            "superseded_by": None,
-            "content": content,
-        },
-    )
 
 
 @pytest.mark.parametrize(
