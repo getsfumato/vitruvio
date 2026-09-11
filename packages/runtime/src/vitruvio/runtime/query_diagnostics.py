@@ -9,7 +9,7 @@ paying for a vector projection they did not ask to see.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from vitruvio.runtime.retrieval_result import (
     BTreeScopeResult,
@@ -56,7 +56,7 @@ def query_diagnostics(  # noqa: PLR0915
     )
     graph_edges: list[GraphEdgeResult] = []
     graph_nodes: dict[str, GraphNodeResult] = {
-        identity: _node(identity, by_id.get(identity), role="result") for identity in result_ids
+        identity: _node(identity, by_id.get(identity)) for identity in result_ids
     }
     for scope in sorted(graph_scopes):
         module = modules.get(MemoryType(scope))
@@ -64,8 +64,8 @@ def query_diagnostics(  # noqa: PLR0915
         if not isinstance(index, GraphIndex):
             continue
         for source, target, kind, predicate, weight in index.edges(result_ids, limit=40):
-            graph_nodes.setdefault(source, _node(source, by_id.get(source), role="related"))
-            graph_nodes.setdefault(target, _node(target, by_id.get(target), role="related"))
+            graph_nodes.setdefault(source, _node(source, by_id.get(source)))
+            graph_nodes.setdefault(target, _node(target, by_id.get(target)))
             graph_edges.append(
                 {
                     "source": source,
@@ -130,10 +130,13 @@ def query_diagnostics(  # noqa: PLR0915
     }
 
 
-def _node(
-    identity: str, match: MatchResult | None = None, *, role: Literal["result", "related"] = "related"
-) -> GraphNodeResult:
-    """A compact, stable graph label without resolving another block."""
+def _node(identity: str, match: MatchResult | None = None) -> GraphNodeResult:
+    """A compact, stable graph label without resolving another block.
+
+    Whether a node is a result is decided here from whether a match was found for it, not passed in: the caller
+    that drew the results and the caller that drew their neighbours both look the identity up in the same map, so
+    a ``role`` argument could only ever agree with it or be wrong.
+    """
     payload: Mapping[str, Any] = match["content"] if match is not None else {}
     label = (
         payload.get("label")
@@ -146,7 +149,7 @@ def _node(
         "id": identity,
         "label": str(label).replace("\n", " ")[:64],
         "memory_type": match["memory_type"] if match is not None else None,
-        "role": "result" if match is not None else role,
+        "role": "result" if match is not None else "related",
         "score": match["score"] if match is not None else None,
     }
 

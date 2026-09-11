@@ -8,8 +8,10 @@ once. It is also the shape nothing else could tell you: `snapshot.digest` and `s
 somebody edits the wire function and nothing complains.
 
 Same idiom as :mod:`vitruvio.runtime.reconcile_result`, deliberately: ``TypedDict`` for a static contract over a
-payload that stays a plain dictionary, and ``cast`` at the one place a pydantic dump becomes it. The alternative
--- validating on the way out -- would make every read pay for a check that the operation already guarantees.
+payload that stays a plain dictionary, and ``cast`` wherever mypy cannot follow the construction. Here that is
+:func:`vitruvio.runtime.wire.snapshot`, which spreads a dump into a literal, and ``ops.lifecycle.state``, which
+builds one by hand. The alternative -- validating on the way out -- would make every read pay for a check that the
+operation already guarantees.
 """
 
 from __future__ import annotations

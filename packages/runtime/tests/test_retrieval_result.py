@@ -89,15 +89,21 @@ def _always_present(field: FieldInfo) -> bool:
     return field.is_required() or field.default_factory is not None or has_default
 
 
-def _inner(annotation: Any) -> Any:
-    """The type behind ``list[...]`` and ``X | None``."""
-    origin = get_origin(annotation)
-    if origin is list:
-        return _inner(get_args(annotation)[0])
-    if origin in (Union, types.UnionType):
+def _present(annotation: Any) -> Any:
+    """``X | None`` as ``X``; anything else as it is."""
+    if get_origin(annotation) in (Union, types.UnionType):
         present = [arg for arg in get_args(annotation) if arg is not type(None)]
-        return _inner(present[0]) if len(present) == 1 else annotation
+        if len(present) == 1:
+            return present[0]
     return annotation
+
+
+def _inner(annotation: Any) -> Any:
+    """The type behind ``list[...]`` and ``X | None``. Shares :func:`_present` so the two cannot prune differently."""
+    if get_origin(annotation) is list:
+        return _inner(get_args(annotation)[0])
+    pruned = _present(annotation)
+    return _inner(pruned) if pruned is not annotation else annotation
 
 
 def _members(entry: Any) -> dict[str, type[BaseModel]]:
@@ -223,15 +229,6 @@ def _hints(typed: Any) -> dict[str, Any]:
     return {name: reduce(or_, hints) for name, hints in found.items()}
 
 
-def _present(annotation: Any) -> Any:
-    """``X | None`` as ``X``; anything else as it is."""
-    if get_origin(annotation) in (Union, types.UnionType):
-        present = [arg for arg in get_args(annotation) if arg is not type(None)]
-        if len(present) == 1:
-            return present[0]
-    return annotation
-
-
 def _step(current: Any, name: str) -> Any:
     """The type under ``name``. A mapping keyed by data admits any name; ``Any`` admits anything below it."""
     current = _present(current)
@@ -269,6 +266,27 @@ class TestTheRecordedShapeIsReachable:
         assert not _reachable("matches[].content.answer", SearchResult)
         assert not _reachable("plan.operators[].scope[]", SearchResult)
         assert _reachable("plan.operators[].params.anything.at.all", SearchResult)
+
+    def test_every_recorded_content_path_belongs_to_at_least_one_memory_type(self) -> None:
+        """Walked through ``MatchResult`` the five vocabularies are one bag, so this walks them apart.
+
+        A path recorded under ``matches[]`` came from a match of one memory type, so it has to resolve through one
+        variant end to end. A content type that grew a key belonging to another would still pass the union walk --
+        every key would be in the bag -- and fails here.
+        """
+        prefix = "matches[]."
+        recorded = [path[len(prefix) :] for path in GOLDEN["search"]["paths"] if path.startswith(prefix)]
+        assert recorded, "the corpus observed no match at all"
+        variants = get_args(retrieval_result.MatchResult)
+        assert [path for path in recorded if not any(_reachable(path, variant) for variant in variants)] == []
+
+    def test_a_variant_does_not_answer_for_another_variants_content(self) -> None:
+        """What the discriminator buys, stated as a test rather than trusted: narrowing on ``memory_type`` picks
+        one content vocabulary, so a procedural match's ``steps`` is not reachable on a canonical one."""
+        assert _reachable("content.steps[].action", retrieval_result.ProceduralMatchResult)
+        assert not _reachable("content.steps[].action", retrieval_result.CanonicalMatchResult)
+        assert _reachable("content.blob", retrieval_result.CanonicalMatchResult)
+        assert not _reachable("content.blob", retrieval_result.ProceduralMatchResult)
 
 
 class TestDiagnosticsProducers:

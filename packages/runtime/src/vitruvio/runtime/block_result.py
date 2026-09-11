@@ -11,6 +11,11 @@ match is a type error rather than a ``KeyError`` in production.
 
 Nested objects follow the same ``exclude_none`` rule: a field the SDK declares optional is ``NotRequired`` here,
 one it requires is required.
+
+**No ``from __future__ import annotations`` here, unlike every other module in this package.** Under PEP 563 an
+annotation is a string when the class body runs, so ``TypedDict`` cannot see ``NotRequired`` and files every
+optional key under ``__required_keys__`` instead -- silently, on 3.11. Every type in this module turns on that
+distinction, so the import stays out.
 """
 
 from typing import Literal, NotRequired, TypedDict
@@ -133,6 +138,12 @@ class _Attributed(TypedDict):
 
 
 class RegistrationRecordResult(_Attributed):
+    """A block entering the ledger, and where it came from.
+
+    ``origin`` is the one field a browse row is allowed to rename a canonical block by, which is why it is read
+    here and not guessed from the payload: a block's identity must not depend on what anyone called the file.
+    """
+
     record_type: Literal["registration"]
     block: str
     origin: NotRequired[str]
@@ -153,6 +164,9 @@ class DerivationRecordResult(_Attributed):
 
 
 class NormalizationRecordResult(_Attributed):
+    """Bytes turned into a readable view. ``pipeline`` and ``pipeline_version`` are both required because a
+    normalization nobody can reproduce is not evidence, and the version is what makes it reproducible."""
+
     record_type: Literal["normalization"]
     block: str
     pipeline: str
@@ -160,6 +174,9 @@ class NormalizationRecordResult(_Attributed):
 
 
 class SupersessionRecordResult(_Attributed):
+    """One block replacing another. ``reason`` is optional because the protocol does not compel an explanation,
+    and a required field would invite an empty one."""
+
     record_type: Literal["supersession"]
     block: str
     supersedes: str
@@ -167,6 +184,9 @@ class SupersessionRecordResult(_Attributed):
 
 
 class DemotionRecordResult(_Attributed):
+    """A block losing standing without being removed, so the ledger keeps both the block and the judgement.
+    ``policy`` names the rule that demoted it when a rule did, rather than a person."""
+
     record_type: Literal["demotion"]
     block: str
     reason: NotRequired[str]
@@ -174,6 +194,12 @@ class DemotionRecordResult(_Attributed):
 
 
 class ValidationRecordResult(_Attributed):
+    """A verdict on a block, with the ``checks`` that produced it.
+
+    ``checks`` is required and ``task`` is not: a verdict without the checks behind it cannot be re-judged later,
+    which is the only reason to keep the record at all.
+    """
+
     record_type: Literal["validation"]
     block: str
     verdict: str

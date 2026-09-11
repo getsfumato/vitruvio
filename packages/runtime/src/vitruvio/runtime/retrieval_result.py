@@ -15,7 +15,16 @@ The explanation mirrors :mod:`vitruvio.planner.explain` rather than importing it
 compares every field here with the model it mirrors, so the two cannot drift silently.
 
 Same idiom as :mod:`vitruvio.runtime.reconcile_result`: ``TypedDict`` over a payload that stays a plain dictionary,
-``cast`` at the one place a pydantic dump becomes it.
+and ``cast`` wherever mypy cannot follow the construction -- a pydantic dump, a dictionary arriving from another
+layer, or a union spread into a new one. Six of them carry this slice: ``wire.evidence``, the explanation and the
+two per-operator dumps in :mod:`vitruvio.runtime.ops.retrieval`, and the two index diagnostics, which are plain
+dictionaries built in :mod:`vitruvio.indices` rather than dumps. The cost is that each one is a claim a reader has
+to check by eye, which is why they are named here rather than counted.
+
+**No ``from __future__ import annotations`` here, unlike every other module in this package.** Under PEP 563 an
+annotation is a string when the class body runs, so ``TypedDict`` cannot see ``NotRequired`` and files every
+optional key under ``__required_keys__`` instead -- silently, on 3.11. This module and ``block_result`` are the two
+that use ``NotRequired``, so they are the two that must not have it.
 """
 
 from typing import Any, Literal, NotRequired, TypedDict
@@ -52,6 +61,13 @@ class AuthorshipResult(TypedDict):
 
 
 class _Match(TypedDict):
+    """What every match carries whatever module it came from, so the five variants below state only their difference.
+
+    Private because nothing should annotate against it: a reader narrows the ``MatchResult`` union on ``memory_type``
+    and gets ``content`` with it. Naming this type in a signature would hand back a match whose content is unknown,
+    which is the state this slice exists to remove.
+    """
+
     block_id: str
     score: str
     sources: list[SourceRefResult]
@@ -61,26 +77,40 @@ class _Match(TypedDict):
 
 
 class CanonicalMatchResult(_Match):
+    """A block that *is* its bytes, so ``content`` names them: ``media_type``, ``blob``, a ``normalized_view``."""
+
     memory_type: Literal["canonical"]
     content: CanonicalContent
 
 
 class EpisodicMatchResult(_Match):
+    """A block that records something that happened, so ``content`` is dated: ``summary``, ``occurred_at``,
+    ``participants``, ``outcome``."""
+
     memory_type: Literal["episodic"]
     content: EpisodicContent
 
 
 class SemanticMatchResult(_Match):
+    """A block that asserts something, so ``content`` carries the assertion: a ``label`` or ``statement``, a
+    ``kind``, and the ``relations`` that place it among others."""
+
     memory_type: Literal["semantic"]
     content: SemanticContent
 
 
 class ProceduralMatchResult(_Match):
+    """A block that says how to do something, so ``content`` is ordered: a ``goal``, ``steps``, ``preconditions``
+    and ``success_criteria``."""
+
     memory_type: Literal["procedural"]
     content: ProceduralContent
 
 
 class ProvenanceMatchResult(_Match):
+    """A ledger entry retrieved like any other block. ``content`` holds a single ``record``, itself a union over
+    ``record_type``, so narrowing happens twice: once on the memory type here, once on the record there."""
+
     memory_type: Literal["provenance"]
     content: ProvenanceContent
 
@@ -136,6 +166,13 @@ class SearchPlanResult(TypedDict):
 
 
 class GraphNodeResult(TypedDict):
+    """A block as a point in the relation diagram.
+
+    ``memory_type`` and ``score`` are nullable because a node can be a neighbour the query never returned: it is
+    drawn so the reader sees what the result is attached to, and inventing a score for it would say the planner
+    ranked something it never saw.
+    """
+
     id: str
     label: str
     memory_type: str | None
@@ -144,6 +181,9 @@ class GraphNodeResult(TypedDict):
 
 
 class GraphEdgeResult(TypedDict):
+    """One relation between two blocks. ``predicate`` is nullable because not every edge kind names one -- an
+    evidence link is an edge without a predicate, and an empty string would read as a predicate that is blank."""
+
     source: str
     target: str
     kind: str
@@ -153,6 +193,13 @@ class GraphEdgeResult(TypedDict):
 
 
 class GraphDiagnosticsResult(TypedDict):
+    """The relation diagram, and whether the planner actually consulted it.
+
+    ``selected`` is separate from an empty ``nodes`` list on purpose: an index the planner skipped and an index it
+    used and found nothing in are different answers to "why did I get this result", and one empty list would say
+    neither.
+    """
+
     selected: bool
     scopes: list[str]
     nodes: list[GraphNodeResult]
@@ -160,6 +207,12 @@ class GraphDiagnosticsResult(TypedDict):
 
 
 class VectorPointResult(TypedDict):
+    """One point in the two-dimensional projection of a vector scope.
+
+    ``block_id`` and ``chunk`` are nullable because the query itself is plotted alongside the results -- that is
+    the whole point of the picture, and it belongs to no block.
+    """
+
     role: Literal["query", "result"]
     block_id: str | None
     chunk: int | None
@@ -179,11 +232,20 @@ class VectorScopeResult(TypedDict):
 
 
 class VectorDiagnosticsResult(TypedDict):
+    """Every vector scope's projection, and whether the planner consulted any of them. See
+    :class:`GraphDiagnosticsResult` for why ``selected`` is not inferred from an empty list."""
+
     selected: bool
     scopes: list[VectorScopeResult]
 
 
 class BTreeEntryResult(TypedDict):
+    """One key in the ordered index, inside the window a range query scanned.
+
+    Neighbours the query did not match are carried too, with ``selected`` false: a window showing only the hits
+    cannot answer whether the range was too narrow, which is the question a reader opens the diagnostic with.
+    """
+
     position: int
     value: str
     block_id: str | None
@@ -191,6 +253,12 @@ class BTreeEntryResult(TypedDict):
 
 
 class BTreeScopeResult(TypedDict):
+    """One module's ordered index, and the slice of it a range query touched.
+
+    ``low`` and ``high`` are nullable because a half-open range is a legitimate query; ``start`` and ``end`` locate
+    the window inside ``total``, so a reader can tell a window at the edge of the index from one in the middle.
+    """
+
     scope: str
     key: str
     engine: str
@@ -203,6 +271,9 @@ class BTreeScopeResult(TypedDict):
 
 
 class BTreeDiagnosticsResult(TypedDict):
+    """Every ordered scope's window, and whether the planner consulted any of them. See
+    :class:`GraphDiagnosticsResult` for why ``selected`` is not inferred from an empty list."""
+
     selected: bool
     scopes: list[BTreeScopeResult]
 
@@ -228,6 +299,12 @@ class SearchResult(TypedDict):
 
 
 class IntentResult(TypedDict):
+    """What the planner decided the query was asking for, mirrored from ``planner.explain.IntentExplain``.
+
+    Total, like every mirror here: a full ``model_dump`` keeps each field, so a missing key would mean the model
+    changed rather than that the value was absent.
+    """
+
     kind: str
     features: list[str]
     weights: dict[str, float]
@@ -237,6 +314,12 @@ class IntentResult(TypedDict):
 
 
 class PredicateResult(TypedDict):
+    """One filter the planner considered, and what it did with it.
+
+    ``selectivity`` is nullable because the planner reports the estimate only when statistics existed to make one,
+    and ``note`` carries the reason when ``disposition`` alone would not explain the choice.
+    """
+
     field: str
     operator: str
     disposition: str
@@ -246,6 +329,12 @@ class PredicateResult(TypedDict):
 
 
 class PlanExplainResult(TypedDict):
+    """One candidate plan as ``explain`` reports it -- the chosen one and each rejected alternative alike.
+
+    ``rejected_reason`` is nullable because the chosen plan has none; that asymmetry is the point of the field, so
+    it stays a distinct key rather than an empty string.
+    """
+
     signature: str
     operators: list[OperatorResult]
     root: int
@@ -258,6 +347,12 @@ class PlanExplainResult(TypedDict):
 
 
 class StatsResult(TypedDict):
+    """What the planner knew about one module when it chose, and how stale that was.
+
+    ``freshness`` and ``reason`` are reported together because a plan made on stale statistics is not wrong, it is
+    explainable -- and without the reason a reader cannot tell a never-built index from an out-of-date one.
+    """
+
     memory_type: str
     freshness: str
     reason: str | None

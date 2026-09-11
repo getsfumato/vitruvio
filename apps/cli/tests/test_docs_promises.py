@@ -17,6 +17,7 @@ from pathlib import Path
 
 from boltzmann.authenticity import PinSource
 
+from tests.wire_contract import shape
 from vitruvio.cli.main import app
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -232,14 +233,14 @@ EVIDENCE_BUNDLE = ROOT / "skills" / "vitruvio" / "references" / "evidence-bundle
 """The reference an agent cites from, so the one whose field names have to be the ones search returns."""
 
 
-def _paths(value: object, at: str = "") -> set[str]:
-    """The dotted paths of a JSON value, spelled as the wire contract records them: ``a.b``, and ``a[]`` for elements."""
-    found = {at or "."}
-    if isinstance(value, dict):
-        found.update(path for key, item in value.items() for path in _paths(item, f"{at}.{key}" if at else key))
-    elif isinstance(value, list):
-        found.update(path for item in value for path in _paths(item, f"{at}[]"))
-    return found
+def _paths(value: object) -> set[str]:
+    """The dotted paths of a JSON value, spelled as the wire contract records them.
+
+    Borrowed from the recorder rather than written again: a second implementation would have to be told separately
+    about ``DYNAMIC_KEYS``, and a doc example containing a ``labels`` or ``resolutions`` map would then fail the
+    comparison below because the two sides spelled the same path differently.
+    """
+    return set(shape(value))
 
 
 def test_the_evidence_bundle_reference_documents_only_what_search_returns() -> None:

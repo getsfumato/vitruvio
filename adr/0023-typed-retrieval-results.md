@@ -56,9 +56,13 @@ caller asked, so both are `NotRequired` on `SearchResult`. The search `plan` is 
 explanation and its `intent` is the intent's kind alone where `explain` reports the whole intent; both shapes predate
 this contract and stay as recorded, described rather than repaired.
 
-**`cast` sits at the pydantic boundary and nowhere else.** `wire.evidence`, `explain`, the per-operator dumps inside
-the search plan, and the two index diagnostics that arrive as plain dictionaries. Everything built by hand in the
-runtime is a typed literal that mypy checks.
+**`cast` sits wherever mypy cannot follow the construction, and each one is named rather than counted.** Three
+kinds: a pydantic dump (`wire.evidence`, `explain`, the per-operator dumps inside the search plan), a plain
+dictionary arriving from another layer (the two index diagnostics, built in `vitruvio.indices`), and a union spread
+into a new dictionary. Everything else built by hand in the runtime is a typed literal that mypy checks. The cost is
+that a `cast` is a claim nothing verifies, so it is worth naming the sites and not worth asserting there are none --
+`wire.snapshot` and `ops.lifecycle.state` already cast a hand-built literal before this slice, and saying otherwise
+would have made this record wrong on the day it was written.
 
 **The recorded shape is the oracle, and it is walked through the type.** Every path recorded for `search` and
 `explain` must resolve through the `TypedDict`s — a list descends to its element, a mapping keyed by data admits any
