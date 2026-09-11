@@ -8,16 +8,26 @@ paying for a vector projection they did not ask to see.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Literal, cast
+
+from vitruvio.runtime.retrieval_result import (
+    BTreeScopeResult,
+    DiagnosticsResult,
+    GraphEdgeResult,
+    GraphNodeResult,
+    MatchResult,
+    VectorScopeResult,
+)
 
 
 # one statement over the default; it assembles one payload and has no branch worth extracting.
 def query_diagnostics(  # noqa: PLR0915
     brain: Any,
     text: str,
-    matches: list[dict[str, Any]],
+    matches: list[MatchResult],
     explanation: Any,
-) -> dict[str, Any]:
+) -> DiagnosticsResult:
     """Describe the selected plan's graph, vector and ordered-index views."""
     from boltzmann.blocks.memory_type import MemoryType
     from boltzmann.indices.base import IndexKind
@@ -28,7 +38,7 @@ def query_diagnostics(  # noqa: PLR0915
     consulted = explanation.indices_consulted
     planner = getattr(brain, "planner", None)
     capabilities = planner.capabilities(modules) if planner is not None and hasattr(planner, "capabilities") else None
-    by_id = {str(match.get("block_id")): match for match in matches if match.get("block_id")}
+    by_id = {match["block_id"]: match for match in matches}
     result_ids = list(by_id)
 
     graph_selected = any(IndexKind.GRAPH.value in kinds for kinds in consulted.values())
@@ -44,8 +54,8 @@ def query_diagnostics(  # noqa: PLR0915
         if graph_selected
         else set()
     )
-    graph_edges: list[dict[str, Any]] = []
-    graph_nodes: dict[str, dict[str, Any]] = {
+    graph_edges: list[GraphEdgeResult] = []
+    graph_nodes: dict[str, GraphNodeResult] = {
         identity: _node(identity, by_id.get(identity), role="result") for identity in result_ids
     }
     for scope in sorted(graph_scopes):
@@ -67,7 +77,7 @@ def query_diagnostics(  # noqa: PLR0915
                 }
             )
 
-    vector_scopes: list[dict[str, Any]] = []
+    vector_scopes: list[VectorScopeResult] = []
     for scope, kinds in sorted(consulted.items()):
         if IndexKind.VECTOR.value not in kinds:
             continue
@@ -75,7 +85,7 @@ def query_diagnostics(  # noqa: PLR0915
         index = module.indices.get(IndexKind.VECTOR.value) if module is not None else None
         if not isinstance(index, VectorIndex):
             continue
-        scoped_ids = [identity for identity in result_ids if str(by_id[identity].get("memory_type")) == scope]
+        scoped_ids = [identity for identity in result_ids if by_id[identity]["memory_type"] == scope]
         try:
             projection = index.project_2d(text, scoped_ids)
         except Exception as error:
@@ -84,9 +94,9 @@ def query_diagnostics(  # noqa: PLR0915
         for point in projection["points"]:
             identity = point.get("block_id")
             point["label"] = "query" if identity is None else graph_nodes.get(identity, _node(identity))["label"]
-        vector_scopes.append({"scope": scope, **projection})
+        vector_scopes.append(cast(VectorScopeResult, {"scope": scope, **projection}))
 
-    ordered_scopes: list[dict[str, Any]] = []
+    ordered_scopes: list[BTreeScopeResult] = []
     range_ops = [operator for operator in explanation.chosen.operators if operator.index == IndexKind.BTREE.value]
     for operator in range_ops:
         if not operator.scope:
@@ -100,17 +110,13 @@ def query_diagnostics(  # noqa: PLR0915
             key = OrderedKey(key_name)
         except ValueError:
             continue
-        ordered_scopes.append(
-            {
-                "scope": operator.scope,
-                **index.window(
-                    key,
-                    low=operator.params.get("low"),
-                    high=operator.params.get("high"),
-                    prefix=operator.params.get("prefix"),
-                ),
-            }
+        window = index.window(
+            key,
+            low=operator.params.get("low"),
+            high=operator.params.get("high"),
+            prefix=operator.params.get("prefix"),
         )
+        ordered_scopes.append(cast(BTreeScopeResult, {"scope": operator.scope, **window}))
 
     return {
         "graph": {
@@ -124,9 +130,11 @@ def query_diagnostics(  # noqa: PLR0915
     }
 
 
-def _node(identity: str, match: dict[str, Any] | None = None, *, role: str = "related") -> dict[str, Any]:
+def _node(
+    identity: str, match: MatchResult | None = None, *, role: Literal["result", "related"] = "related"
+) -> GraphNodeResult:
     """A compact, stable graph label without resolving another block."""
-    payload = (match or {}).get("content") or {}
+    payload: Mapping[str, Any] = match["content"] if match is not None else {}
     label = (
         payload.get("label")
         or payload.get("summary")
@@ -137,9 +145,9 @@ def _node(identity: str, match: dict[str, Any] | None = None, *, role: str = "re
     return {
         "id": identity,
         "label": str(label).replace("\n", " ")[:64],
-        "memory_type": (match or {}).get("memory_type"),
+        "memory_type": match["memory_type"] if match is not None else None,
         "role": "result" if match is not None else role,
-        "score": (match or {}).get("score"),
+        "score": match["score"] if match is not None else None,
     }
 
 

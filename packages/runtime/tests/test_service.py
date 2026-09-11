@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -253,6 +254,79 @@ class TestInspection:
         assert caught.value.code != "INTERNAL"
 
 
+class TestMatchContent:
+    """Each memory type answers with its own payload vocabulary, and a filtered search shows the index it used."""
+
+    @pytest.fixture
+    def derived(self, service: BrainService, source_file: Path) -> BrainService:
+        from boltzmann.blocks.memory_type import MemoryType
+        from boltzmann.identity.digest import BlockId
+        from boltzmann.ingest.proposer import Candidate, CandidateSet
+
+        registered = service.register(Evidence.from_path(source_file, media_type="text/markdown"))
+        brain = service.brain(Capability.WRITE)
+        source = BlockId.parse(registered["block_id"])
+        task = brain.define_task(source, allowed=[MemoryType.SEMANTIC, MemoryType.EPISODIC, MemoryType.PROCEDURAL])
+        payloads: dict[MemoryType, dict[str, Any]] = {
+            MemoryType.SEMANTIC: {
+                "kind": "fact",
+                "label": "Coeficientes de Fourier",
+                "subject": "senales",
+                "statement": "Los coeficientes salen de integrales sobre el periodo.",
+                "relations": [{"predicate": "part_of", "target": str(source)}],
+            },
+            MemoryType.EPISODIC: {
+                "summary": "Clase sobre series de Fourier",
+                "occurred_at": "2026-03-01T10:00:00Z",
+                "context": "aula 3",
+            },
+            MemoryType.PROCEDURAL: {
+                "label": "Calcular coeficientes de Fourier",
+                "goal": "Obtener a_n y b_n",
+                "steps": [{"action": "Integrar f(x) cos(nx) sobre el periodo"}, {"action": "Dividir por pi"}],
+            },
+        }
+        candidates = CandidateSet(
+            task_id=task.task_id,
+            candidates=[
+                Candidate(memory_type=kind, evidence=[source], locator="p1", payload=payload)
+                for kind, payload in payloads.items()
+            ],
+        )
+        brain.commit(brain.validate(candidates, task))
+        return service
+
+    def test_each_memory_type_answers_with_its_own_vocabulary(self, derived: BrainService) -> None:
+        """What a reader may expect of ``content`` follows from ``memory_type`` and from nothing else in the match."""
+        semantic = derived.search("coeficientes fourier", memory_types=["semantic"])["matches"][0]
+        assert semantic["memory_type"] == "semantic"
+        assert semantic["content"]["relations"][0]["predicate"] == "part_of"
+
+        episodic = derived.search("clase fourier", memory_types=["episodic"])["matches"][0]
+        assert episodic["memory_type"] == "episodic"
+        assert episodic["content"]["context"] == "aula 3"
+
+        procedural = derived.search("coeficientes", memory_types=["procedural"])["matches"][0]
+        assert procedural["memory_type"] == "procedural"
+        assert procedural["content"]["steps"][0]["action"] == "Integrar f(x) cos(nx) sobre el periodo"
+
+    def test_a_time_filtered_search_shows_the_ordered_index_window(self, derived: BrainService) -> None:
+        derived.index_build()
+
+        result = derived.search(
+            "clase fourier",
+            memory_types=["episodic"],
+            since="2026-01-01T00:00:00Z",
+            until="2026-12-31T00:00:00Z",
+            diagnostics=True,
+        )
+
+        assert "btree" in result["plan"]["indices_consulted"]["episodic"]
+        [window] = result["diagnostics"]["btree"]["scopes"]
+        assert (window["scope"], window["key"]) == ("episodic", "occurred_at")
+        assert [entry["selected"] for entry in window["entries"]] == [True]
+
+
 class TestSearch:
     def test_search_returns_a_verified_bundle_and_never_prose(self, service: BrainService, source_file: Path) -> None:
         service.register(Evidence.from_path(source_file, media_type="text/markdown"))
@@ -342,7 +416,10 @@ class TestSearch:
             since="2026-06-01T00:00:00Z",
             limit=1,
         )
-        assert [match["content"]["occurred_at"] for match in result["matches"]] == ["2026-07-01T00:00:00Z"]
+        occurred = [
+            match["content"]["occurred_at"] for match in result["matches"] if match["memory_type"] == "episodic"
+        ]
+        assert occurred == ["2026-07-01T00:00:00Z"]
 
 
 class TestCapabilityGate:

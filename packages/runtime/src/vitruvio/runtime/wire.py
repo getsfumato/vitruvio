@@ -52,6 +52,7 @@ from boltzmann.retention.requests import (
 from pydantic import BaseModel
 
 from vitruvio.runtime.lifecycle_result import SnapshotResult
+from vitruvio.runtime.retrieval_result import SearchResult
 
 
 def snapshot(value: Snapshot) -> SnapshotResult:
@@ -208,7 +209,7 @@ def resolvability(report: ResolvabilityReport) -> dict[str, Any]:
     }
 
 
-def evidence(bundle: EvidenceBundle) -> dict[str, Any]:
+def evidence(bundle: EvidenceBundle) -> SearchResult:
     """
     An Evidence Bundle, with the verification summary spelled out.
 
@@ -216,10 +217,10 @@ def evidence(bundle: EvidenceBundle) -> dict[str, Any]:
         bundle (EvidenceBundle): What a query returned.
 
     Returns:
-        dict[str, Any]: Its fields, plus ``all_verified``. Data and provenance, never prose -- there is no
+        SearchResult: Its fields, plus ``all_verified``. Data and provenance, never prose -- there is no
         answer field to fill in, by design.
     """
-    return {**bundle.model_dump(mode="json"), "all_verified": bundle.all_verified}
+    return cast(SearchResult, {**bundle.model_dump(mode="json"), "all_verified": bundle.all_verified})
 
 
 def validation(report: ValidationReport) -> dict[str, Any]:

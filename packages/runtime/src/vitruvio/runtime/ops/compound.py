@@ -22,11 +22,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from functools import partial
-from typing import Any
+from typing import Any, TypeVar
 
 from vitruvio.kernel import ResolvedConfig, UsageError, VitruvioError, is_layout
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.session import BrainSession
+
+T = TypeVar("T")
 
 
 def _frozen(values: Iterable[str] | None) -> tuple[str, ...] | None:
@@ -126,7 +128,7 @@ class CompoundOps:
         return members, skipped
 
     @staticmethod
-    def _consult(name: str, operation: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    def _consult(name: str, operation: Callable[[], T]) -> T:
         """
         Run one member's operation, naming the brain on any failure.
 

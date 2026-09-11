@@ -31,3 +31,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0020](0020-what-the-operation-catalogue-declares.md) | What the operation catalogue declares, and why every fact is checked |
 | [0021](0021-transport-neutral-evidence.md) | Evidence arrives as bytes, and an origin is never invented |
 | [0022](0022-the-wire-contract.md) | Results are strictly serializable, and their shapes are recorded rather than described |
+| [0023](0023-typed-retrieval-results.md) | Retrieval results are typed, and a polymorphic payload is a union over the memory type |

@@ -363,7 +363,10 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "vitruvio.runtime.ops.retrieval",
         "RetrievalOps",
         "retrieval_ops",
-        (Operation("search", capability=_RETRIEVE), Operation("explain", capability=_RETRIEVE)),
+        (
+            Operation("search", capability=_RETRIEVE, result=ResultKind.TYPED),
+            Operation("explain", capability=_RETRIEVE, result=ResultKind.TYPED),
+        ),
     ),
     OperationDomain(
         "vitruvio.runtime.ops.compound",

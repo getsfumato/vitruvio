@@ -1,6 +1,7 @@
 # The evidence bundle
 
-What a search returns. Every field, and — more usefully — what each one does *not* mean.
+What a search returns. Every field, and — more usefully — what each one does *not* mean. There is no `answer` field
+and there never will be: the bundle is evidence, and the prose is yours.
 
 ```json
 {
@@ -9,27 +10,63 @@ What a search returns. Every field, and — more usefully — what each one does
       "block_id": "sha256:9fcecd9c57...",
       "memory_type": "semantic",
       "score": "1.00",
-      "content": {"kind": "fact", "label": "Serie de Fourier", "statement": "..."},
-      "resolvable": true,
+      "content": {
+        "kind": "fact",
+        "label": "Serie de Fourier",
+        "statement": "Descompone una funcion periodica en senos y cosenos.",
+        "evidence": ["sha256:fe6f2cdb9c..."]
+      },
+      "sources": [{"block_id": "sha256:fe6f2cdb9c...", "locator": "lines:1-5"}],
       "verified": true,
-      "locator": "lines:1-5",
-      "evidence": ["sha256:fe6f2cdb9c..."],
-      "superseded_by": null,
-      "depth": 0
+      "resolvable": true,
+      "superseded_by": null
     }
   ],
-  "roots": {"semantic": "sha256:95fd781b61...", "canonical": "sha256:fd522c4afb..."},
+  "verified_against": {"semantic": "sha256:95fd781b61...", "canonical": "sha256:fd522c4afb..."},
   "truncated": false,
+  "authorship": {
+    "state": "unsigned",
+    "snapshot": "sha256:1c0e6d2a9b...",
+    "key": null,
+    "subject": null,
+    "trust_root": null,
+    "pinned": false
+  },
   "all_verified": true,
-  "degradations": []
+  "plan": {
+    "signature": "TermScan(semantic)",
+    "intent": "lookup",
+    "indices_consulted": {"semantic": ["bm25"]},
+    "indices_available": {"semantic": ["bm25", "hash_map"]},
+    "operators": [],
+    "est_cost_us": 120.0,
+    "est_recall": 0.98,
+    "degradations": []
+  }
 }
 ```
 
-## `roots`
+## `content`
 
-The Merkle root of each module the answer came from. This is what makes an answer *citable*: quoting a block
-without the root it was verified against is quoting something nobody can check later. If you are producing a
-durable citation, include the root.
+The block's payload, as the protocol stores it. Which keys exist follows from `memory_type`, and from nothing else
+in the match:
+
+| `memory_type` | keys |
+|---|---|
+| `canonical` | `blob`, `media_type`, `size`, `normalized_view` |
+| `episodic` | `summary`, `occurred_at`, `ended_at`, `context`, `participants`, `outcome`, `evidence`, `tags`, `content` |
+| `semantic` | `kind`, `label`, `statement`, `subject`, `evidence`, `relations`, `aliases`, `content` before schema version 3; `kind`, `scheme`, `label`, `exclusive`, `evidence`, `relations` from it |
+| `procedural` | `label`, `goal`, `steps`, `preconditions`, `success_criteria`, `subject`, `evidence`, `content` |
+| `provenance` | `record`, whose `record_type` is `registration`, `derivation`, `normalization`, `supersession`, `demotion`, `validation` or `removal` |
+
+Three rules, and every reader needs all three. A key whose value would be empty is **absent, never `null`**. A block
+that is not `resolvable` has an empty `content`. And a semantic relation written by the catalog may carry no `label`
+at all — its identity is the predicate on its `relations`. Read `content` with `.get`, never by position or by
+assuming a key.
+
+`evidence` inside a derived block's `content` names the canonical blocks it cites; `sources` below is the same
+citation with a locator. For a canonical block, `blob` is the content address of its bytes — pass it to
+`vitruvio inspect content` — and `normalized_view`, when present, names the extracted text.
 
 ## `score`
 
@@ -42,6 +79,10 @@ graph distance. A high score means several independent strategies agreed; a low 
 It is a **string** in the JSON, at the protocol's precision. Do not parse it to a float. The final ordering was
 decided on the full-precision value before rendering, so the ranking is more precise than the displayed score
 suggests — two matches showing `1.00` are not tied.
+
+Relation expansion competes with direct matches as its own ranked list rather than overwriting them. A match that
+came in through a graph hop may outrank a direct hit, and the bundle does not say which is which: cite what the
+match holds, not how it was reached.
 
 ## `truncated`
 
@@ -67,7 +108,7 @@ infer content from its label.
 
 Always `true` for anything returned. A block that fails membership, inclusion-proof or store-hash verification is
 **discarded**, never returned with a flag — returning it would make corruption look like a low-quality result. The
-discard is recorded in `degradations` as `verification_failed`.
+discard is recorded in `plan.degradations` as `verification_failed`.
 
 So: a short bundle plus a `verification_failed` degradation is corruption, and belongs in exit-5 territory rather
 than in an answer.
@@ -79,24 +120,47 @@ only accessibility changed. Cite the successor, or say explicitly that you are q
 
 Superseded blocks are held back by default. Seeing one means it was asked for.
 
-## `locator` and `evidence`
+## `sources`
 
-`locator` points *into* the source — `"chunk:3#1600-3200"`, `"lines:40-58"`, `"[page 3]"`. `evidence` is the list of
-canonical blocks this one cites, and it is never empty for a derived block.
+The canonical evidence the block cites, one entry per cited block. `block_id` says which document; `locator` points
+*into* it — `"chunk:3#1600-3200"`, `"lines:40-58"`, `"[page 3]"` — and is `null` when the citation names the whole
+document. Together they are how a citation becomes checkable. Quote both.
 
-Together they are how a citation becomes checkable: `evidence` says which document, `locator` says where in it.
-Quote both.
+A canonical block cites nothing, so its `sources` is empty; a derived block's is never empty.
 
-## `depth`
+## `verified_against`
 
-How many graph hops from a direct match. `0` is a direct hit; higher came in through relation expansion. Expansion
-competes with direct matches as its own ranked list rather than overwriting them, so a depth-2 match outranking a
-depth-0 one is possible and meaningful — but worth mentioning when you cite it.
+The Merkle root of each module the answer came from, keyed by memory type. This is what makes an answer *citable*:
+quoting a block without the root it was verified against is quoting something nobody can check later. If you are
+producing a durable citation, include the root.
 
-## `degradations`
+## `authorship`
 
-Why the answer might be worse than it could be. `stale_statistics`, `index_absent`, `model_mismatch`,
-`embedder_unavailable`, `recall_floor_lowered`, `verification_failed`. An empty list is the clean case.
+Who assembled the brain the evidence came from, and whether that key was authorized: `state` is `authorized`,
+`unsigned`, `attributable` or `unauthorized`, `snapshot` is the version it was evaluated for, and `key`, `subject`
+and `trust_root` name the signer when there is one. `pinned` says whether the consumer has pinned that trust root.
 
-If you are about to state that the brain has no knowledge of something, read this list first: `index_absent` plus a
-lexical-only plan is a very different claim from a clean exhaustive search.
+It is reported apart from `verified` on purpose. `verified` says the bytes are intact and members of the installed
+snapshot; `authorship` says who signed that snapshot. "Intact, and signed by an authorized key" and "intact,
+provenance unknown" are different claims, and a bundle that folded them together could express neither.
+
+## `plan`
+
+What the planner did, present whenever a cost-based planner ran. `indices_consulted` against `indices_available` is
+the first thing to read when a search misses: an index that exists and was not chosen is a different situation from
+one that does not exist. `intent` is the query's kind as the planner classified it; `signature` and `operators` are
+the physical plan; `est_cost_us` and `est_recall` are what it expected of itself.
+
+`degradations` is why the answer might be worse than it could be: `stale_statistics`, `index_absent`,
+`model_mismatch`, `embedder_unavailable`, `recall_floor_lowered`, `verification_failed`. An empty list is the clean
+case. If you are about to state that the brain has no knowledge of something, read this list first: `index_absent`
+plus a lexical-only plan is a very different claim from a clean exhaustive search.
+
+`vitruvio query explain` returns the same plan in full, with every alternative the planner considered and why each
+was rejected.
+
+## `diagnostics`
+
+Present only when a caller asks for it, which `vitruvio browse` does for its query workspace and `vitruvio search`
+never does: the graph, vector and ordered-index views of the indices the plan chose, projected for a person to
+look at. It is a picture of the retrieval, not part of the evidence, and nothing in it is citable.
