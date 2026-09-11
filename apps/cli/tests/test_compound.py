@@ -296,6 +296,10 @@ class TestTheFusedViewIsAsHonestAsTheGroupedOne:
             "memory_type": "semantic",
             "content": {},
             "score": "1.00",
+            "sources": [],
+            "verified": False,
+            "resolvable": True,
+            "superseded_by": None,
             "brains": [{"brain": "a", "rank": 1}],
         }
         data = {"fused": False, "members": [member], "matches": [match], "brains": ["a"], "skipped": []}

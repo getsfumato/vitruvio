@@ -8,9 +8,9 @@ paying for a vector projection they did not ask to see.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any, cast
 
+from vitruvio.runtime.browse import identify
 from vitruvio.runtime.retrieval_result import (
     BTreeScopeResult,
     DiagnosticsResult,
@@ -137,17 +137,12 @@ def _node(identity: str, match: MatchResult | None = None) -> GraphNodeResult:
     that drew the results and the caller that drew their neighbours both look the identity up in the same map, so
     a ``role`` argument could only ever agree with it or be wrong.
     """
-    payload: Mapping[str, Any] = match["content"] if match is not None else {}
-    label = (
-        payload.get("label")
-        or payload.get("summary")
-        or payload.get("statement")
-        or payload.get("media_type")
-        or _short(identity)
-    )
+    title = identify(match["memory_type"], match["content"])[0] if match is not None else ""
+    # Not the shared sentinel: two nodes both called `(unnamed)` would be indistinguishable in a diagram.
+    label = title or _short(identity)
     return {
         "id": identity,
-        "label": str(label).replace("\n", " ")[:64],
+        "label": label.replace("\n", " ")[:64],
         "memory_type": match["memory_type"] if match is not None else None,
         "role": "result" if match is not None else "related",
         "score": match["score"] if match is not None else None,

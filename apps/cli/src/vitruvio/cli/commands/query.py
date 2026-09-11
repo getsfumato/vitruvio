@@ -96,7 +96,7 @@ def search(
             expand_depth=expand_depth,
         )
     )
-    if result.get("truncated"):
+    if result["truncated"]:
         console.warn("the result is truncated: candidates were dropped, so there may be more")
     return console.emit("query.search", result, view=render.bundle(result, content=content))
 

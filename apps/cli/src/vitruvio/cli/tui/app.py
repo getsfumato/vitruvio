@@ -45,6 +45,7 @@ from vitruvio.cli.tui.screens import ClassificationScreen, SearchScreen, Selecti
 from vitruvio.cli.tui.theme import install as install_theme
 from vitruvio.kernel import EvidenceRefusedError, StaleBrainError
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.browse import UNNAMED
 
 MODULES = ("canonical", "episodic", "semantic", "procedural", "provenance")
 """The five modules, in the order the protocol introduces them: what was observed, what happened, what is
@@ -442,7 +443,7 @@ class BrainBrowser(App[None]):
     def _add_catalog_node(self, parent: Any, node: dict[str, Any]) -> None:
         """Recursively add one catalog class and the sources placed directly in it."""
         label = Text.assemble(
-            (str(node.get("label") or "(unnamed)"), "semantic"),
+            (str(node.get("label") or UNNAMED), "semantic"),
             (f"  {node.get('effective_source_count', 0)}", "count"),
         )
         branch = parent.add(

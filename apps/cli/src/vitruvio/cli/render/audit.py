@@ -10,6 +10,7 @@ from rich.text import Text
 from rich.tree import Tree
 
 from vitruvio.cli.render import theme
+from vitruvio.runtime.browse import UNNAMED
 
 
 def creator(authorship: Mapping[str, Any] | None) -> tuple[Text, Text]:
@@ -81,7 +82,7 @@ def source_rows(rows: Sequence[Mapping[str, Any]]) -> RenderableType:
     for row in rows:
         actor, verified = creator(row.get("authorship"))
         table.add_row(
-            str(row.get("title") or row.get("origin") or "(unnamed)"),
+            str(row.get("title") or row.get("origin") or UNNAMED),
             str(row.get("media_type") or "-"),
             actor,
             verified,
@@ -95,7 +96,7 @@ def catalog_tree(data: Mapping[str, Any]) -> Tree:
     root = Tree(Text("catalog", style="heading"), guide_style="muted")
 
     def add_class(parent: Tree, node: Mapping[str, Any]) -> None:
-        label = Text(str(node.get("label") or "(unnamed)"), style="semantic")
+        label = Text(str(node.get("label") or UNNAMED), style="semantic")
         label.append(f"  {node.get('effective_source_count', 0)} sources", style="muted")
         branch = parent.add(label)
         for source in node.get("direct_sources") or ():

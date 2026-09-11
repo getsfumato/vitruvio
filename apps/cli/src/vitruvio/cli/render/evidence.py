@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from rich.console import RenderableType
 from rich.text import Text
 
 from vitruvio.cli.render import theme
+from vitruvio.runtime.retrieval_result import MatchResult, MatchView, SearchResult
 
 SHORT = theme.SHORT
 """Re-exported so the digest width has one definition. See :data:`vitruvio.cli.render.theme.SHORT`."""
@@ -41,57 +42,37 @@ def short(digest: str | None) -> str:
     return theme.short(digest)
 
 
-def _identifying(payload: Mapping[str, Any]) -> str:
-    """
-    The one field that says what a block is, without printing the whole payload.
-
-    Which field that is depends on the memory type, and picking it per type rather than dumping everything is
-    what makes a result list scannable. ``--content`` prints the full payload for anyone who wants it.
-
-    Args:
-        payload (Mapping[str, Any]): The block's payload.
-
-    Returns:
-        str: A one-line identification.
-    """
-    for field in ("label", "summary", "statement", "goal", "media_type"):
-        value = payload.get(field)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    record = payload.get("record")
-    if isinstance(record, Mapping):
-        return f"{record.get('record_type', 'provenance')} record"
-    return "(no identifying field)"
-
-
-def _identity(match: Mapping[str, Any]) -> Text:
+def _identity(match: MatchResult) -> Text:
     """
     The one-line identification of a match: what the block is, its flags, and the sources it cites.
 
+    What the block is called comes from :class:`MatchView`, the rule a browse row uses too, so a scannable list is
+    what the table shows and ``--content`` stays the way to see the whole payload.
+
     Args:
-        match (Mapping[str, Any]): One match of a bundle.
+        match (MatchResult): One match of a bundle.
 
     Returns:
         Text: The cell.
     """
     flags = []
-    if match.get("superseded_by"):
+    if match["superseded_by"]:
         flags.append(f"superseded by {short(match['superseded_by'])}")
-    if not match.get("resolvable", True):
+    if not match["resolvable"]:
         # A redacted block is a verifiable member whose bytes were destroyed under policy. A caller has to
         # be able to tell that from corruption, so it is named rather than hidden.
         flags.append("not resolvable (redacted or not installed)")
 
-    identity = Text(_identifying(match.get("content") or {}))
+    identity = Text(MatchView(match).title)
     if flags:
         identity.append_text(Text(f"   [{'; '.join(flags)}]", style="flag"))
-    for source in match.get("sources", []):
-        locator = f" #{source['locator']}" if source.get("locator") else ""
-        identity.append_text(Text(f"\nsource: {short(source.get('block_id'))}{locator}", style="muted"))
+    for source in match["sources"]:
+        locator = f" #{source['locator']}" if source["locator"] else ""
+        identity.append_text(Text(f"\nsource: {short(source['block_id'])}{locator}", style="muted"))
     return identity
 
 
-def _unverified(data: Mapping[str, Any]) -> Text | None:
+def _unverified(matches: Sequence[MatchResult], all_verified: bool) -> Text | None:
     """
     The warning every view prints when a bundle says it holds something unverified.
 
@@ -99,12 +80,12 @@ def _unverified(data: Mapping[str, Any]) -> Text | None:
     Reported loudly rather than assumed away, and from one place -- the fused compound view once omitted it, which
     is exactly how corruption or a non-conforming member comes to look like a clean, slightly smaller result.
     """
-    if data.get("matches") and not data.get("all_verified", True):
+    if matches and not all_verified:
         return Text("WARNING: not every match verified against the installed snapshot", style="bad")
     return None
 
 
-def _rows(matches: Sequence[Mapping[str, Any]], *, content: bool, origins: bool = False) -> list[RenderableType]:
+def _rows(matches: Sequence[MatchResult], *, content: bool, origins: bool = False) -> list[RenderableType]:
     """
     The match table, followed by each match's full payload when ``--content`` asked for it.
 
@@ -113,7 +94,7 @@ def _rows(matches: Sequence[Mapping[str, Any]], *, content: bool, origins: bool 
     block, identity" is how a change to the row format reaches one table and not the other.
 
     Args:
-        matches (Sequence[Mapping[str, Any]]): The matches, in the order to print.
+        matches (Sequence[MatchResult]): The matches, in the order to print.
         content (bool): Append each block's full payload after the table.
         origins (bool): Draw the ``brains`` column, for a ranking that spans brains.
     """
@@ -124,37 +105,50 @@ def _rows(matches: Sequence[Mapping[str, Any]], *, content: bool, origins: bool 
     rows = theme.table(*columns)
     detail: list[RenderableType] = []
     for position, match in enumerate(matches, start=1):
-        cells: list[RenderableType] = [str(position), Text(str(match.get("score", "-")), style="score")]
+        cells: list[RenderableType] = [str(position), Text(match["score"], style="score")]
         if origins:
             cells.append(_origins(match))
-        cells.extend([theme.kind(match.get("memory_type")), theme.digest(match.get("block_id")), _identity(match)])
+        cells.extend([theme.kind(match["memory_type"]), theme.digest(match["block_id"]), _identity(match)])
         rows.add_row(*cells)
         if content:
-            detail.append(
-                theme.fields([("block", theme.digest(match.get("block_id"), full=True))], title=f"[{position}]")
-            )
-            detail.append(payload(match.get("content") or {}))
+            detail.append(theme.fields([("block", theme.digest(match["block_id"], full=True))], title=f"[{position}]"))
+            detail.append(payload(match["content"]))
     return [rows, *detail]
 
 
-def bundle(data: Mapping[str, Any], *, content: bool = False) -> list[RenderableType]:
+def bundle(data: SearchResult, *, content: bool = False) -> list[RenderableType]:
     """
     Render an Evidence Bundle.
 
     Args:
-        data (Mapping[str, Any]): What ``wire.evidence`` produced.
+        data (SearchResult): What ``search`` produced.
         content (bool): Print each block's full payload rather than one identifying line.
 
     Returns:
         list[RenderableType]: What to print.
     """
-    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
-    verified_against: Mapping[str, str] = data.get("verified_against", {})
+    return _evidence(
+        data["matches"],
+        data["verified_against"],
+        truncated=data["truncated"],
+        all_verified=data["all_verified"],
+        content=content,
+    )
 
+
+def _evidence(
+    matches: Sequence[MatchResult],
+    verified_against: Mapping[str, str],
+    *,
+    truncated: bool,
+    all_verified: bool,
+    content: bool,
+) -> list[RenderableType]:
+    """One brain's evidence, whether it is the whole answer or one section of a compound."""
     header = Text.assemble(
         (str(len(matches)), "count"),
         f" match{'' if len(matches) == 1 else 'es'}",
-        ("  (truncated -- there may be more)", "warn") if data.get("truncated") else "",
+        ("  (truncated -- there may be more)", "warn") if truncated else "",
     )
 
     roots = None
@@ -171,7 +165,7 @@ def bundle(data: Mapping[str, Any], *, content: bool = False) -> list[Renderable
             ]
         )
 
-    unverified = _unverified(data)
+    unverified = _unverified(matches, all_verified)
     if not matches:
         return theme.stack(
             header,
@@ -215,6 +209,16 @@ def _origins(match: Mapping[str, Any]) -> Text:
     return Text("  ".join(f"{item['brain']}#{item['rank']}" for item in match.get("brains", [])), style="muted")
 
 
+def _returning_brain(match: MatchResult) -> object:
+    """Which brain returned this match -- the compound path's one step outside the type.
+
+    ``brains`` is what a compound result adds to a match, and that result is still ``dict[str, Any]`` until the next
+    slice declares it. Reading it here, named, keeps the sequence itself typed: the alternative was annotating every
+    compound match as ``Any``, which also switched off the checking on the six keys the renderer does rely on.
+    """
+    return cast(Mapping[str, Any], match).get("brains", [{}])[0].get("brain")
+
+
 def _grouped(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
     """
     One section per brain, each drawn by :func:`bundle`.
@@ -222,21 +226,22 @@ def _grouped(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
     A compound section and a ``search`` result are then the same table: a reader who has learnt one has learnt the
     other, and the two cannot drift, because there is one renderer rather than a copy of it.
     """
-    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
+    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
+    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
+    matches = cast(Sequence[MatchResult], data.get("matches", []))
     sections: list[RenderableType] = []
     for member in data.get("members", []):
         name = str(member["brain"])
-        own = [match for match in matches if match.get("brains", [{}])[0].get("brain") == name]
+        own = [match for match in matches if _returning_brain(match) == name]
         sections.append("")
         sections.append(Text(name, style="heading"))
         sections.extend(
-            bundle(
-                {
-                    "matches": own,
-                    "verified_against": member.get("verified_against") or {},
-                    "truncated": member.get("truncated", False),
-                    "all_verified": member.get("all_verified", True),
-                },
+            _evidence(
+                own,
+                member.get("verified_against") or {},
+                truncated=member.get("truncated", False),
+                all_verified=member.get("all_verified", True),
                 content=content,
             )
         )
@@ -251,10 +256,15 @@ def _fused(data: Mapping[str, Any], *, content: bool) -> list[RenderableType]:
     order. The verification warning is drawn here too: a member that returned something unverified is not less
     alarming for having been fused with others.
     """
-    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
+    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
+    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
+    matches = cast(Sequence[MatchResult], data.get("matches", []))
     if not matches:
         return theme.stack("", theme.empty("No brain holds anything matching. That is an answer, not an error."))
-    return theme.stack(_unverified(data), "", *_rows(matches, content=content, origins=True))
+    return theme.stack(
+        _unverified(matches, data.get("all_verified", True)), "", *_rows(matches, content=content, origins=True)
+    )
 
 
 def compound(data: Mapping[str, Any], *, content: bool = False) -> list[RenderableType]:
@@ -272,7 +282,10 @@ def compound(data: Mapping[str, Any], *, content: bool = False) -> list[Renderab
     Returns:
         list[RenderableType]: What to print.
     """
-    matches: Sequence[Mapping[str, Any]] = data.get("matches", [])
+    # A compound result is still `dict[str, Any]` until the next slice, so the narrowing is a claim made here
+    # rather than a type the caller carries. `cast` says that at the line it happens; `Sequence[Any]` would
+    # have said nothing at all, while `_rows` below subscripts keys it needs to be sure of.
+    matches = cast(Sequence[MatchResult], data.get("matches", []))
     members: Sequence[Mapping[str, Any]] = data.get("members", [])
     header = Text.assemble(
         (str(len(matches)), "count"),
