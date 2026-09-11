@@ -31,6 +31,7 @@ from vitruvio.cli.render import evidence, media, theme
 from vitruvio.cli.tui import BrainBrowser
 from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ExitCode
+from vitruvio.runtime.retrieval_result import VectorScopeResult
 
 
 @pytest.fixture
@@ -354,6 +355,8 @@ class TestTheRenderLayer:
                         "total": 3,
                         "start": 1,
                         "end": 2,
+                        "low": None,
+                        "high": None,
                         "entries": [
                             {
                                 "position": 1,
@@ -381,10 +384,16 @@ class TestTheRenderLayer:
                     {
                         "scope": "episodic",
                         "key": "occurred_at",
+                        "engine": "sorted-array",
                         "total": 100,
+                        "low": None,
+                        "high": None,
                         "start": 10,
                         "end": 90,
-                        "entries": [{"position": position, "value": str(position)} for position in range(38, 63)],
+                        "entries": [
+                            {"position": position, "value": str(position), "block_id": None, "selected": True}
+                            for position in range(38, 63)
+                        ],
                     }
                 ],
             }
@@ -399,10 +408,16 @@ class TestTheRenderLayer:
                     {
                         "scope": "episodic",
                         "key": "occurred_at",
+                        "engine": "sorted-array",
                         "total": 3,
+                        "low": None,
+                        "high": None,
                         "start": 2,
                         "end": 2,
-                        "entries": [{"position": position, "value": str(position)} for position in range(3)],
+                        "entries": [
+                            {"position": position, "value": str(position), "block_id": None, "selected": False}
+                            for position in range(3)
+                        ],
                     }
                 ],
             }
@@ -413,13 +428,13 @@ class TestTheRenderLayer:
     def test_the_vector_view_keeps_every_consulted_scope_visible(self) -> None:
         from vitruvio.cli.tui.query_views import vector_view
 
-        scopes = [
+        scopes: list[VectorScopeResult] = [
             {
                 "scope": scope,
                 "dimensions": 32,
                 "points": [
-                    {"role": "query", "label": "query", "x": -0.5, "y": 0.0},
-                    {"role": "result", "label": label, "x": 0.5, "y": 0.0},
+                    {"role": "query", "label": "query", "block_id": None, "chunk": None, "x": -0.5, "y": 0.0},
+                    {"role": "result", "label": label, "block_id": None, "chunk": None, "x": 0.5, "y": 0.0},
                 ],
             }
             for scope, label in (("semantic", "concept"), ("episodic", "episode"))
@@ -904,8 +919,15 @@ class TestTheInterface:
                         "memory_type": "semantic",
                         "block_id": block_id,
                         "content": {"label": "Serie de Fourier"},
-                    }
+                    },
+                    {
+                        "score": "0.40",
+                        "memory_type": "provenance",
+                        "block_id": "sha256:" + "c" * 64,
+                        "content": {"record": {"record_type": "registration", "block": block_id}},
+                    },
                 ],
+                "truncated": False,
                 "plan": {
                     "signature": "plan1234",
                     "intent": "conceptual",
@@ -936,7 +958,12 @@ class TestTheInterface:
                         "scopes": ["semantic"],
                         "nodes": [
                             {"id": block_id, "label": "Serie de Fourier", "role": "result", "memory_type": "semantic"},
-                            {"id": "sha256:" + "b" * 64, "label": "Señales periódicas", "role": "related"},
+                            {
+                                "id": "sha256:" + "b" * 64,
+                                "label": "Señales periódicas",
+                                "role": "related",
+                                "memory_type": None,
+                            },
                         ],
                         "edges": [
                             {
@@ -981,7 +1008,9 @@ class TestTheInterface:
             query.value = "fourier"
             await pilot.press("enter")
             await _settle(pilot)
-            assert app.screen.query_one("#results", DataTable).row_count == 1
+            results = app.screen.query_one("#results", DataTable)
+            assert results.row_count == 2
+            assert str(results.get_row_at(1)[3]) == "registration", "one rule names a match, the browse row's"
             assert "graph + vector" in _screen_pane(app, "query-status")
             assert "VectorSearch" in _screen_pane(app, "query-plan")
             assert "descompone" in _screen_pane(app, "query-graph")

@@ -64,6 +64,11 @@ that is not `resolvable` has an empty `content`. And a semantic relation written
 at all — its identity is the predicate on its `relations`. Read `content` with `.get`, never by position or by
 assuming a key.
 
+**What a match is called** comes from one rule in the runtime, the same one `inspect blocks` and `vitruvio browse`
+apply to a row: an episodic block by its `summary`, a semantic one by its `label` or, for a label-free relation, by
+its predicates as `Relation · classified_as`, a procedural one by its `label`, a canonical one by its `media_type`,
+and a provenance block by its `record_type`. When nothing names the block, every interface says `(unnamed)`.
+
 `evidence` inside a derived block's `content` names the canonical blocks it cites; `sources` below is the same
 citation with a locator. For a canonical block, `blob` is the content address of its bytes — pass it to
 `vitruvio inspect content` — and `normalized_view`, when present, names the extracted text.

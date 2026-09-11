@@ -134,6 +134,48 @@ def _semantic_title(payload: Mapping[str, Any]) -> str:
     return f"Relation · {', '.join(predicates)}" if predicates else "Relation"
 
 
+UNNAMED = "(unnamed)"
+"""What a block is called when nothing in its payload names it. One sentinel, so every interface says the same."""
+
+
+def identify(memory_type: str, payload: Mapping[str, Any], *, origin: str | None = None) -> tuple[str, str]:
+    """
+    What a block is called, and what it says, from its payload alone.
+
+    The one rule every interface uses -- browse rows, the evidence table, the query workspace, the diagnostics
+    graph -- so a provenance block is ``registration`` everywhere and a label-free relation is named by its
+    predicates everywhere.
+
+    Args:
+        memory_type (str): Which module holds the block.
+        payload (Mapping[str, Any]): The block's payload.
+        origin (str | None): Where a canonical block came from, when the caller read its registration record. A
+            bundle carries none, so a canonical match is named by its media type.
+
+    Returns:
+        tuple[str, str]: The title, ``""`` when nothing names the block, and the detail.
+    """
+    if memory_type == "provenance":
+        title = _provenance_title(payload)
+    elif memory_type == "semantic":
+        title = _semantic_title(payload)
+    else:
+        title = _first(payload, TITLE_FIELDS.get(memory_type, ()))
+    detail = (
+        _provenance_detail(payload)
+        if memory_type == "provenance"
+        else _first(payload, DETAIL_FIELDS.get(memory_type, ()))
+    )
+
+    if memory_type == "canonical" and origin:
+        # The file name becomes the title, and the full origin the detail when it says more than the name does: a
+        # reader scanning a canonical module is looking for the lecture notes, not for the eleventh
+        # `application/pdf`. The media type is a column of its own, so nothing is lost by moving it out of here.
+        name = origin.rsplit("/", 1)[-1]
+        title, detail = name, "" if origin == name else origin
+    return title, detail
+
+
 def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, resolvable: bool = True) -> dict[str, Any]:
     """
     One block, as a line in a list.
@@ -154,26 +196,12 @@ def row(block: Block, memory_type: MemoryType, *, origin: str | None = None, res
     """
     kind = memory_type.value
     payload = block.payload()
-
-    if kind == "provenance":
-        title = _provenance_title(payload)
-    elif kind == "semantic":
-        title = _semantic_title(payload)
-    else:
-        title = _first(payload, TITLE_FIELDS.get(kind, ()))
-    detail = _provenance_detail(payload) if kind == "provenance" else _first(payload, DETAIL_FIELDS.get(kind, ()))
-
-    if kind == "canonical" and origin:
-        # The file name becomes the title, and the full origin the detail when it says more than the name does: a
-        # reader scanning a canonical module is looking for the lecture notes, not for the eleventh
-        # `application/pdf`. The media type is a column of its own, so nothing is lost by moving it out of here.
-        name = origin.rsplit("/", 1)[-1]
-        title, detail = name, "" if origin == name else origin
+    title, detail = identify(kind, payload, origin=origin)
 
     result: dict[str, Any] = {
         "block_id": str(block.block_id),
         "memory_type": kind,
-        "title": title or "(unnamed)",
+        "title": title or UNNAMED,
         "detail": detail,
         "resolvable": resolvable,
     }
@@ -269,4 +297,4 @@ def matches(entry: Mapping[str, Any], needle: str) -> bool:
     return any(wanted in item.casefold() for item in haystack)
 
 
-__all__ = ["DETAIL_FIELDS", "TITLE_FIELDS", "matches", "row", "unreadable"]
+__all__ = ["DETAIL_FIELDS", "TITLE_FIELDS", "UNNAMED", "identify", "matches", "row", "unreadable"]

@@ -36,6 +36,7 @@ from textual.widgets.selection_list import Selection
 from vitruvio.cli import render
 from vitruvio.cli.tui.query_views import btree_view, graph_view, plan_view, vector_view
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.retrieval_result import MatchResult, MatchView, SearchResult
 
 LIMIT = 25
 """How many matches to ask the planner for."""
@@ -194,7 +195,7 @@ class SearchScreen(Screen[str | None]):
         """
         super().__init__()
         self.service = service
-        self.matches: list[dict[str, Any]] = []
+        self.matches: list[MatchResult] = []
 
     def compose(self) -> ComposeResult:
         """Lay out the persistent query workspace: results beside the plan and its visual evidence."""
@@ -294,43 +295,36 @@ class SearchScreen(Screen[str | None]):
         self.query_one("#query-status", Static).update("query failed")
         self.app.notify(message, severity="error", timeout=10)
 
-    def _fill(self, result: dict[str, Any]) -> None:
+    def _fill(self, result: SearchResult) -> None:
         """
         Show the bundle.
 
         Args:
-            result (dict[str, Any]): What ``service.search`` produced.
+            result (SearchResult): What ``service.search`` produced.
         """
-        self.matches = list(result.get("matches", []))
-        plan = result.get("plan") or {}
-        diagnostics = result.get("diagnostics") or {}
+        self.matches = list(result["matches"])
+        plan = result.get("plan")
+        diagnostics = result.get("diagnostics")
         self.query_one("#query-plan", Static).update(plan_view(plan))
-        self.query_one("#query-graph", Static).update(graph_view(diagnostics.get("graph")))
-        self.query_one("#query-vector", Static).update(vector_view(diagnostics.get("vector")))
-        self.query_one("#query-btree", Static).update(btree_view(diagnostics.get("btree")))
+        self.query_one("#query-graph", Static).update(graph_view(diagnostics["graph"] if diagnostics else None))
+        self.query_one("#query-vector", Static).update(vector_view(diagnostics["vector"] if diagnostics else None))
+        self.query_one("#query-btree", Static).update(btree_view(diagnostics["btree"] if diagnostics else None))
         table = self.query_one("#results", DataTable)
         table.clear()
         for match in self.matches:
-            payload = match.get("content") or {}
-            identity = str(
-                payload.get("label")
-                or payload.get("summary")
-                or payload.get("statement")
-                or payload.get("media_type")
-                or "(no identifying field)"
-            )
             table.add_row(
-                Text(str(match.get("score", "-")), style="score"),
-                render.kind(match.get("memory_type")),
-                render.digest(match.get("block_id")),
-                Text(identity),
+                Text(match["score"], style="score"),
+                render.kind(match["memory_type"]),
+                render.digest(match["block_id"]),
+                Text(MatchView(match).title),
                 key=match["block_id"],
             )
         query = self.query_one("#query", Input)
         query.disabled = False
-        indices = sorted({kind for kinds in (plan.get("indices_consulted") or {}).values() for kind in kinds})
+        consulted = plan["indices_consulted"] if plan else {}
+        indices = sorted({kind for kinds in consulted.values() for kind in kinds})
         selected = " + ".join(indices) if indices else "exhaustive scan"
-        more = " · more may exist" if result.get("truncated") else ""
+        more = " · more may exist" if result["truncated"] else ""
         self.query_one("#query-status", Static).update(f"{len(self.matches)} results{more} · {selected}")
         if not self.matches:
             query.focus()

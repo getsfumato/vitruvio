@@ -27,6 +27,7 @@ optional key under ``__required_keys__`` instead -- silently, on 3.11. This modu
 that use ``NotRequired``, so they are the two that must not have it.
 """
 
+from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict
 
 from vitruvio.runtime.block_result import (
@@ -36,6 +37,7 @@ from vitruvio.runtime.block_result import (
     ProvenanceContent,
     SemanticContent,
 )
+from vitruvio.runtime.browse import UNNAMED, identify
 
 
 class SourceRefResult(TypedDict):
@@ -381,6 +383,28 @@ class ExplanationResult(TypedDict):
     estimation_error: dict[str, float]
 
 
+@dataclass(frozen=True, slots=True)
+class MatchView:
+    """Shared interpretation of one match for the CLI and the TUI: what the block is called, and what it says.
+
+    Delegates to :func:`vitruvio.runtime.browse.identify`, so a match and a browse row of the same block agree --
+    except that a bundle carries no registration origin, so a canonical match is named by its media type where a
+    row is named by its file.
+    """
+
+    match: MatchResult
+
+    @property
+    def title(self) -> str:
+        """What the block is called, or ``(unnamed)``."""
+        return identify(self.match["memory_type"], self.match["content"])[0] or UNNAMED
+
+    @property
+    def detail(self) -> str:
+        """What the block says, as distinct from what it is called."""
+        return identify(self.match["memory_type"], self.match["content"])[1]
+
+
 __all__ = [
     "AuthorshipResult",
     "BTreeDiagnosticsResult",
@@ -396,6 +420,7 @@ __all__ = [
     "GraphNodeResult",
     "IntentResult",
     "MatchResult",
+    "MatchView",
     "OperatorResult",
     "PlanExplainResult",
     "PredicateResult",

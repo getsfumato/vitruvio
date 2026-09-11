@@ -64,6 +64,16 @@ that a `cast` is a claim nothing verifies, so it is worth naming the sites and n
 `wire.snapshot` and `ops.lifecycle.state` already cast a hand-built literal before this slice, and saying otherwise
 would have made this record wrong on the day it was written.
 
+**A block's identity has one owner.** Four readers answered "what is this block called" on their own and
+disagreed. `browse.identify` is now that rule, named and exported: an episodic block by its summary, a semantic one
+by its label or, label-free, by its predicates, a procedural one by its label, a canonical one by its media type, a
+provenance block by its record type. It is browse's rule because browse's was the only one that knew the memory type
+and the only one tests had pinned. `MatchView` carries it to the CLI's evidence table and the TUI's query workspace;
+the diagnostics graph labels its nodes with it. One sentinel, `(unnamed)`, everywhere but the diagram, where two
+nodes so named would be indistinguishable and a nameless node keeps its short digest. A bundle carries no
+registration origin, so a canonical match is named by its media type where a browse row is named by its file --
+stated here rather than papered over.
+
 **The recorded shape is the oracle, and it is walked through the type.** Every path recorded for `search` and
 `explain` must resolve through the `TypedDict`s — a list descends to its element, a mapping keyed by data admits any
 name, `Any` admits anything below it — so a field the suite has observed and the type forgot fails a test. The
@@ -86,9 +96,16 @@ documentation of a contract is part of the contract.
   needs a `cast`. That is the cost of a contract that means something, and it falls on tests rather than on readers.
 - A pyboltzmann or planner upgrade that moves a payload field now fails the runtime suite at the mirror test, which
   is preferable to a field that exists in the type and not on the wire.
+- Three things a person sees changed, all in human output and none pinned by a test before: a provenance match is
+  `registration` in `vitruvio search` where it was `registration record`, and in the TUI where it was
+  `(no identifying field)`; a label-free semantic relation is `Relation · classified_as` where both showed the
+  sentinel; and the sentinel itself is `(unnamed)` everywhere. Canonical, episodic, labelled semantic and procedural
+  matches read as before.
+- The readers are typed on the way: `render.bundle` takes a `SearchResult`, the TUI's `_fill` and the four query
+  views take the plan and diagnostics types, and a key they misspell is a type error. Hand-built payloads in the
+  tests grew the fields every match has.
 - `compound_search` and `compound_explain` still return `dict[str, Any]`; their matches are the same union plus a
-  `brains` list, and they follow in the next slice, together with the one owner of a block's identity for the CLI,
-  the TUI and browsing.
+  `brains` list, and they follow in the next slice.
 
 ## What was rejected
 
@@ -106,6 +123,10 @@ what memory type it holds.
 
 **Importing the planner for its models.** One eager import, and every `import vitruvio.runtime` pays for the
 statistics package. The mirror is forty lines and a test.
+
+**A first-string-field scan as the shared rule.** Three of the four readers did that -- `label`, then `summary`,
+then `statement`, then `media_type` -- and it cannot name a relation or a record, ranked `goal` above `label` in one
+place and nowhere else, and needed a per-reader sentinel. The memory type is known; a rule that ignores it guesses.
 
 **Repairing `plan.intent` while typing it.** It is a string where `explain` has an object, and making them agree
 would change a recorded shape in a commit whose promise is that no shape changes.
