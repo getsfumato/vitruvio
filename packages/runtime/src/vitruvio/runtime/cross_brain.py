@@ -28,14 +28,23 @@ package pulls ``vitruvio.stats`` onto the eager path and ``test_import_cost`` fo
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Sequence
+from typing import cast
 
-Member = tuple[str, Mapping[str, Any]]
-"""A brain's name and the Evidence Bundle payload it returned."""
+from vitruvio.runtime.compound_result import (
+    BrainOriginResult,
+    CompoundMatchResult,
+    CompoundMemberResult,
+    CompoundSearchResult,
+    SkippedBrainResult,
+)
+from vitruvio.runtime.retrieval_result import MatchResult, SearchResult, SourceRefResult
+
+Member = tuple[str, SearchResult]
+"""A brain's name and the Evidence Bundle it returned."""
 
 
-def summarize(name: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+def summarize(name: str, payload: SearchResult) -> CompoundMemberResult:
     """
     One brain's contribution, without its matches.
 
@@ -44,22 +53,22 @@ def summarize(name: str, payload: Mapping[str, Any]) -> dict[str, Any]:
 
     Args:
         name (str): The brain.
-        payload (Mapping[str, Any]): What ``RetrievalOps.search`` returned for it.
+        payload (SearchResult): What ``RetrievalOps.search`` returned for it.
 
     Returns:
-        dict[str, Any]: Count, truncation, verification, roots and the plan that ran, if one did.
+        CompoundMemberResult: Count, truncation, verification, roots and the plan that ran, if one did.
     """
     return {
         "brain": name,
-        "count": len(payload.get("matches", [])),
-        "truncated": bool(payload.get("truncated", False)),
-        "all_verified": bool(payload.get("all_verified", True)),
-        "verified_against": dict(payload.get("verified_against", {})),
+        "count": len(payload["matches"]),
+        "truncated": payload["truncated"],
+        "all_verified": payload["all_verified"],
+        "verified_against": dict(payload["verified_against"]),
         "plan": payload.get("plan"),
     }
 
 
-def _origin(name: str, rank: int, match: Mapping[str, Any]) -> dict[str, Any]:
+def _origin(name: str, rank: int, match: MatchResult) -> BrainOriginResult:
     """
     Where a match came from, and what that brain's installation of the block looked like.
 
@@ -70,14 +79,14 @@ def _origin(name: str, rank: int, match: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "brain": name,
         "rank": rank,
-        "score": match.get("score"),
-        "resolvable": match.get("resolvable", True),
-        "superseded_by": match.get("superseded_by"),
-        "sources": list(match.get("sources", [])),
+        "score": match["score"],
+        "resolvable": match["resolvable"],
+        "superseded_by": match["superseded_by"],
+        "sources": list(match["sources"]),
     }
 
 
-def _merge(returned: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _merge(returned: Sequence[MatchResult]) -> MatchResult:
     """
     One match from the several a block's brains returned, under a stated policy.
 
@@ -95,28 +104,28 @@ def _merge(returned: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
       non-conforming member ever returned otherwise.
 
     Args:
-        returned (Sequence[Mapping[str, Any]]): The same block, as each brain returned it, in member order.
+        returned (Sequence[MatchResult]): The same block, as each brain returned it, in member order.
 
     Returns:
-        dict[str, Any]: The merged match, without ``score`` or ``brains`` -- the caller sets those.
+        MatchResult: The merged match, with the first brain's ``score`` -- the caller replaces it and adds ``brains``.
     """
     merged = dict(returned[0])
-    merged["verified"] = all(item.get("verified", True) for item in returned)
-    merged["resolvable"] = any(item.get("resolvable", True) for item in returned)
-    merged["superseded_by"] = next((item["superseded_by"] for item in returned if item.get("superseded_by")), None)
-    seen: set[tuple[Any, Any]] = set()
-    sources: list[Any] = []
+    merged["verified"] = all(item["verified"] for item in returned)
+    merged["resolvable"] = any(item["resolvable"] for item in returned)
+    merged["superseded_by"] = next((item["superseded_by"] for item in returned if item["superseded_by"]), None)
+    seen: set[tuple[str, str | None]] = set()
+    sources: list[SourceRefResult] = []
     for item in returned:
-        for source in item.get("sources", []):
-            key = (source.get("block_id"), source.get("locator"))
+        for source in item["sources"]:
+            key = (source["block_id"], source["locator"])
             if key not in seen:
                 seen.add(key)
                 sources.append(source)
     merged["sources"] = sources
-    return merged
+    return cast(MatchResult, merged)
 
 
-def grouped(members: Sequence[Member]) -> list[dict[str, Any]]:
+def grouped(members: Sequence[Member]) -> list[CompoundMatchResult]:
     """
     Every brain's matches, brain by brain, each list in its own order and with its own scores.
 
@@ -124,16 +133,16 @@ def grouped(members: Sequence[Member]) -> list[dict[str, Any]]:
         members (Sequence[Member]): The brains and their payloads, in the order given.
 
     Returns:
-        list[dict[str, Any]]: Matches, each carrying a one-element ``brains`` list naming where it came from.
+        list[CompoundMatchResult]: Matches, each carrying a one-element ``brains`` list naming where it came from.
     """
-    composed: list[dict[str, Any]] = []
+    composed: list[CompoundMatchResult] = []
     for name, payload in members:
-        for rank, match in enumerate(payload.get("matches", []), start=1):
-            composed.append({**match, "brains": [_origin(name, rank, match)]})
+        for rank, match in enumerate(payload["matches"], start=1):
+            composed.append(cast(CompoundMatchResult, {**match, "brains": [_origin(name, rank, match)]}))
     return composed
 
 
-def fused(members: Sequence[Member], *, k: int | None = None) -> list[dict[str, Any]]:
+def fused(members: Sequence[Member], *, k: int | None = None) -> list[CompoundMatchResult]:
     """
     One ranking across brains, by reciprocal rank.
 
@@ -148,17 +157,17 @@ def fused(members: Sequence[Member], *, k: int | None = None) -> list[dict[str, 
             the same rule.
 
     Returns:
-        list[dict[str, Any]]: Matches, best first, ordered on the full float before rendering.
+        list[CompoundMatchResult]: Matches, best first, ordered on the full float before rendering.
     """
     from vitruvio.planner.fusion import RRF_K, render
 
     constant = RRF_K if k is None else k
     totals: dict[str, float] = {}
-    returned: dict[str, list[Mapping[str, Any]]] = {}
-    origins: dict[str, list[dict[str, Any]]] = {}
+    returned: dict[str, list[MatchResult]] = {}
+    origins: dict[str, list[BrainOriginResult]] = {}
     for name, payload in members:
-        for rank, match in enumerate(payload.get("matches", []), start=1):
-            block = str(match["block_id"])
+        for rank, match in enumerate(payload["matches"], start=1):
+            block = match["block_id"]
             totals[block] = totals.get(block, 0.0) + 1.0 / (constant + rank)
             returned.setdefault(block, []).append(match)
             origins.setdefault(block, []).append(_origin(name, rank, match))
@@ -168,7 +177,14 @@ def fused(members: Sequence[Member], *, k: int | None = None) -> list[dict[str, 
     ordered = sorted(totals, key=lambda block: (-totals[block], block))
     top = totals[ordered[0]] if ordered else 0.0
     return [
-        {**_merge(returned[block]), "score": render(totals[block] / top if top > 0 else 0.0), "brains": origins[block]}
+        cast(
+            CompoundMatchResult,
+            {
+                **_merge(returned[block]),
+                "score": render(totals[block] / top if top > 0 else 0.0),
+                "brains": origins[block],
+            },
+        )
         for block in ordered
     ]
 
@@ -178,8 +194,8 @@ def compose(
     members: Sequence[Member],
     *,
     fuse: bool,
-    skipped: Sequence[Mapping[str, Any]] = (),
-) -> dict[str, Any]:
+    skipped: Sequence[SkippedBrainResult] = (),
+) -> CompoundSearchResult:
     """
     The compound payload, in one shape for both modes.
 
@@ -190,13 +206,13 @@ def compose(
         project (str | None): The project the brains belong to.
         members (Sequence[Member]): The brains and their payloads, in the order given.
         fuse (bool): Fuse across brains rather than group by brain.
-        skipped (Sequence[Mapping[str, Any]]): Declared brains that were not consulted, and why.
+        skipped (Sequence[SkippedBrainResult]): Declared brains that were not consulted, and why.
 
     Returns:
-        dict[str, Any]: The payload.
+        CompoundSearchResult: The payload.
     """
     summaries = [summarize(name, payload) for name, payload in members]
-    payload: dict[str, Any] = {
+    return {
         "project": project,
         "brains": [name for name, _ in members],
         "skipped": list(skipped),
@@ -206,7 +222,3 @@ def compose(
         "truncated": any(item["truncated"] for item in summaries),
         "all_verified": all(item["all_verified"] for item in summaries),
     }
-    return payload
-
-
-__all__ = ["Member", "compose", "fused", "grouped", "summarize"]

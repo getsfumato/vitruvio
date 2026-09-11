@@ -373,8 +373,8 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "CompoundOps",
         "compound_ops",
         (
-            Operation("compound_search", capability=_RETRIEVE),
-            Operation("compound_explain", capability=_RETRIEVE),
+            Operation("compound_search", capability=_RETRIEVE, result=ResultKind.TYPED),
+            Operation("compound_explain", capability=_RETRIEVE, result=ResultKind.TYPED),
         ),
     ),
 )

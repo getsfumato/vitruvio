@@ -74,6 +74,13 @@ nodes so named would be indistinguishable and a nameless node keeps its short di
 registration origin, so a canonical match is named by its media type where a browse row is named by its file --
 stated here rather than papered over.
 
+**A compound match is its single-brain match plus `brains`.** ADR-0015 fixed one shape for both modes and this
+writes it down: five compound variants, each a subclass of its single-brain variant with the brains that returned
+the block, so the typed renderer that draws a bundle draws a compound section unchanged. Not one match type with
+`brains` optional -- a bundle's match never carries it and a compound's always does. `members` keeps each brain's
+own summary, roots and plan, as before; `compose`, `grouped` and `fused` build typed literals, with a `cast` at
+the two places a union is spread into a new dictionary.
+
 **The recorded shape is the oracle, and it is walked through the type.** Every path recorded for `search` and
 `explain` must resolve through the `TypedDict`s — a list descends to its element, a mapping keyed by data admits any
 name, `Any` admits anything below it — so a field the suite has observed and the type forgot fails a test. The
@@ -104,8 +111,10 @@ documentation of a contract is part of the contract.
 - The readers are typed on the way: `render.bundle` takes a `SearchResult`, the TUI's `_fill` and the four query
   views take the plan and diagnostics types, and a key they misspell is a type error. Hand-built payloads in the
   tests grew the fields every match has.
-- `compound_search` and `compound_explain` still return `dict[str, Any]`; their matches are the same union plus a
-  `brains` list, and they follow in the next slice.
+- `compound_search` and `compound_explain` return `CompoundSearchResult` and `CompoundExplainResult`, declared
+  `TYPED` in the catalogue and walked against the recording like the other two. Retrieval is typed end to end; the
+  remaining `dict[str, Any]` domains -- authenticity, catalog, retention, sources, install -- are pinned by the
+  recording and follow the same idiom when their turn comes.
 
 ## What was rejected
 

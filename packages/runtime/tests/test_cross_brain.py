@@ -6,48 +6,59 @@ is under test is the composition rule, not retrieval.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
+from vitruvio.runtime.compound_result import BrainOriginResult, SkippedBrainResult
 from vitruvio.runtime.cross_brain import compose, fused, grouped, summarize
+from vitruvio.runtime.retrieval_result import MatchResult, SearchResult
 
 
-def match(block: str, score: str, **extra: Any) -> dict[str, Any]:
+def match(block: str, score: str, **extra: Any) -> MatchResult:
     """One match as ``wire.evidence`` renders it."""
-    return {
-        "block_id": f"sha256:{block}",
-        "memory_type": "semantic",
-        "content": {"label": block},
-        "score": score,
-        "sources": [],
-        "verified": True,
-        "resolvable": True,
-        "superseded_by": None,
-        **extra,
-    }
+    return cast(
+        MatchResult,
+        {
+            "block_id": f"sha256:{block}",
+            "memory_type": "semantic",
+            "content": {"label": block},
+            "score": score,
+            "sources": [],
+            "verified": True,
+            "resolvable": True,
+            "superseded_by": None,
+            **extra,
+        },
+    )
 
 
-def origin(brain: str, rank: int, score: str, **state: Any) -> dict[str, Any]:
+def origin(brain: str, rank: int, score: str, **state: Any) -> BrainOriginResult:
     """One entry of ``brains[]``: where a match came from, and that brain's installation of the block."""
-    return {
-        "brain": brain,
-        "rank": rank,
-        "score": score,
-        "resolvable": True,
-        "superseded_by": None,
-        "sources": [],
-        **state,
-    }
+    return cast(
+        BrainOriginResult,
+        {
+            "brain": brain,
+            "rank": rank,
+            "score": score,
+            "resolvable": True,
+            "superseded_by": None,
+            "sources": [],
+            **state,
+        },
+    )
 
 
-def bundle(*matches: dict[str, Any], truncated: bool = False, root: str = "sha256:root") -> dict[str, Any]:
+def bundle(*matches: MatchResult, truncated: bool = False, root: str = "sha256:root") -> SearchResult:
     """One brain's payload."""
-    return {
-        "matches": list(matches),
-        "verified_against": {"semantic": root},
-        "truncated": truncated,
-        "all_verified": True,
-        "plan": {"signature": "SeqScan"},
-    }
+    return cast(
+        SearchResult,
+        {
+            "matches": list(matches),
+            "verified_against": {"semantic": root},
+            "truncated": truncated,
+            "all_verified": True,
+            "plan": {"signature": "SeqScan"},
+        },
+    )
 
 
 class TestGrouped:
@@ -190,11 +201,15 @@ class TestCompose:
         assert [item["truncated"] for item in payload["members"]] == [True, False]
 
     def test_skipped_brains_are_reported_not_hidden(self) -> None:
-        skipped = [{"brain": "c", "reason": "no layout at /nowhere"}]
+        skipped: list[SkippedBrainResult] = [{"brain": "c", "reason": "no layout at /nowhere"}]
         payload = compose(None, [("a", bundle()), ("b", bundle())], fuse=False, skipped=skipped)
         assert payload["skipped"] == skipped
         assert payload["brains"] == ["a", "b"]
 
     def test_a_summary_carries_the_plan_when_one_ran(self) -> None:
-        assert summarize("a", bundle())["plan"] == {"signature": "SeqScan"}
-        assert summarize("a", {"matches": []})["plan"] is None
+        plan = summarize("a", bundle())["plan"]
+        assert plan is not None
+        assert plan["signature"] == "SeqScan"
+        without = bundle()
+        del without["plan"]
+        assert summarize("a", without)["plan"] is None

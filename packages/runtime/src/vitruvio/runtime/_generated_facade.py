@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from vitruvio.ingest.evidence import Evidence
+from vitruvio.runtime.compound_result import CompoundExplainResult, CompoundSearchResult
 from vitruvio.runtime.lifecycle_result import StateResult
 from vitruvio.runtime.ops.authenticity import AuthenticityOps
 from vitruvio.runtime.ops.benchmarking import BenchmarkOps
@@ -1105,7 +1106,7 @@ class GeneratedFacade:
         mode: str | None = None,
         limit: int = 10,
         expand_depth: int = 0,
-    ) -> dict[str, Any]:
+    ) -> CompoundSearchResult:
         """Retrieve evidence from several brains of this project for one query.
 
         See :meth:`vitruvio.runtime.ops.compound.CompoundOps.compound_search`."""
@@ -1142,7 +1143,7 @@ class GeneratedFacade:
         limit: int = 10,
         expand_depth: int = 0,
         analyze: bool = False,
-    ) -> dict[str, Any]:
+    ) -> CompoundExplainResult:
         """Report how each brain of a compound would answer the query, side by side.
 
         See :meth:`vitruvio.runtime.ops.compound.CompoundOps.compound_explain`."""
