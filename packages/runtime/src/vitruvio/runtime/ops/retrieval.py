@@ -10,7 +10,7 @@ about it -- which is the sentence the whole service layer exists to keep true.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import cast
 
 from boltzmann.query.request import Query, RetrievalMode
 
@@ -20,6 +20,13 @@ from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.coerce import block_id
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
+from vitruvio.runtime.retrieval_result import (
+    DegradationResult,
+    ExplanationResult,
+    OperatorResult,
+    SearchPlanResult,
+    SearchResult,
+)
 from vitruvio.runtime.session import BrainSession
 
 
@@ -142,7 +149,7 @@ class RetrievalOps:
         limit: int = 10,
         expand_depth: int = 0,
         diagnostics: bool = False,
-    ) -> dict[str, Any]:
+    ) -> SearchResult:
         """
         Retrieve evidence.
 
@@ -167,7 +174,7 @@ class RetrievalOps:
                 off because projecting embeddings has a cost and is not part of an Evidence Bundle.
 
         Returns:
-            dict[str, Any]: An Evidence Bundle. Blocks, provenance and scores -- never prose.
+            SearchResult: An Evidence Bundle. Blocks, provenance and scores -- never prose.
         """
         query = self._build_query(
             text,
@@ -191,25 +198,30 @@ class RetrievalOps:
         planner = getattr(brain, "planner", None)
         explanation = getattr(planner, "last_explanation", None)
         if explanation is not None:
-            payload["plan"] = {
+            plan: SearchPlanResult = {
                 "signature": explanation.chosen.signature,
                 "intent": explanation.intent.kind,
                 "indices_consulted": {scope: list(kinds) for scope, kinds in explanation.indices_consulted.items()},
                 "indices_available": {scope: list(kinds) for scope, kinds in explanation.indices_available.items()},
-                "operators": [item.model_dump(mode="json") for item in explanation.chosen.operators],
+                "operators": [
+                    cast(OperatorResult, item.model_dump(mode="json")) for item in explanation.chosen.operators
+                ],
                 "est_cost_us": explanation.chosen.total_est_cost_us,
                 "est_recall": explanation.chosen.est_recall,
-                "degradations": [item.model_dump(mode="json") for item in explanation.degradations],
+                "degradations": [
+                    cast(DegradationResult, item.model_dump(mode="json")) for item in explanation.degradations
+                ],
             }
+            payload["plan"] = plan
             if diagnostics:
                 from vitruvio.runtime.query_diagnostics import query_diagnostics
 
-                visual = query_diagnostics(brain, text, list(payload.get("matches", [])), explanation)
+                visual = query_diagnostics(brain, text, list(payload["matches"]), explanation)
                 payload["diagnostics"] = visual
                 # GraphExpand executes over a federated view, so its operator scope is not the complete set of graph
                 # indices touched. The human plan view names the actual scopes from the diagnostic pass.
                 for scope in visual["graph"]["scopes"]:
-                    kinds = payload["plan"]["indices_consulted"].setdefault(scope, [])
+                    kinds = plan["indices_consulted"].setdefault(scope, [])
                     if "graph" not in kinds:
                         kinds.append("graph")
                         kinds.sort()
@@ -231,7 +243,7 @@ class RetrievalOps:
         limit: int = 10,
         expand_depth: int = 0,
         analyze: bool = False,
-    ) -> dict[str, Any]:
+    ) -> ExplanationResult:
         """
         Report how a query would be answered, or was.
 
@@ -240,7 +252,7 @@ class RetrievalOps:
                 nothing runs and only the estimates are reported.
 
         Returns:
-            dict[str, Any]: The full explanation: the chosen plan, the alternatives with their costs, each
+            ExplanationResult: The full explanation: the chosen plan, the alternatives with their costs, each
             predicate's disposition, and which indices were available but not chosen.
         """
         query = self._build_query(
@@ -271,5 +283,4 @@ class RetrievalOps:
                 _, explanation = planner.analyze(query, modules)
             else:
                 explanation = planner.explain(query, modules)
-        payload: dict[str, Any] = explanation.model_dump(mode="json")
-        return payload
+        return cast(ExplanationResult, explanation.model_dump(mode="json"))

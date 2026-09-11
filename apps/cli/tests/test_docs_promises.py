@@ -11,11 +11,13 @@ where a command is actually being *offered* rather than mentioned.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 from boltzmann.authenticity import PinSource
 
+from tests.wire_contract import shape
 from vitruvio.cli.main import app
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -225,3 +227,34 @@ def test_the_counts_in_the_skill_are_the_real_ones() -> None:
     assert words[112] in text, f"the skill does not state the command count; there are {len(leaves)}"
     assert len(groups) == 18, f"the skill says eighteen groups; there are now {len(groups)}"
     assert len(leaves) == 112, f"the skill says one hundred and twelve commands; there are now {len(leaves)}"
+
+
+EVIDENCE_BUNDLE = ROOT / "skills" / "vitruvio" / "references" / "evidence-bundle.md"
+"""The reference an agent cites from, so the one whose field names have to be the ones search returns."""
+
+
+def _paths(value: object) -> set[str]:
+    """The dotted paths of a JSON value, spelled as the wire contract records them.
+
+    Borrowed from the recorder rather than written again: a second implementation would have to be told separately
+    about ``DYNAMIC_KEYS``, and a doc example containing a ``labels`` or ``resolutions`` map would then fail the
+    comparison below because the two sides spelled the same path differently.
+    """
+    return set(shape(value))
+
+
+def test_the_evidence_bundle_reference_documents_only_what_search_returns() -> None:
+    """It showed `locator`, `evidence` and `depth` on a match and `roots` on the bundle, none of which search returns.
+    Every path of its example, and every field it gives a heading, is one the suite has recorded for `search`."""
+    text = EVIDENCE_BUNDLE.read_text(encoding="utf-8")
+    recorded = set(
+        json.loads((ROOT / "tests" / "operation_shapes.json").read_text(encoding="utf-8"))["search"]["paths"]
+    )
+
+    example = re.search(r"```json\n(.*?)```", text, flags=re.DOTALL)
+    assert example is not None
+    assert _paths(json.loads(example.group(1))) <= recorded
+
+    headings = re.findall(r"^## `([a-z_]+)`", text, flags=re.MULTILINE)
+    assert headings
+    assert [name for name in headings if name not in recorded and f"matches[].{name}" not in recorded] == []

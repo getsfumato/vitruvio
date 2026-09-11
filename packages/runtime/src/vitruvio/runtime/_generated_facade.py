@@ -29,6 +29,7 @@ from vitruvio.runtime.ops.retention import RetentionOps
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.ops.sources import SourceOps
 from vitruvio.runtime.ops.tasks import TaskOps
+from vitruvio.runtime.retrieval_result import ExplanationResult, SearchResult
 from vitruvio.runtime.session import BrainSession
 
 
@@ -1026,7 +1027,7 @@ class GeneratedFacade:
         limit: int = 10,
         expand_depth: int = 0,
         diagnostics: bool = False,
-    ) -> dict[str, Any]:
+    ) -> SearchResult:
         """Retrieve evidence.
 
         See :meth:`vitruvio.runtime.ops.retrieval.RetrievalOps.search`."""
@@ -1062,7 +1063,7 @@ class GeneratedFacade:
         limit: int = 10,
         expand_depth: int = 0,
         analyze: bool = False,
-    ) -> dict[str, Any]:
+    ) -> ExplanationResult:
         """Report how a query would be answered, or was.
 
         See :meth:`vitruvio.runtime.ops.retrieval.RetrievalOps.explain`."""

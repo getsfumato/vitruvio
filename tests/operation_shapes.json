@@ -6726,8 +6726,11 @@
   "index_build": {
     "optional": [
       "statistics[].columns.has_evidence",
+      "statistics[].columns.predicate",
       "statistics[].columns.semantic_kind",
       "statistics[].columns.subject",
+      "vouched.episodic",
+      "vouched.procedural",
       "vouched.semantic"
     ],
     "paths": {
@@ -6800,6 +6803,9 @@
       "statistics[].columns.memory_type": [
         "int"
       ],
+      "statistics[].columns.predicate": [
+        "int"
+      ],
       "statistics[].columns.record_type": [
         "int"
       ],
@@ -6856,6 +6862,12 @@
         "object"
       ],
       "vouched.canonical": [
+        "str"
+      ],
+      "vouched.episodic": [
+        "str"
+      ],
+      "vouched.procedural": [
         "str"
       ],
       "vouched.semantic": [
@@ -10623,6 +10635,21 @@
       "diagnostics",
       "diagnostics.btree",
       "diagnostics.btree.scopes",
+      "diagnostics.btree.scopes[]",
+      "diagnostics.btree.scopes[].end",
+      "diagnostics.btree.scopes[].engine",
+      "diagnostics.btree.scopes[].entries",
+      "diagnostics.btree.scopes[].entries[]",
+      "diagnostics.btree.scopes[].entries[].block_id",
+      "diagnostics.btree.scopes[].entries[].position",
+      "diagnostics.btree.scopes[].entries[].selected",
+      "diagnostics.btree.scopes[].entries[].value",
+      "diagnostics.btree.scopes[].high",
+      "diagnostics.btree.scopes[].key",
+      "diagnostics.btree.scopes[].low",
+      "diagnostics.btree.scopes[].scope",
+      "diagnostics.btree.scopes[].start",
+      "diagnostics.btree.scopes[].total",
       "diagnostics.btree.selected",
       "diagnostics.graph",
       "diagnostics.graph.edges",
@@ -10636,8 +10663,10 @@
       "matches[].block_id",
       "matches[].content",
       "matches[].content.blob",
+      "matches[].content.context",
       "matches[].content.evidence",
       "matches[].content.evidence[]",
+      "matches[].content.goal",
       "matches[].content.kind",
       "matches[].content.label",
       "matches[].content.media_type",
@@ -10646,8 +10675,16 @@
       "matches[].content.normalized_view.media_type",
       "matches[].content.normalized_view.size",
       "matches[].content.occurred_at",
+      "matches[].content.relations",
+      "matches[].content.relations[]",
+      "matches[].content.relations[].predicate",
+      "matches[].content.relations[].target",
       "matches[].content.size",
       "matches[].content.statement",
+      "matches[].content.steps",
+      "matches[].content.steps[]",
+      "matches[].content.steps[].action",
+      "matches[].content.subject",
       "matches[].content.summary",
       "matches[].memory_type",
       "matches[].resolvable",
@@ -10667,6 +10704,8 @@
       "plan.indices_available.canonical[]",
       "plan.indices_available.episodic",
       "plan.indices_available.episodic[]",
+      "plan.indices_available.procedural",
+      "plan.indices_available.procedural[]",
       "plan.indices_available.provenance",
       "plan.indices_available.provenance[]",
       "plan.indices_available.semantic",
@@ -10675,6 +10714,8 @@
       "plan.indices_consulted.canonical[]",
       "plan.indices_consulted.episodic",
       "plan.indices_consulted.episodic[]",
+      "plan.indices_consulted.procedural",
+      "plan.indices_consulted.procedural[]",
       "plan.indices_consulted.provenance",
       "plan.indices_consulted.provenance[]",
       "plan.indices_consulted.semantic",
@@ -10699,6 +10740,7 @@
       "plan.operators[].params.terms",
       "verified_against.canonical",
       "verified_against.episodic",
+      "verified_against.procedural",
       "verified_against.provenance",
       "verified_against.semantic"
     ],
@@ -10738,6 +10780,51 @@
       ],
       "diagnostics.btree.scopes": [
         "array"
+      ],
+      "diagnostics.btree.scopes[]": [
+        "object"
+      ],
+      "diagnostics.btree.scopes[].end": [
+        "int"
+      ],
+      "diagnostics.btree.scopes[].engine": [
+        "str"
+      ],
+      "diagnostics.btree.scopes[].entries": [
+        "array"
+      ],
+      "diagnostics.btree.scopes[].entries[]": [
+        "object"
+      ],
+      "diagnostics.btree.scopes[].entries[].block_id": [
+        "str"
+      ],
+      "diagnostics.btree.scopes[].entries[].position": [
+        "int"
+      ],
+      "diagnostics.btree.scopes[].entries[].selected": [
+        "bool"
+      ],
+      "diagnostics.btree.scopes[].entries[].value": [
+        "str"
+      ],
+      "diagnostics.btree.scopes[].high": [
+        "str"
+      ],
+      "diagnostics.btree.scopes[].key": [
+        "str"
+      ],
+      "diagnostics.btree.scopes[].low": [
+        "str"
+      ],
+      "diagnostics.btree.scopes[].scope": [
+        "str"
+      ],
+      "diagnostics.btree.scopes[].start": [
+        "int"
+      ],
+      "diagnostics.btree.scopes[].total": [
+        "int"
       ],
       "diagnostics.btree.selected": [
         "bool"
@@ -10781,10 +10868,16 @@
       "matches[].content.blob": [
         "str"
       ],
+      "matches[].content.context": [
+        "str"
+      ],
       "matches[].content.evidence": [
         "array"
       ],
       "matches[].content.evidence[]": [
+        "str"
+      ],
+      "matches[].content.goal": [
         "str"
       ],
       "matches[].content.kind": [
@@ -10811,10 +10904,34 @@
       "matches[].content.occurred_at": [
         "str"
       ],
+      "matches[].content.relations": [
+        "array"
+      ],
+      "matches[].content.relations[]": [
+        "object"
+      ],
+      "matches[].content.relations[].predicate": [
+        "str"
+      ],
+      "matches[].content.relations[].target": [
+        "str"
+      ],
       "matches[].content.size": [
         "int"
       ],
       "matches[].content.statement": [
+        "str"
+      ],
+      "matches[].content.steps": [
+        "array"
+      ],
+      "matches[].content.steps[]": [
+        "object"
+      ],
+      "matches[].content.steps[].action": [
+        "str"
+      ],
+      "matches[].content.subject": [
         "str"
       ],
       "matches[].content.summary": [
@@ -10891,6 +11008,12 @@
       "plan.indices_available.episodic[]": [
         "str"
       ],
+      "plan.indices_available.procedural": [
+        "array"
+      ],
+      "plan.indices_available.procedural[]": [
+        "str"
+      ],
       "plan.indices_available.provenance": [
         "array"
       ],
@@ -10916,6 +11039,12 @@
         "array"
       ],
       "plan.indices_consulted.episodic[]": [
+        "str"
+      ],
+      "plan.indices_consulted.procedural": [
+        "array"
+      ],
+      "plan.indices_consulted.procedural[]": [
         "str"
       ],
       "plan.indices_consulted.provenance": [
@@ -10993,7 +11122,8 @@
         "float"
       ],
       "plan.operators[].params.high": [
-        "null"
+        "null",
+        "str"
       ],
       "plan.operators[].params.include_superseded": [
         "bool"
@@ -11051,6 +11181,9 @@
         "str"
       ],
       "verified_against.episodic": [
+        "str"
+      ],
+      "verified_against.procedural": [
         "str"
       ],
       "verified_against.provenance": [

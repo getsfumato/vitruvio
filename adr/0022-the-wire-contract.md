@@ -103,4 +103,5 @@ it and points at the test that produced the drift, which is more useful than a s
 across memory types, so typing it means modelling every block kind's projection as a discriminated union. That is
 a modelling decision and not a mechanical conversion, and mixing it into the commit that removes `default=str`
 would make both unreviewable. It is tracked separately; the recorded shape pins its field names in the meantime,
-which is the protection that did not exist at all before.
+which is the protection that did not exist at all before. Done in
+[ADR-0023](0023-typed-retrieval-results.md), which records the modelling decision.
