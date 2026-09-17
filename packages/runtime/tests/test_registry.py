@@ -680,6 +680,9 @@ class TestTwoCallersOnOneLoop:
         assert pushed["digest"]
 
 
+@pytest.mark.slow
+@pytest.mark.registry
+@pytest.mark.skipif(not _docker_available(), reason="needs a running Docker daemon")
 class TestContainerRegistry:
     """The real HTTP path, against ``registry:2`` in a container.
 
