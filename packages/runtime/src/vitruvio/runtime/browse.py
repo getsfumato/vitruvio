@@ -26,7 +26,7 @@ from typing import Any, cast
 from boltzmann.blocks.base import Block
 from boltzmann.blocks.memory_type import MemoryType
 
-from vitruvio.runtime.browse_result import UNNAMED, BrowseRowResult
+from vitruvio.runtime.browse_result import UNNAMED, BrowseRowResult, BrowseRowView
 
 TITLE_FIELDS: Mapping[str, tuple[str, ...]] = {
     "canonical": ("media_type",),
@@ -207,6 +207,11 @@ def row(
     }
     if origin:
         result["origin"] = origin
+    if kind == "provenance" and isinstance(record := payload.get("record"), dict):
+        if isinstance(record.get("record_type"), str):
+            result["record_type"] = record["record_type"]
+        if record.get("record_type") == "removal" and isinstance(record.get("mechanism"), str):
+            result["removal_mechanism"] = record["mechanism"]
 
     # Everything below is per-memory-type and omitted rather than nulled when absent: a `media_type` of None on
     # a semantic block would suggest the field means something there.
@@ -291,6 +296,8 @@ def matches(entry: Mapping[str, Any], needle: str) -> bool:
         str(entry.get("subject", "")),
         str(entry.get("block_id", "")),
         str(entry.get("media_type", "")),
+        BrowseRowView(cast(BrowseRowResult, entry)).state,
+        str(entry.get("superseded_by", "")),
         # The named content's type counts too, so "png" finds the semantic block whose datum is a diagram the
         # same way it finds the canonical block whose bytes are one.
         str((entry.get("content") or {}).get("media_type", "")),

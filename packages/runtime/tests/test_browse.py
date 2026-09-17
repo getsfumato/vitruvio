@@ -16,6 +16,7 @@ import pytest
 from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import EvidenceRefusedError, ResolvedConfig, VitruvioError
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.browse_result import BrowseRowView
 
 
 @pytest.fixture
@@ -29,6 +30,28 @@ def registered(service: BrainService, source_file: Path) -> dict[str, str]:
 
 
 class TestBlocks:
+    def test_superseded_rows_name_their_successor(self, service: BrainService, source_file: Path) -> None:
+        old = service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"]
+        successor = source_file.parent / "revised.md"
+        successor.write_text("new edition", encoding="utf-8")
+        new = service.replace(Evidence.from_path(successor, media_type="text/markdown"), supersedes=old)["block_id"]
+
+        rows = {entry["block_id"]: entry for entry in service.blocks("canonical")["rows"]}
+        assert rows[old]["superseded_by"] == new
+        assert BrowseRowView(rows[old]).state == "superseded"
+        assert BrowseRowView(rows[new]).state == ""
+        assert old in {entry["block_id"] for entry in service.blocks("canonical", contains="superseded")["rows"]}
+
+    def test_a_drop_leaves_a_marked_history_record_not_a_module_row(
+        self, service: BrainService, named_content: dict[str, Any]
+    ) -> None:
+        (semantic,) = service.blocks("semantic")["rows"]
+        service.drop([semantic["block_id"]], memory_type="semantic", reason="obsolete")
+        assert service.blocks("semantic")["rows"] == []
+        removals = [entry for entry in service.blocks("provenance")["rows"] if entry.get("record_type") == "removal"]
+        assert removals
+        assert any(BrowseRowView(entry).state == "drop record" for entry in removals)
+
     def test_browsing_authorship_does_not_rehash_historical_brains(
         self, service: BrainService, registered: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -72,6 +72,9 @@ class BrowseRowResult(TypedDict):
     title: str
     detail: str
     resolvable: bool
+    superseded_by: NotRequired[str]
+    record_type: NotRequired[str]
+    removal_mechanism: NotRequired[str]
     origin: NotRequired[str]
     media_type: NotRequired[str]
     size: NotRequired[int]
@@ -149,6 +152,17 @@ class BrowseRowView:
     def resolvable(self) -> bool:
         """Whether the store could read it. A row that says no is still a row, and is styled as one."""
         return self.row.get("resolvable", True)
+
+    @property
+    def state(self) -> str:
+        """A visible lifecycle cue, without claiming that an unmarked block is current."""
+        if not self.resolvable:
+            return "unreadable"
+        if self.row.get("superseded_by"):
+            return "superseded"
+        if self.row.get("record_type") == "removal":
+            return "drop record" if self.row.get("removal_mechanism") == "drop" else "removal record"
+        return ""
 
     @property
     def media_label(self) -> str:

@@ -497,9 +497,13 @@ class BrainBrowser(App[None]):
             # said otherwise. It is the shared rule now rather than this table's private one.
             view = BrowseRowView(row)
             actor, verified = render.creator(row.get("authorship"))
+            title = Text()
+            if view.state:
+                title.append(f"{view.state.upper()}  ", style="bad" if view.state == "unreadable" else "flag")
+            title.append(view.title, style="muted" if view.state == "superseded" else "value")
             table.add_row(
                 render.digest(row.get("block_id")),
-                Text(view.title, style="value" if view.resolvable else "bad"),
+                title,
                 actor,
                 verified,
                 Text(view.media_label, style="muted"),
@@ -673,6 +677,11 @@ class BrainBrowser(App[None]):
         from rich.console import Group
 
         head = render.media.describe(row)
+        state_view = BrowseRowView(row)
+        if state_view.state == "superseded":
+            head = Group(Text(f"SUPERSEDED by {render.short(row['superseded_by'])}", style="flag"), head)
+        elif state_view.state in ("drop record", "removal record"):
+            head = Group(Text(state_view.state.upper() + " · provenance history", style="flag"), head)
         if not row.get("resolvable", True):
             return Group(head, "", Text(str(row.get("detail", "not resolvable")), style="bad"))
 
