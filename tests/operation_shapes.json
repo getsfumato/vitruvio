@@ -1136,8 +1136,11 @@
       "rows[].normalized_view.media_type",
       "rows[].normalized_view.size",
       "rows[].origin",
+      "rows[].record_type",
+      "rows[].removal_mechanism",
       "rows[].resolvable",
       "rows[].size",
+      "rows[].superseded_by",
       "rows[].title"
     ],
     "paths": {
@@ -1326,11 +1329,20 @@
       "rows[].origin": [
         "str"
       ],
+      "rows[].record_type": [
+        "str"
+      ],
+      "rows[].removal_mechanism": [
+        "str"
+      ],
       "rows[].resolvable": [
         "bool"
       ],
       "rows[].size": [
         "int"
+      ],
+      "rows[].superseded_by": [
+        "str"
       ],
       "rows[].title": [
         "str"
@@ -1459,6 +1471,7 @@
       "source_rows[].origin",
       "source_rows[].resolvable",
       "source_rows[].size",
+      "source_rows[].superseded_by",
       "source_rows[].title",
       "sources[]"
     ],
@@ -1626,6 +1639,9 @@
       "source_rows[].size": [
         "int"
       ],
+      "source_rows[].superseded_by": [
+        "str"
+      ],
       "source_rows[].title": [
         "str"
       ],
@@ -1723,6 +1739,7 @@
       "schemes[].classes[].direct_sources[].origin",
       "schemes[].classes[].direct_sources[].resolvable",
       "schemes[].classes[].direct_sources[].size",
+      "schemes[].classes[].direct_sources[].superseded_by",
       "schemes[].classes[].direct_sources[].title",
       "schemes[].classes[].effective_source_count",
       "schemes[].classes[].effective_sources",
@@ -1763,6 +1780,7 @@
       "schemes[].classes[].effective_sources[].origin",
       "schemes[].classes[].effective_sources[].resolvable",
       "schemes[].classes[].effective_sources[].size",
+      "schemes[].classes[].effective_sources[].superseded_by",
       "schemes[].classes[].effective_sources[].title",
       "schemes[].classes[].label",
       "schemes[].classes[].narrower",
@@ -1817,6 +1835,7 @@
       "schemes[].roots[].children[].direct_sources[].origin",
       "schemes[].roots[].children[].direct_sources[].resolvable",
       "schemes[].roots[].children[].direct_sources[].size",
+      "schemes[].roots[].children[].direct_sources[].superseded_by",
       "schemes[].roots[].children[].direct_sources[].title",
       "schemes[].roots[].children[].effective_source_count",
       "schemes[].roots[].children[].effective_sources",
@@ -1857,6 +1876,7 @@
       "schemes[].roots[].children[].effective_sources[].origin",
       "schemes[].roots[].children[].effective_sources[].resolvable",
       "schemes[].roots[].children[].effective_sources[].size",
+      "schemes[].roots[].children[].effective_sources[].superseded_by",
       "schemes[].roots[].children[].effective_sources[].title",
       "schemes[].roots[].children[].label",
       "schemes[].roots[].children[].narrower",
@@ -1900,6 +1920,7 @@
       "schemes[].roots[].direct_sources[].origin",
       "schemes[].roots[].direct_sources[].resolvable",
       "schemes[].roots[].direct_sources[].size",
+      "schemes[].roots[].direct_sources[].superseded_by",
       "schemes[].roots[].direct_sources[].title",
       "schemes[].roots[].effective_source_count",
       "schemes[].roots[].effective_sources",
@@ -1940,6 +1961,7 @@
       "schemes[].roots[].effective_sources[].origin",
       "schemes[].roots[].effective_sources[].resolvable",
       "schemes[].roots[].effective_sources[].size",
+      "schemes[].roots[].effective_sources[].superseded_by",
       "schemes[].roots[].effective_sources[].title",
       "schemes[].roots[].label",
       "schemes[].roots[].narrower",
@@ -1982,6 +2004,7 @@
       "unclassified[].origin",
       "unclassified[].resolvable",
       "unclassified[].size",
+      "unclassified[].superseded_by",
       "unclassified[].title"
     ],
     "paths": {
@@ -2127,6 +2150,9 @@
       "schemes[].classes[].direct_sources[].size": [
         "int"
       ],
+      "schemes[].classes[].direct_sources[].superseded_by": [
+        "str"
+      ],
       "schemes[].classes[].direct_sources[].title": [
         "str"
       ],
@@ -2247,6 +2273,9 @@
       ],
       "schemes[].classes[].effective_sources[].size": [
         "int"
+      ],
+      "schemes[].classes[].effective_sources[].superseded_by": [
+        "str"
       ],
       "schemes[].classes[].effective_sources[].title": [
         "str"
@@ -2410,6 +2439,9 @@
       "schemes[].roots[].children[].direct_sources[].size": [
         "int"
       ],
+      "schemes[].roots[].children[].direct_sources[].superseded_by": [
+        "str"
+      ],
       "schemes[].roots[].children[].direct_sources[].title": [
         "str"
       ],
@@ -2529,6 +2561,9 @@
       ],
       "schemes[].roots[].children[].effective_sources[].size": [
         "int"
+      ],
+      "schemes[].roots[].children[].effective_sources[].superseded_by": [
+        "str"
       ],
       "schemes[].roots[].children[].effective_sources[].title": [
         "str"
@@ -2659,6 +2694,9 @@
       "schemes[].roots[].direct_sources[].size": [
         "int"
       ],
+      "schemes[].roots[].direct_sources[].superseded_by": [
+        "str"
+      ],
       "schemes[].roots[].direct_sources[].title": [
         "str"
       ],
@@ -2779,6 +2817,9 @@
       ],
       "schemes[].roots[].effective_sources[].size": [
         "int"
+      ],
+      "schemes[].roots[].effective_sources[].superseded_by": [
+        "str"
       ],
       "schemes[].roots[].effective_sources[].title": [
         "str"
@@ -2915,6 +2956,9 @@
       ],
       "unclassified[].size": [
         "int"
+      ],
+      "unclassified[].superseded_by": [
+        "str"
       ],
       "unclassified[].title": [
         "str"

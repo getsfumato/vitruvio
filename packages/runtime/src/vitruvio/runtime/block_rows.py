@@ -46,6 +46,14 @@ def project_rows(
         return [], None
     read = ProvenanceReader(brain).by_subjects(subjects, read_limit=max(1, len(subjects) * 32))
     origins = registration_origins(read)
+    superseded_by = {
+        record["supersedes"]: record["block"]
+        for _, record in read.records
+        if record.get("record_type") == "supersession"
+        and isinstance(record.get("supersedes"), str)
+        and isinstance(record.get("block"), str)
+        and record["supersedes"] in subjects
+    }
     audit = AuthorshipAudit(brain, policy=policy)
     claims = audit.claims(read)
     return (
@@ -56,6 +64,7 @@ def project_rows(
                 identity,
                 resolvable=resolvable,
                 origins=origins,
+                superseded_by=superseded_by,
                 # `AuthorshipAudit` belongs to the authenticity domain, which #74 puts out of scope, so its
                 # shape is claimed here rather than declared there. The recorded wire shape pins it meanwhile.
                 authorship=cast(RowAuthorshipResult, claims.get(str(identity), audit.empty(read))),
@@ -73,6 +82,7 @@ def _entry(
     *,
     resolvable: dict[Any, bool],
     origins: dict[str, str],
+    superseded_by: dict[str, str] | None = None,
     authorship: RowAuthorshipResult | None,
 ) -> ProjectedRowResult:
     """Keep composition membership visible even when the referenced block cannot be read.
@@ -89,6 +99,8 @@ def _entry(
         except Exception as error:
             entry = browse.unreadable(block_id, kind.value, f"{type(error).__name__}: {error}")
     projected = cast(ProjectedRowResult, entry)
+    if superseded_by and block_id in superseded_by:
+        projected["superseded_by"] = superseded_by[block_id]
     projected["authorship"] = (
         authorship
         if authorship is not None

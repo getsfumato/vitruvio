@@ -424,13 +424,14 @@ def rows(result: BlocksResult) -> list[RenderableType]:
 
     from vitruvio.cli.render.audit import creator
 
-    table = theme.table("block", "title", "creator", "identity", "detail", ("size", "right"), "type")
+    table = theme.table("block", "title", "state", "creator", "identity", "detail", ("size", "right"), "type")
     for entry in entries:
         view = BrowseRowView(entry)
         actor, verified = creator(entry["authorship"])
         table.add_row(
             theme.digest(entry["block_id"]),
-            Text(view.title, style="value" if view.resolvable else "bad"),
+            Text(view.title, style="muted" if view.state == "superseded" else "value" if view.resolvable else "bad"),
+            Text(view.state, style="bad" if view.state == "unreadable" else "flag"),
             actor,
             verified,
             Text(view.detail, style="muted"),

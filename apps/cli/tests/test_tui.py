@@ -716,6 +716,24 @@ class TestTheInterface:
             await _settle(pilot)
             assert _focus(app) == "blocks"
 
+    async def test_superseded_block_is_labelled_in_the_table_and_preview(self, brain: Path, tmp_path: Path) -> None:
+        service = service_for(brain)
+        old = next(row["block_id"] for row in service.blocks("canonical")["rows"] if row["title"] == "apuntes.md")
+        revised = tmp_path / "revised.md"
+        revised.write_text("Updated notes", encoding="utf-8")
+        service.replace(Evidence.from_path(revised, media_type="text/markdown"), supersedes=old)
+
+        app = BrainBrowser(service, brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            assert app.rows, [note.message for note in app._notifications]
+            index = next(index for index, row in enumerate(app.rows) if row["block_id"] == old)
+            table = app.query_one("#blocks", DataTable)
+            assert "SUPERSEDED" in str(table.get_row_at(index)[1])
+            table.move_cursor(row=index)
+            await _settle(pilot)
+            assert "SUPERSEDED by" in _pane(app, "preview")
+
     async def test_the_panes_can_be_walked_into_and_back_out_of(self, brain: Path) -> None:
         """A pane you can enter and not leave is the trap both of these keys exist to close."""
         app = BrainBrowser(service_for(brain), brain=str(brain))
