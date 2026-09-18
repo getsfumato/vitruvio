@@ -34,8 +34,9 @@ from vitruvio.indices import (
     project,
 )
 from vitruvio.indices import format as envelope
-from vitruvio.indices.graph import quantize
+from vitruvio.indices.graph import FederatedGraphView, quantize
 from vitruvio.indices.projection import PROJECTION_ID, Edge, EdgeKind, Facet, Projection
+from vitruvio.indices.queries import TraversalQuery
 
 
 class TestProtocolShape:
@@ -415,6 +416,16 @@ class TestBTreeIndex:
         descending = index.scan(RangeQuery(key=OrderedKey.OCCURRED_AT, order=Order.DESCENDING))
         assert descending == list(reversed(ascending))
 
+    def test_equal_timestamps_break_ties_by_identity(self) -> None:
+        index = BTreeIndex(MemoryType.EPISODIC)
+        index._table = OrdinalTable(["b", "a", "c"])
+        index._values[OrderedKey.OCCURRED_AT.value] = ["2026-01-01T00:00:00Z"] * 2 + ["2026-02-01T00:00:00Z"]
+        index._owners[OrderedKey.OCCURRED_AT.value] = [0, 1, 2]
+        assert [
+            index._table.identity(ordinal)
+            for ordinal in index.scan(RangeQuery(key=OrderedKey.OCCURRED_AT, order=Order.DESCENDING))
+        ] == ["c", "a", "b"]
+
     def test_lexicographic_order_is_chronological_order(self, index: BTreeIndex) -> None:
         """Fixed-width RFC3339 in UTC, so a range scan needs no parsing on the hot path."""
         extremes = index.extremes(OrderedKey.OCCURRED_AT)
@@ -471,6 +482,35 @@ class TestBTreeIndex:
 
 
 class TestGraphIndex:
+    def test_parallel_typed_edges_survive_and_can_be_filtered(self) -> None:
+        graph = GraphIndex(MemoryType.SEMANTIC)
+        graph._apply(
+            Projection(
+                block_id="a",
+                memory_type=MemoryType.SEMANTIC,
+                edges=(Edge(EdgeKind.RELATION, "b"), Edge(EdgeKind.EVIDENCE, "b")),
+            )
+        )
+        graph._on_build_end(None)
+        assert {edge[2] for edge in graph.edges()} == {"relation", "evidence"}
+        assert graph.expand(TraversalQuery(seeds=("a",), kinds=(EdgeKind.EVIDENCE,))) == [("b", 0.5, 1)]
+
+    def test_federated_traversal_crosses_module_boundary(self) -> None:
+        first = GraphIndex(MemoryType.SEMANTIC)
+        first._apply(Projection(block_id="a", memory_type=MemoryType.SEMANTIC, edges=(Edge(EdgeKind.RELATION, "b"),)))
+        first._on_build_end(None)
+        second = GraphIndex(MemoryType.PROVENANCE)
+        second._apply(
+            Projection(block_id="b", memory_type=MemoryType.PROVENANCE, edges=(Edge(EdgeKind.EVIDENCE, "c"),))
+        )
+        second._on_build_end(None)
+        assert [
+            identity
+            for identity, _, _ in FederatedGraphView({"s": first, "p": second}).expand(
+                TraversalQuery(seeds=("a",), depth=2)
+            )
+        ] == ["b", "c"]
+
     def test_diagnostic_edges_are_the_real_typed_edges(
         self, procedural_block: ProceduralBlock, content: MemoryContent
     ) -> None:

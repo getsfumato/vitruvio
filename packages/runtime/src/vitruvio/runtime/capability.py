@@ -25,7 +25,9 @@ class Capability(IntEnum):
     """Read structural relationships through provenance's rebuildable hash-map index."""
     RETRIEVE = 2
     """Query. Registers the configured indices; the embedder is still resolved lazily."""
-    WRITE = 3
+    INSTALL = 3
+    """Install a remote snapshot without rebuilding a local vector index first."""
+    WRITE = 4
     """Commit, drop, publish. Adds the retention policy and the validation gate."""
 
 

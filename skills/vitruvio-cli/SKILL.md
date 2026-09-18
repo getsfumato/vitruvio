@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Eighteen groups, one hundred and twelve commands. This skill is the map: which group owns a task, which command inside it, and
+Eighteen groups, one hundred and thirteen commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -316,6 +316,7 @@ reports an exact recovery command if the commit succeeds but signing fails. `?` 
 | `config path` | which `vitruvio.toml` is in play |
 | `config validate` | the schema, without opening a brain |
 | `config embedder list` | every embedder this build can construct |
+| `config embedder use PROVIDER MODEL` | save this brain's local runtime and model identity without a key |
 | `config embedder test` | actually embed something and report the width and model tag |
 
 ### `skills`, `completion`, `bench`

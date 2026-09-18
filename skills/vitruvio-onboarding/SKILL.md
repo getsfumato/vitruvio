@@ -112,6 +112,24 @@ back to the user before creating anything.
 `brain init --policy` takes `conservative` (the default), `permissive` or `archival`. Unlike governance, leaving the
 default is acceptable when the user has no opinion — say that the default was taken.
 
+## 4a. Choose text embeddings
+
+Ask whether this brain should use deterministic hashing/BOW, an OpenAI-compatible endpoint, or a local
+Sentence Transformers model. Hashing/BOW is the default when the user declines a model; explain that it ranks
+words but does not understand synonyms. Keep the model's canonical identity (for example
+`openai/text-embedding-3-small`) separate from the runtime that reaches it (`openai`, `openrouter`, `ollama`,
+`cohere`, `voyage`, `openai-compatible`, or `local-st`). Credentials belong in the environment, never in
+`vitruvio.toml` or local state.
+
+For a shared project model, write `[embedding.text]` with `provider`, `model`, `model_id`, `revision`, and `dims`
+when needed. After creating the brain, select this machine's runtime with
+`vitruvio --brain PATH config embedder use PROVIDER MODEL --model-id OWNER/MODEL --dims N --revision REV --json`.
+The CLI inherits revision and dimensions from the shared declaration when the canonical model identity matches;
+pass them explicitly when configuring an imported brain without that declaration.
+Use `--runtime-model` when the endpoint's model alias differs and `--base-url` for a custom compatible endpoint.
+For a local model, install `vitruvio[local]` and use provider `local-st`; weights load only when retrieval needs
+them and remain in RAM for later calls. If the user chooses no model, say that `hashing/bow` will be used.
+
 ## 5. Create — four recipes
 
 Always with `--json` and `--actor ACTOR`, and with one `--assisted-by AGENT` per declared agent on the command that

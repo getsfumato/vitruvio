@@ -26,6 +26,7 @@ EXTRAS = {
     "ollama": "vitruvio[api]",
     "voyage": "vitruvio[api]",
     "cohere": "vitruvio[api]",
+    "openai-compatible": "vitruvio[api]",
 }
 """Provider name to what installs it, so an error names the fix rather than the symptom."""
 
@@ -37,12 +38,15 @@ MODULES = {
     "ollama": "httpx",
     "voyage": "httpx",
     "cohere": "httpx",
+    "openai-compatible": "httpx",
 }
 """What each provider needs importable. Probed with ``find_spec``, which does not execute the module."""
 
 
 def _hashing(spec: EmbedderSpec) -> Embedder:
     """The zero-dependency default."""
+    if spec.model != "bow":
+        raise EmbedderUnavailableError("hashing provides only the 'bow' model")
     return HashingEmbedder(dimensions=spec.dims or 256)
 
 
@@ -65,11 +69,38 @@ def _ollama(spec: EmbedderSpec) -> Embedder:
     return OllamaEmbedder(spec)
 
 
+def _api(spec: EmbedderSpec) -> Embedder:
+    from vitruvio.embeddings.openai_api import (
+        CohereEmbedder,
+        GenericOpenAIEmbedder,
+        OpenAIEmbedder,
+        VoyageEmbedder,
+    )
+
+    return {
+        "openai": OpenAIEmbedder,
+        "cohere": CohereEmbedder,
+        "voyage": VoyageEmbedder,
+        "openai-compatible": GenericOpenAIEmbedder,
+    }[spec.provider](spec)
+
+
+def _local_st(spec: EmbedderSpec) -> Embedder:
+    from vitruvio.embeddings.local_st import SentenceTransformerEmbedder
+
+    return SentenceTransformerEmbedder(spec)
+
+
 _REGISTRY: dict[str, Factory] = {
     "hashing": _hashing,
     "fake": _fake,
     "openrouter": _openrouter,
     "ollama": _ollama,
+    "openai": _api,
+    "cohere": _api,
+    "voyage": _api,
+    "openai-compatible": _api,
+    "local-st": _local_st,
 }
 """Providers this build can construct. A real model registers itself when its extra is installed."""
 

@@ -19,7 +19,8 @@ from vitruvio.embeddings import (
     known_dimensions,
     resolve,
 )
-from vitruvio.embeddings.openai_api import MAX_CHARACTERS
+from vitruvio.embeddings.base import TextRole
+from vitruvio.embeddings.openai_api import MAX_CHARACTERS, VoyageEmbedder
 from vitruvio.kernel import EmbedderSpec
 
 pytest.importorskip("httpx", reason="the api extra is not installed")
@@ -70,6 +71,17 @@ def ollama(**overrides: Any) -> OllamaEmbedder:
 
 
 class TestWidth:
+    def test_all_supported_api_runtimes_resolve(self) -> None:
+        for provider in ("openai", "cohere", "voyage", "openai-compatible"):
+            embedder = resolve(EmbedderSpec(provider=provider, model="text-embedding-3-small", dims=1536))
+            assert embedder.dimensions == 1536
+
+    def test_voyage_names_asymmetric_request_policy(self) -> None:
+        embedder = VoyageEmbedder(EmbedderSpec(provider="voyage", model="voyage-3", dims=1024))
+        assert embedder.tag.prompts == "voyage-input-type"
+        assert embedder.request_body(["question"], role=TextRole.QUERY)["input_type"] == "query"
+        assert embedder.request_body(["passage"], role=TextRole.PASSAGE)["input_type"] == "document"
+
     def test_a_known_model_needs_no_dims_in_configuration(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert openrouter(monkeypatch).dimensions == 1536
         assert ollama().dimensions == 768
@@ -229,9 +241,14 @@ class TestTag:
         elsewhere = ollama(base_url="http://gpu-box:11434/v1").tag.render()
         assert default == elsewhere
 
-    def test_the_provider_is_in_the_tag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_the_model_owner_is_in_the_tag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         assert ollama().tag.provider == "ollama"
-        assert openrouter(monkeypatch).tag.provider == "openrouter"
+        assert openrouter(monkeypatch).tag.provider == "openai"
+
+    def test_runtime_model_can_differ_without_changing_identity(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        routed = openrouter(monkeypatch, runtime_model="tenant/alias")
+        assert routed.model == "tenant/alias"
+        assert routed.tag == openrouter(monkeypatch).tag
 
     def test_a_remote_model_is_semantic(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unlike hashing, which says so in its tag so nothing mistakes it for meaning."""

@@ -161,7 +161,7 @@ class BrainSession:
             )
 
     @contextmanager
-    def write(self) -> Iterator[Brain]:
+    def write(self, capability: Capability = Capability.WRITE) -> Iterator[Brain]:
         """Execute with the WRITE brain and keep every cached capability coherent.
 
         The durable head pointer is the authority, rather than a result type or a caller-provided hint. That makes
@@ -190,7 +190,7 @@ class BrainSession:
             self._writer = me
             self._depth += 1
         try:
-            brain = self.brain(Capability.WRITE)
+            brain = self.brain(capability)
             before = brain.store.read_pointer(HEAD_POINTER)
             try:
                 yield brain

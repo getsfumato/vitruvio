@@ -4663,6 +4663,8 @@
       "checks[].data.unattributed",
       "checks[].data.unattributed.canonical",
       "checks[].data.unattributed.semantic",
+      "checks[].data.unbuilt",
+      "checks[].data.unbuilt[]",
       "checks[].data.verified"
     ],
     "paths": {
@@ -4814,6 +4816,9 @@
       "checks[].data.text.model": [
         "str"
       ],
+      "checks[].data.text.model_id": [
+        "null"
+      ],
       "checks[].data.text.options": [
         "object"
       ],
@@ -4821,6 +4826,9 @@
         "str"
       ],
       "checks[].data.text.revision": [
+        "null"
+      ],
+      "checks[].data.text.runtime_model": [
         "null"
       ],
       "checks[].data.tombstoned": [
@@ -4837,6 +4845,12 @@
       ],
       "checks[].data.unattributed.semantic": [
         "int"
+      ],
+      "checks[].data.unbuilt": [
+        "array"
+      ],
+      "checks[].data.unbuilt[]": [
+        "str"
       ],
       "checks[].data.verified": [
         "bool"
@@ -5048,6 +5062,10 @@
       "text.model": [
         "str"
       ],
+      "text.model_id": [
+        "null",
+        "str"
+      ],
       "text.options": [
         "object"
       ],
@@ -5055,6 +5073,10 @@
         "str"
       ],
       "text.revision": [
+        "null",
+        "str"
+      ],
+      "text.runtime_model": [
         "null"
       ],
       "vision": [
@@ -8297,7 +8319,8 @@
       "impact.block_ids[]",
       "local_work.block_ids[]",
       "local_work.impact.block_ids[]",
-      "reuse_layers[]"
+      "reuse_layers[]",
+      "vector_models.semantic"
     ],
     "paths": {
       ".": [
@@ -8420,6 +8443,15 @@
         "str"
       ],
       "tag": [
+        "str"
+      ],
+      "vector_models": [
+        "object"
+      ],
+      "vector_models.canonical": [
+        "str"
+      ],
+      "vector_models.semantic": [
         "str"
       ],
       "warnings": [

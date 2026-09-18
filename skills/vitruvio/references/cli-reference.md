@@ -490,6 +490,10 @@ Inspect and test the configured embedding providers.
 
 List the embedding providers this build knows, and whether each can run.
 
+#### `vitruvio config embedder use` `provider` `model` `--model-id` `--runtime-model` `--base-url` `--dims` `--revision`
+
+Choose this brain's local text runtime. Credentials remain in environment variables.
+
 #### `vitruvio config embedder test` `--which` `--text`
 
 Embed one phrase and report what came back.

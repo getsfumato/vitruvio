@@ -239,7 +239,7 @@ class Objective:
         if exact_intent:
             return True, None
         kinds = {plan[node_id].op for node_id in plan.generators()}
-        if kinds == {Op.SEQ_SCAN}:
+        if kinds in ({Op.SEQ_SCAN}, {Op.DATE_SCAN}):
             # An exhaustive scan reads every block, so it treats no index as authoritative -- it treats none as
             # anything. Rejecting it broke monotonicity: installing a second index made the *chosen* plan worse,
             # because the cheap perfect-recall plan became inadmissible. Whether to scan or to probe is a cost
@@ -315,9 +315,12 @@ def estimate(  # noqa: PLR0912, PLR0915
             produced, spent = count, count * calibration.dict_probe
             node_recall = 1.0
 
-        elif node.op is Op.RANGE_SCAN:
+        elif node.op in {Op.RANGE_SCAN, Op.DATE_SCAN}:
             produced = int(parameters.get("rows", cardinality))
             spent = calibration.btree_seek + produced * calibration.btree_step
+            if node.op is Op.DATE_SCAN:
+                node_recall = 1.0
+                node_notes.append("inclusive ordered time range, newest first")
 
         elif node.op is Op.BITMAP_FILTER:
             clauses = int(parameters.get("clauses", 1))

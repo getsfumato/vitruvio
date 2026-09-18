@@ -63,7 +63,7 @@ class Executor:
     degradations: list[Degradation] = field(default_factory=list)
     _eligible_catalog_sources: frozenset[BlockId] | None = field(default=None, init=False, repr=False)
 
-    def run(self, plan: Plan) -> tuple[EvidenceBundle, Metrics, float, list[Degradation]]:
+    def run(self, plan: Plan) -> tuple[EvidenceBundle, Metrics, float, list[Degradation]]:  # noqa: PLR0912
         """
         Execute a plan.
 
@@ -82,6 +82,7 @@ class Executor:
         exhausted = True
         searched: list[MemoryType] = []
         masks: dict[MemoryType, set[str] | None] = {}
+        date_hits: list[tuple[str, str]] = []
 
         for node_id, node in enumerate(plan.nodes):
             if node.op is Op.EMPTY:
@@ -103,6 +104,8 @@ class Executor:
                 # module owns every reached block. Apply each reached block's owning-module mask, or a filter from the
                 # seed scope can incorrectly discard a valid hit from another module.
                 hits = self._filter_federated_hits(hits, masks)
+            elif node.op is Op.DATE_SCAN and self._date_only_filters():
+                pass
             else:
                 if memory_type not in masks:
                     held = self._mask(module)
@@ -112,23 +115,39 @@ class Executor:
                     hits = [hit for hit in hits if hit[0] in allowed]
             spent = (time.perf_counter() - started) * 1e6
 
-            fusion.accumulate(
-                candidates,
-                node.op.value,
-                hits,
-                depth=1 if node.op is Op.GRAPH_EXPAND else 0,
-                exact=node.op is Op.EXACT_LOOKUP,
-            )
+            if node.op is Op.DATE_SCAN:
+                from vitruvio.indices import BTreeIndex, OrderedKey
+
+                ordered = self._index(module, IndexKind.BTREE)
+                if isinstance(ordered, BTreeIndex):
+                    date_hits.extend(
+                        (identity, timestamp)
+                        for identity, _ in hits
+                        if (timestamp := ordered.value_for(identity, OrderedKey.OCCURRED_AT)) is not None
+                    )
+            else:
+                fusion.accumulate(
+                    candidates,
+                    node.op.value,
+                    hits,
+                    depth=1 if node.op is Op.GRAPH_EXPAND else 0,
+                    exact=node.op is Op.EXACT_LOOKUP,
+                )
             exhausted = exhausted and node_exhausted
             if self.analyze:
                 metrics.record(node_id, len(hits), spent)
+
+        if date_hits:
+            date_hits.sort(key=lambda hit: hit[0])
+            date_hits.sort(key=lambda hit: hit[1], reverse=True)
+            fusion.accumulate(candidates, Op.DATE_SCAN.value, [(identity, 1.0) for identity, _ in date_hits])
 
         bundle = self._finalize(plan, candidates, ledger, searched, exhausted=exhausted, metrics=metrics)
         return bundle, metrics, prelude, self.degradations
 
     # --- Generators -----------------------------------------------------------
 
-    def _generate(
+    def _generate(  # noqa: PLR0911
         self,
         node: Any,
         module: Module,
@@ -155,6 +174,23 @@ class Executor:
 
         if node.op is Op.SEQ_SCAN:
             return self._sequential(module), True
+
+        if node.op is Op.DATE_SCAN:
+            from vitruvio.indices import BTreeIndex, Order, OrderedKey, RangeQuery
+
+            index = self._index(module, IndexKind.BTREE)
+            if not isinstance(index, BTreeIndex):
+                return [], True
+            hits = index.search(
+                RangeQuery(
+                    key=OrderedKey.OCCURRED_AT,
+                    low=self.query.filters.since,
+                    high=self.query.filters.until,
+                    order=Order.DESCENDING,
+                ),
+                limit=0,
+            )
+            return [(str(identity), float(len(hits) - rank)) for rank, (identity, _) in enumerate(hits)], True
 
         if node.op is Op.TERM_SCAN:
             return self._lexical(module, limit)
@@ -467,7 +503,8 @@ class Executor:
 
         # Residual predicates run before the reserve/limit. Otherwise enough high-ranked non-matches can consume the
         # reserve and hide a valid candidate that appears later in an exhaustive generator.
-        if self._has_block_filters():
+        date_scan_exact = self._date_only_filters() and any(node.op is Op.DATE_SCAN for node in plan.nodes)
+        if self._has_block_filters() and not date_scan_exact:
             scored = [
                 (candidate, value) for candidate, value in scored if self._candidate_matches_filters(candidate.block_id)
             ]
@@ -494,6 +531,15 @@ class Executor:
             # More conservative than the SDK's scan, and stated as such: an approximate pool may always be hiding
             # something, so the flag means "there may be more" rather than "the complete set exceeded the limit".
             truncated=dropped_at_limit or not exhausted,
+        )
+
+    def _date_only_filters(self) -> bool:
+        """Whether an exact ordered scan already checked every block predicate."""
+        filters = self.query.filters
+        return bool(
+            not self.query.text.strip()
+            and (filters.since or filters.until)
+            and not (filters.subject or filters.tags or filters.classes or filters.evidence)
         )
 
     # one return per reason a candidate is dropped; collapsing them would report the wrong reason.

@@ -89,7 +89,7 @@ def travelling_on_disk(config: ResolvedConfig) -> list[str]:
     ]
 
 
-def index_set(config: ResolvedConfig) -> dict[MemoryType, list[Index]]:
+def index_set(config: ResolvedConfig, *, local_query: bool = False) -> dict[MemoryType, list[Index]]:
     """
     Build every index the configuration declares, grouped by memory type.
 
@@ -105,4 +105,4 @@ def index_set(config: ResolvedConfig) -> dict[MemoryType, list[Index]]:
     """
     from vitruvio.indices import build_indices
 
-    return build_indices(config.project.indices, home=indices_home(config), config=config)
+    return build_indices(config.project.indices, home=indices_home(config), config=config, local_query=local_query)

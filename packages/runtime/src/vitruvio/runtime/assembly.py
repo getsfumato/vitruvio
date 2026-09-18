@@ -47,7 +47,7 @@ def build_indices(config: ResolvedConfig, capability: Capability) -> dict[Memory
     Returns:
         dict[MemoryType, list[Index]] | None: The index set, or ``None`` when none should be registered.
     """
-    if capability < Capability.BROWSE:
+    if capability < Capability.BROWSE or capability is Capability.INSTALL:
         return None
 
     if capability is Capability.BROWSE:
@@ -69,7 +69,7 @@ def build_indices(config: ResolvedConfig, capability: Capability) -> dict[Memory
     # INSPECT-capability command must not pay for it.
     from vitruvio.runtime.indexset import index_set
 
-    return index_set(config)
+    return index_set(config, local_query=capability is Capability.RETRIEVE)
 
 
 def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPECT, *, create: bool = False) -> Brain:
@@ -99,7 +99,7 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
     # `actor()` raises when nothing resolves. For a read that is too strict -- inspecting someone else's brain
     # is legitimate and attributes nothing -- so a placeholder stands in, and it is never written anywhere: no
     # INSPECT or RETRIEVE operation reaches a code path that records provenance.
-    actor = config.actor() if capability >= Capability.WRITE else _reader_actor(config)
+    actor = config.actor() if capability >= Capability.INSTALL else _reader_actor(config)
 
     # Registered here rather than as an import side effect. Which pipelines exist decides whether a normalized view
     # can be produced *and* whether an existing one can be reproduced, so the set must not depend on which modules
@@ -107,7 +107,7 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
     # cheap: six singletons into a dict.
     bootstrap_pipelines()
 
-    return Brain(
+    brain = Brain(
         OciLayoutStore(path, create=create),
         actor=actor,
         assisted_by=config.collaborators(),
@@ -115,6 +115,25 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
         planner=_planner(config, capability),
         indices=build_indices(config, capability),
     )
+    if capability is Capability.RETRIEVE:
+        _ensure_hashing_fallback(brain)
+    return brain
+
+
+def _ensure_hashing_fallback(brain: Brain) -> None:
+    """Build a local deterministic index when the installed vector layer cannot be queried."""
+    from boltzmann.indices.base import IndexKind
+
+    from vitruvio.indices import VectorIndex
+
+    for memory_type in brain.snapshot().installed:
+        vector = next((item for item in brain.indices.get(memory_type, ()) if item.kind is IndexKind.VECTOR), None)
+        if not isinstance(vector, VectorIndex) or vector.embedder.tag.provider != "hashing" or vector.population:
+            continue
+        module = brain.module(memory_type)
+        blocks = [module.get(identity) for identity in module.block_ids if module.store.is_resolvable(identity)]
+        vector.build(blocks, module.store)
+        vector.bind(str(module.root))
 
 
 def _reader_actor(config: ResolvedConfig) -> Actor:
@@ -148,7 +167,7 @@ def _planner(config: ResolvedConfig, capability: Capability) -> QueryPlanner | N
         QueryPlanner | None: A planner, or ``None`` -- in which case the SDK falls back to its linear scan,
         which is correct and slow, and is exactly what an unplanned read should get.
     """
-    if capability < Capability.RETRIEVE:
+    if capability < Capability.RETRIEVE or capability is Capability.INSTALL:
         return None
 
     from vitruvio.planner import build_planner

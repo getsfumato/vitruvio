@@ -249,6 +249,8 @@ class EmbedderSpec(BaseModel):
 
     provider: str
     model: str
+    model_id: str | None = None
+    runtime_model: str | None = None
     revision: str | None = None
     dims: int | None = Field(default=None, ge=1)
     batch: int | None = Field(default=None, ge=1)
@@ -260,6 +262,11 @@ class EmbedderSpec(BaseModel):
     def uri(self) -> str:
         """The ``provider:model`` string the embedder registry takes."""
         return f"{self.provider}:{self.model}"
+
+    @property
+    def canonical_model(self) -> str:
+        """Model identity shared by different runtimes that serve the same embedding space."""
+        return self.model_id or (self.model if "/" in self.model else f"{self.provider}/{self.model}")
 
 
 DEFAULT_TEXT_EMBEDDER = EmbedderSpec(provider="hashing", model="bow", dims=256)
@@ -861,6 +868,14 @@ class ResolvedConfig(BaseModel):
     actor_origin: Origin = Origin.DEFAULT
     collaborators_origin: Origin = Origin.DEFAULT
     config_file: Path | None = None
+
+    @property
+    def text_embedder(self) -> EmbedderSpec:
+        """This brain's local text runtime, or its shared declaration."""
+        from vitruvio.kernel.discovery import embedding_choice
+
+        local = embedding_choice(self.brain)
+        return EmbedderSpec.model_validate(local) if local else self.project.text_embedder
 
     @property
     def project_name(self) -> str | None:

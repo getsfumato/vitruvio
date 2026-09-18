@@ -58,6 +58,7 @@ class Op(StrEnum):
     SEQ_SCAN = "SeqScan"
     EXACT_LOOKUP = "ExactLookup"
     RANGE_SCAN = "RangeScan"
+    DATE_SCAN = "DateScan"
     TERM_SCAN = "TermScan"
     VECTOR_SEARCH = "VectorSearch"
     BRUTE_VECTOR = "BruteVector"
@@ -89,6 +90,7 @@ class Op(StrEnum):
             Op.BRUTE_VECTOR,
             Op.GRAPH_EXPAND,
             Op.SEQ_SCAN,
+            Op.DATE_SCAN,
         }
 
     @property

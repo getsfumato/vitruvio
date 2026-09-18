@@ -38,6 +38,23 @@ project's `[[assisted_by]]`.
 which removals the protocol will allow later. Unlike governance, leaving the default is fine when you have no
 opinion yet, and [Retention](/brain/retention) is where to form one.
 
+## Text embeddings
+
+Choose whether this brain will use a semantic model or the default deterministic hashing/BOW index. Hashing/BOW
+needs no download or key, but matches words rather than synonyms. For a shared project model, declare the canonical
+model identity in `[embedding.text]` with `model_id`, plus `provider`, `model`, `revision` and `dims` when required.
+The local runtime can be selected after creation without changing that shared declaration:
+
+```bash
+vitruvio --brain ./brain config embedder use openrouter openai/text-embedding-3-small \
+  --model-id openai/text-embedding-3-small --dims 1536 --revision YOUR_REVISION --json
+vitruvio --brain ./brain config embedder use hashing bow --json
+```
+
+OpenAI, OpenRouter, Ollama, Cohere, Voyage and compatible gateways use the common embeddings transport.
+`local-st` loads a Sentence Transformers model into RAM when needed. Keep credentials in environment variables;
+the per-brain runtime choice is saved in local XDG state without secrets.
+
 ## Four recipes
 
 The governed recipes need a fingerprint from `vitruvio auth keys`; the previous page says what else to have ready.

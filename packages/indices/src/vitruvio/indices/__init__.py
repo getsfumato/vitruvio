@@ -119,6 +119,7 @@ def build_index_set(
     *,
     home: Path | None = None,
     config: ResolvedConfig | None = None,
+    local_query: bool = False,
 ) -> IndexSet:
     """
     Construct the declared indices as a set, keeping the ones this build cannot make visible.
@@ -133,23 +134,40 @@ def build_index_set(
     """
     embedders: dict[str, Any] = {}
     cache_home: Path | None = None
+    text_home: Path | None = None
     if config is not None:
         from vitruvio.embeddings import EmbedderUnavailableError
         from vitruvio.embeddings import resolve as resolve_embedder
 
         cache_home = config.derived / "embeddings"
-        for name, spec in (("text", config.project.text_embedder), ("vision", config.project.vision_embedder)):
+        text_spec = config.text_embedder if local_query else config.project.text_embedder
+        for name, spec in (("text", text_spec), ("vision", config.project.vision_embedder)):
             if spec is None:
                 continue
             try:
-                embedders[name] = resolve_embedder(spec)
+                candidate = resolve_embedder(spec)
             except EmbedderUnavailableError:
-                # Left out rather than substituted. A vector index built with a stand-in would carry a tag that lies
-                # about where its vectors came from, and the tag is the only thing stopping a consumer from ranking on
-                # noise. `from_specs` records the omission, so it is visible in `index list`.
-                continue
+                candidate = None
+            if candidate is None or (name == "text" and local_query and not candidate.available):
+                if name == "text" and local_query:
+                    from vitruvio.kernel import DEFAULT_TEXT_EMBEDDER
 
-    return IndexSet.from_specs(specs, home, embedders=embedders, cache_home=cache_home)
+                    text_spec = DEFAULT_TEXT_EMBEDDER
+                    embedders[name] = resolve_embedder(text_spec)
+                continue
+            embedders[name] = candidate
+
+        if local_query and home is not None and "text" in embedders:
+            shared = config.project.text_embedder
+            local_identity = (text_spec.canonical_model, text_spec.revision, text_spec.dims)
+            shared_identity = (shared.canonical_model, shared.revision, shared.dims)
+            if local_identity != shared_identity:
+                import hashlib
+
+                tag = embedders["text"].tag.render()
+                text_home = home / "local" / hashlib.sha256(tag.encode()).hexdigest()[:16]
+
+    return IndexSet.from_specs(specs, home, embedders=embedders, cache_home=cache_home, text_home=text_home)
 
 
 def build_indices(
@@ -157,6 +175,7 @@ def build_indices(
     *,
     home: Path,
     config: ResolvedConfig | None = None,
+    local_query: bool = False,
 ) -> dict[MemoryType, list[Index]]:
     """
     The mapping ``Brain(indices=...)`` takes.
@@ -169,4 +188,4 @@ def build_indices(
     Returns:
         dict[MemoryType, list[Index]]: Indices by module, in registration order.
     """
-    return build_index_set(specs, home=home, config=config).as_brain_indices()
+    return build_index_set(specs, home=home, config=config, local_query=local_query).as_brain_indices()

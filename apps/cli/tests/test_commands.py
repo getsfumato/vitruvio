@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from vitruvio.cli.main import main
-from vitruvio.kernel import ExitCode
+from vitruvio.kernel import ExitCode, embedding_choice
 
 
 def run(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, str, str]:
@@ -45,6 +45,28 @@ def source(tmp_path: Path) -> Path:
     path = tmp_path / "fourier.md"
     path.write_text("# Series de Fourier\n\nDescompone una funcion periodica en senos.\n", encoding="utf-8")
     return path
+
+
+def test_embedder_use_inherits_shared_model_identity_and_revision(
+    capsys: pytest.CaptureFixture[str], brain: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    with (tmp_path / "vitruvio.toml").open("a", encoding="utf-8") as handle:
+        handle.write(
+            '\n[embedding.text]\nprovider = "openai"\nmodel = "text-embedding-3-small"\n'
+            'revision = "2026-01"\ndims = 1536\n'
+        )
+
+    code, payload = envelope(
+        capsys, "--brain", str(brain), "config", "embedder", "use", "openrouter", "text-embedding-3-small"
+    )
+
+    assert code == ExitCode.OK, str(payload)
+    choice = embedding_choice(brain)
+    assert choice is not None
+    assert choice["model_id"] == "openai/text-embedding-3-small"
+    assert choice["revision"] == "2026-01"
+    assert choice["dims"] == 1536
 
 
 class TestBrainInit:

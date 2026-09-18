@@ -147,7 +147,7 @@ class OpenAICompatibleEmbedder:
                 justify.
         """
         self.spec = spec
-        self.model = spec.model
+        self.model = spec.runtime_model or spec.model
         self.timeout = timeout
         self.base_url = (spec.base_url or self.DEFAULT_BASE_URL).rstrip("/")
         self.batch = spec.batch or DEFAULT_BATCH
@@ -171,9 +171,10 @@ class OpenAICompatibleEmbedder:
         endpoint in the tag would make a brain unpublishable between two machines that reach the same model by
         different routes -- one through a local Ollama, one through a gateway.
         """
+        owner, model = self.spec.canonical_model.split("/", 1)
         return ModelTag(
-            provider=self.PROVIDER,
-            model=self.model,
+            provider=owner,
+            model=model,
             revision=self.spec.revision or UNPINNED,
             dimensions=self._dimensions,
             dtype="f32",
@@ -266,9 +267,8 @@ class OpenAICompatibleEmbedder:
         """
         Embed strings, positionally aligned with the input.
 
-        The role is not sent. These endpoints take no asymmetry parameter, and prefixing a query by hand would put a
-        prompt template into the embedded string without it appearing in the tag -- so a query and a passage would
-        land in different places while the tag insisted they were comparable.
+        The base transport does not send the role; adapters with an asymmetric API can include it in their request
+        body and tag. Prefixing a query by hand would change its vector without recording that policy.
 
         Args:
             texts (Sequence[str]): Strings to embed.
@@ -286,7 +286,7 @@ class OpenAICompatibleEmbedder:
         vectors: list[Vector] = []
         for start in range(0, len(texts), self.batch):
             window = [text[:MAX_CHARACTERS] for text in texts[start : start + self.batch]]
-            vectors.extend(self._embed_batch(window))
+            vectors.extend(self._embed_batch(window, role=role))
         return vectors
 
     def embed_images(self, images: Sequence[ImageInput]) -> list[Vector]:
@@ -304,7 +304,7 @@ class OpenAICompatibleEmbedder:
             f"{self.PROVIDER} embeds text, not images; configure [embedding.vision] with a vision model"
         )
 
-    def _embed_batch(self, texts: Sequence[str]) -> list[Vector]:
+    def _embed_batch(self, texts: Sequence[str], *, role: TextRole = TextRole.PASSAGE) -> list[Vector]:
         """
         One request, with retries, reordered and checked.
 
@@ -317,7 +317,7 @@ class OpenAICompatibleEmbedder:
         Raises:
             RemoteEmbedderError: If the request cannot be completed or the answer cannot be trusted.
         """
-        payload = self.request_body(texts)
+        payload = self.request_body(texts, role=role)
         body = self._post(payload)
 
         if not isinstance(body, dict):
@@ -351,7 +351,7 @@ class OpenAICompatibleEmbedder:
             raise RemoteEmbedderError(f"{self.PROVIDER} skipped inputs at {missing}, leaving gaps in the batch")
         return [vector for vector in ordered if vector is not None]
 
-    def request_body(self, texts: Sequence[str]) -> dict[str, Any]:
+    def request_body(self, texts: Sequence[str], *, role: TextRole = TextRole.PASSAGE) -> dict[str, Any]:
         """
         The JSON body for one batch.
 
@@ -493,6 +493,55 @@ class OpenRouterEmbedder(OpenAICompatibleEmbedder):
         if status == 429:
             return f"OpenRouter is rate-limiting this key (429): {body}"
         return super().interpret(status, body)
+
+
+class OpenAIEmbedder(OpenAICompatibleEmbedder):
+    """OpenAI's embedding endpoint."""
+
+    PROVIDER = "openai"
+    DEFAULT_BASE_URL = "https://api.openai.com/v1"
+    REQUIRES_KEY = True
+    KEY_PROVIDER = "openai"
+
+
+class CohereEmbedder(OpenAICompatibleEmbedder):
+    """Cohere's OpenAI compatibility endpoint."""
+
+    PROVIDER = "cohere"
+    DEFAULT_BASE_URL = "https://api.cohere.ai/compatibility/v1"
+    REQUIRES_KEY = True
+    KEY_PROVIDER = "cohere"
+
+
+class VoyageEmbedder(OpenAICompatibleEmbedder):
+    """Voyage's embeddings endpoint with its output dimension option."""
+
+    PROVIDER = "voyage"
+    DEFAULT_BASE_URL = "https://api.voyageai.com/v1"
+    REQUIRES_KEY = True
+    KEY_PROVIDER = "voyage"
+
+    @property
+    def tag(self) -> ModelTag:
+        from dataclasses import replace
+
+        return replace(super().tag, prompts="voyage-input-type")
+
+    def request_body(self, texts: Sequence[str], *, role: TextRole = TextRole.PASSAGE) -> dict[str, Any]:
+        body = super().request_body(texts, role=role)
+        body.pop("encoding_format", None)
+        body["output_dimension"] = self.dimensions
+        body["input_type"] = "query" if role is TextRole.QUERY else "document"
+        return body
+
+
+class GenericOpenAIEmbedder(OpenAICompatibleEmbedder):
+    """A configured OpenAI-compatible gateway."""
+
+    PROVIDER = "openai-compatible"
+    DEFAULT_BASE_URL = "http://localhost:8000/v1"
+    REQUIRES_KEY = False
+    KEY_PROVIDER = "openai_compatible"
 
 
 PROBE_TTL_SECONDS = 30.0

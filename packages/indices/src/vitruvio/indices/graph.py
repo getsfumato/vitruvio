@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Any, ClassVar
 
 from boltzmann.indices.base import IndexKind
@@ -97,7 +98,7 @@ class GraphIndex(VitruvioIndex):
         self._position: dict[str, int] = {}
         self._out: dict[int, list[int]] = {}
         self._into: dict[int, list[int]] = {}
-        self._kinds: dict[tuple[int, int], tuple[str, str | None, float]] = {}
+        self._kinds: dict[tuple[int, int], list[tuple[str, str | None, float]]] = {}
         self._external: set[int] = set()
 
     def _apply(self, projection: Projection) -> None:
@@ -120,7 +121,9 @@ class GraphIndex(VitruvioIndex):
             tail, head = self._position[source], self._position[target]
             self._out.setdefault(tail, []).append(head)
             self._into.setdefault(head, []).append(tail)
-            self._kinds[(tail, head)] = (kind, predicate, weight)
+            self._kinds.setdefault((tail, head), []).append((kind, predicate, weight))
+        for pair in self._kinds:
+            self._kinds[pair].sort(key=lambda edge: (edge[0], edge[1] or "", edge[2]))
 
         for adjacency in (self._out, self._into):
             for node in adjacency:
@@ -141,7 +144,7 @@ class GraphIndex(VitruvioIndex):
     def _capability_extra(self) -> dict[str, Any]:
         """Which edge kinds and predicates are present, so the planner can tell a traversal is answerable."""
         return {
-            "keys": tuple(sorted({kind for kind, _, _ in self._kinds.values()})),
+            "keys": tuple(sorted({kind for edges in self._kinds.values() for kind, _, _ in edges})),
         }
 
     def _fragment_extra(self) -> dict[str, Any]:
@@ -149,15 +152,16 @@ class GraphIndex(VitruvioIndex):
         out_degrees = [len(self._out.get(node, ())) for node in range(len(self._nodes))]
         predicates: dict[str, int] = {}
         per_kind: dict[str, int] = {}
-        for kind, predicate, _ in self._kinds.values():
-            per_kind[kind] = per_kind.get(kind, 0) + 1
-            if predicate:
-                predicates[predicate] = predicates.get(predicate, 0) + 1
+        for edges in self._kinds.values():
+            for kind, predicate, _ in edges:
+                per_kind[kind] = per_kind.get(kind, 0) + 1
+                if predicate:
+                    predicates[predicate] = predicates.get(predicate, 0) + 1
 
         return {
             "graph": GraphStats(
                 nodes=len(self._nodes),
-                edges=len(self._kinds),
+                edges=sum(map(len, self._kinds.values())),
                 external_nodes=len(self._external),
                 out_degree_mean=(sum(out_degrees) / len(out_degrees)) if out_degrees else 0.0,
                 out_degree_max=max(out_degrees, default=0),
@@ -204,9 +208,9 @@ class GraphIndex(VitruvioIndex):
         """Node and edge counts, and how many targets point outside this module."""
         return {
             "nodes": len(self._nodes),
-            "edges": len(self._kinds),
+            "edges": sum(map(len, self._kinds.values())),
             "external": len(self._external),
-            "kinds": sorted({kind for kind, _, _ in self._kinds.values()}),
+            "kinds": sorted({kind for edges in self._kinds.values() for kind, _, _ in edges}),
         }
 
     def _dump_state(self) -> dict[str, Any]:
@@ -214,8 +218,11 @@ class GraphIndex(VitruvioIndex):
         return {
             "nodes": list(self._nodes),
             "edges": sorted(
-                [source, target, kind, predicate, round(weight * WEIGHT_SCALE)]
-                for source, target, kind, predicate, weight in self._edges
+                (
+                    [source, target, kind, predicate, round(weight * WEIGHT_SCALE)]
+                    for source, target, kind, predicate, weight in self._edges
+                ),
+                key=lambda edge: (edge[0], edge[1], edge[2], edge[3] or "", edge[4]),
             ),
         }
 
@@ -262,21 +269,18 @@ class GraphIndex(VitruvioIndex):
                 continue
             # Sorted, so the expansion order -- and therefore any tie-break downstream -- is deterministic.
             for neighbour in adjacency.get(node, ()):
-                edge = self._kinds.get((neighbour, node) if query.inbound else (node, neighbour))
-                if edge is None:
-                    continue
-                kind, predicate, weight = edge
-                if kinds is not None and kind not in kinds:
-                    continue
-                if predicates is not None and (predicate is None or predicate not in predicates):
-                    continue
-
-                reached = score * weight * query.decay
-                held = best.get(neighbour)
-                if held is not None and held[0] >= reached:
-                    continue
-                best[neighbour] = (reached, depth + 1)
-                pending.append((neighbour, reached, depth + 1))
+                edges = self._kinds.get((neighbour, node) if query.inbound else (node, neighbour), ())
+                for kind, predicate, weight in edges:
+                    if kinds is not None and kind not in kinds:
+                        continue
+                    if predicates is not None and (predicate is None or predicate not in predicates):
+                        continue
+                    reached = score * weight * query.decay
+                    held = best.get(neighbour)
+                    if held is not None and held[0] >= reached:
+                        continue
+                    best[neighbour] = (reached, depth + 1)
+                    pending.append((neighbour, reached, depth + 1))
 
         results = [(self._nodes[node], score, depth) for node, (score, depth) in best.items() if node not in origin]
         results.sort(key=lambda entry: (-entry[1], entry[0]))
@@ -319,9 +323,8 @@ class GraphIndex(VitruvioIndex):
         adjacency = self._into if inbound else self._out
         found: list[tuple[str, str, str | None]] = []
         for neighbour in adjacency.get(node, ()):
-            edge = self._kinds.get((neighbour, node) if inbound else (node, neighbour))
-            if edge is not None:
-                found.append((self._nodes[neighbour], edge[0], edge[1]))
+            for kind, predicate, _ in self._kinds.get((neighbour, node) if inbound else (node, neighbour), ()):
+                found.append((self._nodes[neighbour], kind, predicate))
         return found
 
     def edges(
@@ -347,13 +350,14 @@ class GraphIndex(VitruvioIndex):
             return []
         wanted = set(identities) if identities is not None else None
         found: list[tuple[str, str, str, str | None, float]] = []
-        for (tail, head), (kind, predicate, weight) in sorted(self._kinds.items()):
+        for (tail, head), edges in sorted(self._kinds.items()):
             source, target = self._nodes[tail], self._nodes[head]
             if wanted is not None and source not in wanted and target not in wanted:
                 continue
-            found.append((source, target, kind, predicate, weight))
-            if len(found) >= limit:
-                break
+            for kind, predicate, weight in edges:
+                found.append((source, target, kind, predicate, weight))
+                if len(found) >= limit:
+                    return found
         return found
 
     def external(self) -> list[str]:
@@ -393,7 +397,7 @@ class FederatedGraphView:
 
     def expand(self, query: TraversalQuery) -> list[tuple[str, float, int]]:
         """
-        Expand across every graph and merge, keeping the best score per block.
+        Expand each hop across every graph, keeping the best score per block.
 
         Args:
             query (TraversalQuery): The traversal.
@@ -402,13 +406,28 @@ class FederatedGraphView:
             list[tuple[str, float, int]]: Block identity, best score, and shallowest depth, best first.
         """
         best: dict[str, tuple[float, int]] = {}
-        for graph in self.graphs.values():
-            for identity, score, depth in graph.expand(query):
+        origin = set(query.seeds)
+        frontier: dict[str, float] = dict.fromkeys(query.seeds, SEED_SCORE)
+        for depth in range(1, query.depth + 1):
+            following: dict[str, float] = {}
+            for source, source_score in sorted(frontier.items()):
+                hop = replace(query, seeds=(source,), depth=1)
+                for graph in self.graphs.values():
+                    for identity, score, _ in graph.expand(hop):
+                        reached = source_score * score
+                        if reached > following.get(identity, -1.0):
+                            following[identity] = reached
+            frontier = {}
+            for identity, score in following.items():
                 held = best.get(identity)
                 if held is None or score > held[0]:
-                    best[identity] = (score, min(depth, held[1]) if held else depth)
+                    best[identity] = (score, depth)
+                    if identity not in origin:
+                        frontier[identity] = score
+            if len(best) >= query.max_nodes or not frontier:
+                break
 
-        merged = [(identity, score, depth) for identity, (score, depth) in best.items()]
+        merged = [(identity, score, depth) for identity, (score, depth) in best.items() if identity not in origin]
         merged.sort(key=lambda entry: (-entry[1], entry[0]))
         return merged
 

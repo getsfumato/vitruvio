@@ -28,6 +28,9 @@ class EmbedderOps:
         """The resolved configuration, read through the session that owns it."""
         return self.session.config
 
+    def _text_spec(self) -> Any:
+        return self.config.text_embedder
+
     def embedders(self) -> dict[str, Any]:
         """
         Every embedding provider this build knows, whether it can run, and what is configured.
@@ -41,7 +44,7 @@ class EmbedderOps:
         """
         from vitruvio.embeddings import available
 
-        text = self.config.project.text_embedder
+        text = self._text_spec()
         vision = self.config.project.vision_embedder
         return {
             "providers": available(),
@@ -73,7 +76,7 @@ class EmbedderOps:
 
         from vitruvio.embeddings import EmbedderUnavailableError, resolve
 
-        spec = self.config.project.text_embedder if which == "text" else self.config.project.vision_embedder
+        spec = self._text_spec() if which == "text" else self.config.project.vision_embedder
         if spec is None:
             raise VitruvioError(
                 f"no {which} embedder is configured",

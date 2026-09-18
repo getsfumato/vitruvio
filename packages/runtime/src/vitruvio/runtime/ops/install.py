@@ -202,7 +202,7 @@ class InstallOps:
             local=local,
         )
 
-        with self.session.write() as brain:
+        with self.session.write(Capability.INSTALL) as brain:
             before = composition_members(brain, brain.snapshot())
             ignored: list[str] = []
             policy = self.config.project.authenticity.build()
