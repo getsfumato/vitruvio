@@ -50,11 +50,19 @@ def test_embedding_choice_is_local_to_one_brain_and_stores_no_secret(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     first = make_brain(tmp_path, "first")
     second = make_brain(tmp_path, "second")
-    spec = EmbedderSpec(provider="openrouter", model="openai/text-embedding-3-small", dims=1536)
+    spec = EmbedderSpec(
+        provider="openrouter",
+        model="openai/text-embedding-3-small",
+        dims=1536,
+        options={"api_key": "sk-test-secret-that-must-not-persist"},
+    )
     state_path = remember_embedding_choice(first, spec)
-    assert embedding_choice(first)["provider"] == "openrouter"  # type: ignore[index]
+    choice = embedding_choice(first)
+    assert choice is not None
+    assert choice.provider == "openrouter"
     assert embedding_choice(second) is None
-    assert "sk-" not in state_path.read_text()
+    assert "sk-test-secret-that-must-not-persist" not in state_path.read_text()
+    assert choice.options == {}
     with pytest.raises(ConfigError, match="credentials"):
         remember_embedding_choice(first, spec.model_copy(update={"base_url": "https://user:secret@host/v1"}))
 

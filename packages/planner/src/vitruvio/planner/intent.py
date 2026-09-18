@@ -21,7 +21,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from boltzmann.query.request import RetrievalMode
+from boltzmann.query.request import Query, RetrievalMode
+
+
+def is_date_query(query: Query) -> bool:
+    """An empty text with a date interval asks for chronological results, not relevance scores."""
+    return bool(not query.text.strip() and (query.filters.since or query.filters.until))
+
+
+def has_content_filters(query: Query) -> bool:
+    """These predicates still need evaluation after a date scan has checked the interval."""
+    filters = query.filters
+    return bool(filters.subject or filters.tags or filters.classes or filters.evidence)
+
 
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 """What an exact identity looks like. Anchored, so a query that merely mentions a digest is not one."""

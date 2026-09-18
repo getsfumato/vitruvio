@@ -428,6 +428,7 @@ def plan_pull(
         # The one number worth paying attention to before agreeing to a transfer that can be gigabytes.
         ("transfer", render.count(f"{size / 1024:.1f} KiB") if size is not None else "(unknown)"),
     ]
+    pairs.extend((f"{scope} model", model) for scope, model in sorted(result.get("vector_models", {}).items()))
     if (discards := _local_work_line(result)) is not None:
         pairs.append(("discards", Text(discards.removeprefix("this pull discards "), style="warn")))
         console.warn(discards)

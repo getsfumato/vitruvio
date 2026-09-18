@@ -92,9 +92,9 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/tasks.py` | define_task, task_schema, validate_candidates, commit_candidates, ingest_run, pipelines | RETRIEVE, WRITE | yes |
 | `ops/sources.py` | sources, source_kinds, scaffold_source, add_source, remove_source, pull_source, pull_all | WRITE | yes |
 | `ops/retention.py` | plan_drop, drop, drop_by_producer, supersede, demote, prune, redact, policy | WRITE | yes |
-| `ops/indices.py` | index_list, index_build, index_stats, index_verify, index_gc | INSPECT, RETRIEVE | yes |
+| `ops/indices.py` | index_list, index_build, index_stats, index_verify, index_gc | INSPECT, WRITE | yes |
 | `ops/benchmarking.py` | bench | RETRIEVE | no |
-| `ops/embedders.py` | embedders, test_embedder | — | no |
+| `ops/embedders.py` | embedders, test_embedder, use_embedder | — | yes |
 | `ops/diagnosis.py` | doctor | INSPECT | no |
 | `ops/projects.py` | project, add_brain, remove_brain | INSPECT | yes |
 | `ops/remote.py` | reference_for | — | no |

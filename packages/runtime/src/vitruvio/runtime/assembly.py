@@ -47,7 +47,7 @@ def build_indices(config: ResolvedConfig, capability: Capability) -> dict[Memory
     Returns:
         dict[MemoryType, list[Index]] | None: The index set, or ``None`` when none should be registered.
     """
-    if capability < Capability.BROWSE or capability is Capability.INSTALL:
+    if capability < Capability.BROWSE:
         return None
 
     if capability is Capability.BROWSE:
@@ -72,7 +72,9 @@ def build_indices(config: ResolvedConfig, capability: Capability) -> dict[Memory
     return index_set(config, local_query=capability is Capability.RETRIEVE)
 
 
-def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPECT, *, create: bool = False) -> Brain:
+def open_brain(
+    config: ResolvedConfig, capability: Capability = Capability.INSPECT, *, create: bool = False, install: bool = False
+) -> Brain:
     """
     Open the configured brain at the given capability.
 
@@ -80,6 +82,8 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
         config (ResolvedConfig): Which brain, who as, under what policy.
         capability (Capability): How much to stand up.
         create (bool): Whether to create the layout if it is absent. Only ``brain init`` passes ``True``.
+        install (bool): Open an uncached WRITE view without indices or a planner, because a pull replaces the
+            composition and must not construct the outgoing embedding model.
 
     Returns:
         Brain: The opened brain, at whichever snapshot the directory was left on.
@@ -88,6 +92,8 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
         BrainNotFoundError: If the path is not a layout and ``create`` is false.
         ActorUnknownError: If a write capability was requested with no actor identity resolvable.
     """
+    if install and capability is not Capability.WRITE:
+        raise ValueError("installation requires WRITE capability")
     path: Path = config.brain
     if not create and not is_layout(path):
         detail = "does not exist" if not path.exists() else "is not an OCI layout"
@@ -99,7 +105,7 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
     # `actor()` raises when nothing resolves. For a read that is too strict -- inspecting someone else's brain
     # is legitimate and attributes nothing -- so a placeholder stands in, and it is never written anywhere: no
     # INSPECT or RETRIEVE operation reaches a code path that records provenance.
-    actor = config.actor() if capability >= Capability.INSTALL else _reader_actor(config)
+    actor = config.actor() if capability >= Capability.WRITE else _reader_actor(config)
 
     # Registered here rather than as an import side effect. Which pipelines exist decides whether a normalized view
     # can be produced *and* whether an existing one can be reproduced, so the set must not depend on which modules
@@ -112,28 +118,14 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
         actor=actor,
         assisted_by=config.collaborators(),
         policy=config.policy(),
-        planner=_planner(config, capability),
-        indices=build_indices(config, capability),
+        planner=None if install else _planner(config, capability),
+        indices=None if install else build_indices(config, capability),
     )
     if capability is Capability.RETRIEVE:
-        _ensure_hashing_fallback(brain)
+        from vitruvio.runtime.indexset import prepare_query_indices
+
+        prepare_query_indices(brain, config)
     return brain
-
-
-def _ensure_hashing_fallback(brain: Brain) -> None:
-    """Build a local deterministic index when the installed vector layer cannot be queried."""
-    from boltzmann.indices.base import IndexKind
-
-    from vitruvio.indices import VectorIndex
-
-    for memory_type in brain.snapshot().installed:
-        vector = next((item for item in brain.indices.get(memory_type, ()) if item.kind is IndexKind.VECTOR), None)
-        if not isinstance(vector, VectorIndex) or vector.embedder.tag.provider != "hashing" or vector.population:
-            continue
-        module = brain.module(memory_type)
-        blocks = [module.get(identity) for identity in module.block_ids if module.store.is_resolvable(identity)]
-        vector.build(blocks, module.store)
-        vector.bind(str(module.root))
 
 
 def _reader_actor(config: ResolvedConfig) -> Actor:
@@ -167,7 +159,7 @@ def _planner(config: ResolvedConfig, capability: Capability) -> QueryPlanner | N
         QueryPlanner | None: A planner, or ``None`` -- in which case the SDK falls back to its linear scan,
         which is correct and slow, and is exactly what an unplanned read should get.
     """
-    if capability < Capability.RETRIEVE or capability is Capability.INSTALL:
+    if capability < Capability.RETRIEVE:
         return None
 
     from vitruvio.planner import build_planner

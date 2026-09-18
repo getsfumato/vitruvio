@@ -541,7 +541,7 @@ class GenericOpenAIEmbedder(OpenAICompatibleEmbedder):
     PROVIDER = "openai-compatible"
     DEFAULT_BASE_URL = "http://localhost:8000/v1"
     REQUIRES_KEY = False
-    KEY_PROVIDER = "openai_compatible"
+    KEY_PROVIDER = "openai-compatible"
 
 
 PROBE_TTL_SECONDS = 30.0

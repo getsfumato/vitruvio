@@ -423,8 +423,9 @@ class TestVectorIndex:
 
 
 class TestTravel:
+    @pytest.mark.parametrize("matching_runtime", [True, False])
     def test_legacy_runtime_tag_is_migrated_only_after_vector_probe(
-        self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path, matching_runtime: bool
     ) -> None:
         built = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=FakeEmbedder(dimensions=32))
         built.build(semantic_blocks, content)
@@ -437,13 +438,49 @@ class TestTravel:
         envelope.write(original, header.model_copy(update={"model_tag": old}), {**body, "model_tag": old})
         published = original.read_bytes()
 
-        reopened = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=FakeEmbedder(dimensions=32))
-        reopened.build(semantic_blocks, content)
-        assert reopened.path != original
+        class DifferentRuntime(FakeEmbedder):
+            def _vector(self, seed: str):
+                return super()._vector("different-weights:" + seed)
+
+        runtime = FakeEmbedder(dimensions=32) if matching_runtime else DifferentRuntime(dimensions=32)
+        reopened = VectorIndex(MemoryType.SEMANTIC, tmp_path / "query", embedder=runtime)
+        assert reopened.restore_legacy(published, semantic_blocks, content) is matching_runtime
         assert reopened.path is not None
-        assert reopened.path.exists()
+        assert reopened.path.exists() is matching_runtime
         assert original.read_bytes() == published
-        assert reopened.capability().state == "ready"
+        assert reopened.capability().state == ("ready" if matching_runtime else "empty")
+
+    def test_pre_reference_semantic_layer_remains_queryable_after_a_noop_build(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path
+    ) -> None:
+        class SemanticFake(FakeEmbedder):
+            PROVIDER = "semantic-example"
+
+        original = VectorIndex(MemoryType.SEMANTIC, embedder=SemanticFake())
+        original.build(semantic_blocks, content)
+        header, body = envelope.decode(original.dump())
+        body.pop("references")
+        data = envelope.encode(header, body)
+        restored = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=SemanticFake())
+        restored.load(data)
+        restored.build(semantic_blocks, content)
+        assert restored.queryable
+        assert restored.search(VectorQuery(text="Fourier"))
+        assert envelope.decode(restored.dump())[1]["references"]
+
+    def test_offline_runtime_is_reported_as_unavailable_instead_of_a_model_mismatch(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        class Offline(FakeEmbedder):
+            @property
+            def available(self) -> bool:
+                return False
+
+        built = an_index()
+        built.build(semantic_blocks, content)
+        restored = VectorIndex(MemoryType.SEMANTIC, embedder=Offline())
+        restored.load(built.dump())
+        assert restored.capability().state == "embedder_unavailable"
 
     def test_reference_vectors_refuse_a_different_runtime_with_the_same_tag(
         self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path

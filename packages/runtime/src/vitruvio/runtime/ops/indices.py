@@ -42,13 +42,9 @@ class IndexOps:
         For reporting only. Anything that has to *vouch* for a travelling index must go through :meth:`_set_from`
         instead, because vouching only works on indices the brain has registered.
         """
-        from vitruvio.indices import build_index_set
+        from vitruvio.runtime.indexset import create_index_set
 
-        return build_index_set(
-            self.config.project.indices,
-            home=indices_home(self.config),
-            config=self.config,
-        )
+        return create_index_set(self.config)
 
     def _set_from(self, brain: Brain) -> Any:
         """
@@ -122,48 +118,52 @@ class IndexOps:
 
         chosen = {coerce_memory_type(item) for item in memory_types} if memory_types else None
 
-        # Opened at RETRIEVE so the brain has the indices *registered*, and built through those rather than through a
+        # Opened at WRITE so an explicit build uses the shared model even when queries use a local fallback.
+        # Build through the registered indices rather than through a
         # separate set. That is not tidiness: vouching only works on indices the brain knows about, so building a
         # detached set left the vector index unvouched and every publish silently omitted it -- which is what running
         # the CLI showed.
-        brain = self.session.brain(Capability.RETRIEVE)
-        indices = self._set_from(brain)
+        with self.session.write() as brain:
+            indices = self._set_from(brain)
 
-        with translated():
-            modules = brain.modules()
-            for memory_type, module in modules.items():
-                if chosen is not None and memory_type not in chosen:
-                    continue
-                readable = [
-                    module.get(identity) for identity in module.block_ids if module.store.is_resolvable(identity)
-                ]
-                for index in indices.for_module(memory_type):
-                    if force:
-                        # A rebuild-from-scratch is expressed by dropping the held state, not by a flag on
-                        # build(): the incremental path is an internal optimisation and must stay invisible.
-                        index.build([], module.store)
-                    index.build(readable, module.store)
-            indices.bind(modules)
+            with translated():
+                modules = brain.modules()
+                for memory_type, module in modules.items():
+                    if chosen is not None and memory_type not in chosen:
+                        continue
+                    readable = [
+                        module.get(identity) for identity in module.block_ids if module.store.is_resolvable(identity)
+                    ]
+                    for index in indices.for_module(memory_type):
+                        if force:
+                            # A rebuild-from-scratch is expressed by dropping the held state, not by a flag on
+                            # build(): the incremental path is an internal optimisation and must stay invisible.
+                            index.build([], module.store)
+                        index.build(readable, module.store)
+                indices.bind(modules)
 
-        # Tell the SDK the vector index it now holds describes this composition. Without this, `pack()` silently omits
-        # the one layer a consumer cannot rebuild -- see vitruvio.runtime.vouch for why the workaround exists.
-        from vitruvio.runtime.vouch import vouch_travelling
+            # Tell the SDK the vector index it now holds describes this composition. Without this, `pack()` silently omits
+            # the one layer a consumer cannot rebuild -- see vitruvio.runtime.vouch for why the workaround exists.
+            from vitruvio.runtime.vouch import vouch_travelling
 
-        vouched = vouch_travelling(brain, chosen)
+            vouched = vouch_travelling(brain, chosen)
 
-        written = indices.flush()
-        statistics = indices.statistics(modules)
-        for memory_type, stats in statistics.items():
-            save(stats, self.config.derived / "stats" / f"{memory_type.value}.json")
+            written = indices.flush()
+            statistics = indices.statistics(modules)
+            for memory_type, stats in statistics.items():
+                save(stats, self.config.derived / "stats" / f"{memory_type.value}.json")
 
-        return {
-            "home": str(indices_home(self.config)),
-            "written": len(written),
-            "indices": indices.report(),
-            "statistics": [stats.summary() for stats in statistics.values()],
-            "travelling": [kind.value for kind in brain.travelling_indices],
-            "vouched": vouched,
-        }
+            # Query views use their own storage namespace and may have been opened before this shared rebuild.
+            self.session.invalidate()
+
+            return {
+                "home": str(indices_home(self.config)),
+                "written": len(written),
+                "indices": indices.report(),
+                "statistics": [stats.summary() for stats in statistics.values()],
+                "travelling": [kind.value for kind in brain.travelling_indices],
+                "vouched": vouched,
+            }
 
     def index_stats(self, *, memory_type: str | None = None) -> dict[str, Any]:
         """

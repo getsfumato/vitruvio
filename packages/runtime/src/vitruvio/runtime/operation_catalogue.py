@@ -279,7 +279,7 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "index_ops",
         (
             Operation("index_list", capability=_INSPECT),
-            Operation("index_build", capability=_RETRIEVE, mutates=True, heavy=True),
+            Operation("index_build", capability=_WRITE, mutates=True, heavy=True),
             Operation("index_stats", capability=_INSPECT),
             Operation("index_verify", capability=_INSPECT),
             Operation("index_gc", mutates=True),
@@ -295,7 +295,11 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "vitruvio.runtime.ops.embedders",
         "EmbedderOps",
         "embedder_ops",
-        (Operation("embedders"), Operation("test_embedder", heavy=True)),
+        (
+            Operation("embedders"),
+            Operation("test_embedder", heavy=True),
+            Operation("use_embedder", mutates=True, remote=Remote.LOCAL),
+        ),
     ),
     OperationDomain(
         "vitruvio.runtime.ops.diagnosis",

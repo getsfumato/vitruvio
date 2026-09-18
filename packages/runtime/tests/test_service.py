@@ -332,6 +332,14 @@ class TestMatchContent:
         assert result["matches"]
         assert any(node["op"] == "DateScan" for node in result["plan"]["operators"])
 
+    @pytest.mark.parametrize("analyze", [False, True])
+    def test_explain_accepts_the_same_calendar_bounds_as_search(self, derived: BrainService, analyze: bool) -> None:
+        derived.index_build()
+        explanation = derived.explain(
+            "", memory_types=["episodic"], since="2026-01-01", until="2026-12-31", analyze=analyze
+        )
+        assert any(node["op"] == "DateScan" for node in explanation["chosen"]["operators"])
+
 
 class TestSearch:
     def test_search_returns_a_verified_bundle_and_never_prose(self, service: BrainService, source_file: Path) -> None:

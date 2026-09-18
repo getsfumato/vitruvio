@@ -268,6 +268,11 @@ class EmbedderSpec(BaseModel):
         """Model identity shared by different runtimes that serve the same embedding space."""
         return self.model_id or (self.model if "/" in self.model else f"{self.provider}/{self.model}")
 
+    @property
+    def is_fallback(self) -> bool:
+        """Whether this declaration selects the deterministic default rather than a semantic model."""
+        return self.canonical_model == "hashing/bow"
+
 
 DEFAULT_TEXT_EMBEDDER = EmbedderSpec(provider="hashing", model="bow", dims=256)
 """What vitruvio embeds with when nothing is configured and no extra is installed.
@@ -875,7 +880,7 @@ class ResolvedConfig(BaseModel):
         from vitruvio.kernel.discovery import embedding_choice
 
         local = embedding_choice(self.brain)
-        return EmbedderSpec.model_validate(local) if local else self.project.text_embedder
+        return local if local is not None else self.project.text_embedder
 
     @property
     def project_name(self) -> str | None:

@@ -64,9 +64,38 @@ def test_embedder_use_inherits_shared_model_identity_and_revision(
     assert code == ExitCode.OK, str(payload)
     choice = embedding_choice(brain)
     assert choice is not None
-    assert choice["model_id"] == "openai/text-embedding-3-small"
-    assert choice["revision"] == "2026-01"
-    assert choice["dims"] == 1536
+    assert choice.model_id == "openai/text-embedding-3-small"
+    assert choice.revision == "2026-01"
+    assert choice.dims == 1536
+
+
+def test_human_pull_plan_shows_the_published_model_for_each_module(
+    capsys: pytest.CaptureFixture[str], brain: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from vitruvio.runtime import BrainService
+
+    model = "example/semantic@revision"
+    monkeypatch.setattr(
+        BrainService,
+        "plan_pull",
+        lambda *args, **kwargs: {
+            "reference": "demo/brain",
+            "tag": "v1",
+            "modules": ["semantic"],
+            "fetch_layers": [],
+            "reuse_layers": [],
+            "fetch_vector_indices": ["semantic"],
+            "ignored_vector_indices": [],
+            "is_noop": False,
+            "vector_models": {"semantic": model},
+        },
+    )
+
+    code, output, _ = run(capsys, "--brain", str(brain), "dist", "plan-pull", "demo/brain")
+
+    assert code == ExitCode.OK
+    assert "semantic model" in output
+    assert model in output
 
 
 class TestBrainInit:

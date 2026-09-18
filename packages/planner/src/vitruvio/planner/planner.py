@@ -202,7 +202,7 @@ class CostBasedPlanner:
                 if kind == "vector" and not getattr(index, "queryable", False):
                     degradations.append(
                         Degradation(
-                            kind="model_mismatch",
+                            kind=getattr(index, "query_failure", "model_mismatch"),
                             detail=f"{scope}.vector cannot validate its configured embedding runtime",
                         )
                     )

@@ -19,7 +19,6 @@ from vitruvio.cli import render
 from vitruvio.cli.context import current
 from vitruvio.kernel import (
     ConfigError,
-    EmbedderSpec,
     ExitCode,
     ProjectConfig,
     Secret,
@@ -27,7 +26,6 @@ from vitruvio.kernel import (
     paths,
     provider_key,
     registry_credentials,
-    remember_embedding_choice,
     update_config,
 )
 
@@ -399,34 +397,23 @@ def embedder_use(
     For a deterministic fallback use `hashing bow`. For a remote model, `model_id`
     names the published vector space independently of `provider` and `runtime_model`.
     """
-    selected = current().resolve()
-    known = {row["provider"] for row in current().service(require_brain=False).embedders()["providers"]}
-    if provider not in known:
-        raise ConfigError(f"unknown embedding runtime {provider!r}; choose one of {', '.join(sorted(known))}")
-    if provider == "hashing" and model != "bow":
-        raise ConfigError("hashing provides only the 'bow' model")
-    shared = selected.project.text_embedder
-    chosen_identity = model_id or (model if "/" in model else f"{provider}/{model}")
-    if model_id is None and model == shared.model and provider != "hashing":
-        chosen_identity = shared.canonical_model
-        model_id = chosen_identity
-    if chosen_identity == shared.canonical_model:
-        revision = revision if revision is not None else shared.revision
-        dims = dims if dims is not None else shared.dims
-    spec = EmbedderSpec(
-        provider=provider,
-        model=model,
-        model_id=model_id,
-        runtime_model=runtime_model,
-        base_url=base_url,
-        dims=dims,
-        revision=revision,
+    result = (
+        current()
+        .service(require_brain=False)
+        .use_embedder(
+            provider,
+            model,
+            model_id=model_id,
+            runtime_model=runtime_model,
+            base_url=base_url,
+            dims=dims,
+            revision=revision,
+        )
     )
-    path = remember_embedding_choice(selected.brain, spec)
     return current().console.emit(
         "config.embedder.use",
-        {"brain": str(selected.brain), "provider": provider, "model": model, "state_file": str(path)},
-        view=render.fields([("brain", str(selected.brain)), ("runtime", provider), ("model", model)]),
+        result,
+        view=render.fields([("brain", result["brain"]), ("runtime", provider), ("model", model)]),
     )
 
 

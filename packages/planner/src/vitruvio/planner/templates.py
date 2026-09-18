@@ -22,7 +22,7 @@ from boltzmann.indices.base import IndexKind
 from boltzmann.query.request import Query
 
 from vitruvio.kernel import PlannerConfig
-from vitruvio.planner.intent import Intent, IntentKind, admissible_generators, requires
+from vitruvio.planner.intent import Intent, IntentKind, admissible_generators, is_date_query, requires
 from vitruvio.planner.ir import Op, Plan, PlanBuilder
 from vitruvio.planner.planner import Capabilities
 from vitruvio.stats import ModuleStats
@@ -96,8 +96,7 @@ def build_templates(
     # An exhaustive plan can win on a small module because reading every block may cost less than embedding a query.
     # A date-only query with BTree coverage in every scope is already exhaustive through ordered date scans, so the
     # SeqScan variant would only discard the index's ordering and add no coverage.
-    date_only = not query.text.strip() and (query.filters.since or query.filters.until)
-    if not date_only or not all(capabilities.has(scope, IndexKind.BTREE) for scope in scopes):
+    if not is_date_query(query) or not all(capabilities.has(scope, IndexKind.BTREE) for scope in scopes):
         candidates.append(
             _assemble(
                 query=query,
@@ -133,11 +132,7 @@ def _generator_sets(
     worse.
     """
     available: list[str] = []
-    if (
-        not query.text.strip()
-        and (query.filters.since or query.filters.until)
-        and all(capabilities.has(scope, IndexKind.BTREE) for scope in scopes)
-    ):
+    if is_date_query(query) and all(capabilities.has(scope, IndexKind.BTREE) for scope in scopes):
         return [("DateScan",)]
     if any(capabilities.has(scope, IndexKind.INVERTED) for scope in scopes):
         available.append("TermScan")

@@ -25,6 +25,20 @@ declaration; the local query choice cannot become a travelling vector layer. If 
 its vector index is absent from the write configuration rather than silently replaced. Structural indices remain
 available. The fallback does not alter the imported sidecar.
 
+Runtime assembly owns fallback selection and storage namespaces; index engines receive resolved embedders and
+paths. The selection command is a service operation so each interface uses the same validation and inheritance.
+Explicit index builds use the shared WRITE view, and invalidate cached query views when the rebuild completes.
+
+An unchanged pre-reference model tag retains its former compatibility contract and acquires reference probes on
+first use. An old runtime-prefixed tag can be copied to its canonical model identity only when the other tag fields
+match and up to three stored passage vectors agree within 1e-4. Retrieval reads travelling payloads by the digest
+bound in the snapshot, checks the recorded model, and saves migrations locally. This bounds migration cost while
+refusing ambiguous aliases. Changing the shared model and explicitly reindexing replaces its canonical sidecar.
+
+Installing is an opening mode under WRITE authorization, not an extra capability level. It registers no indices
+and no planner, so pulling does not construct the outgoing model. The installed structural indices are restored
+lazily on the next indexed open; `inspect doctor` can report `indices.unbuilt` immediately after installation.
+
 ## Consequences
 
 - Semantic ranking is unavailable until this machine can run the declared model and pass the reference probe.

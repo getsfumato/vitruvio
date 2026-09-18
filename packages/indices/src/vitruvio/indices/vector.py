@@ -26,7 +26,7 @@ installed, so chunk boundaries -- and therefore cache keys and vector identity -
 from __future__ import annotations
 
 import struct
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -135,6 +135,14 @@ def chunk(text: str, *, max_chars: int = MAX_CHARS, overlap: int = OVERLAP) -> l
     return chunks
 
 
+def _vectors_agree(actual: Sequence[Vector], expected: Sequence[Vector]) -> bool:
+    """Allow float32 transport rounding, but never accept a different width or a partial provider response."""
+    return len(actual) == len(expected) and all(
+        len(left) == len(right) and all(abs(a - b) <= 1e-4 for a, b in zip(left, right, strict=True))
+        for left, right in zip(actual, expected, strict=True)
+    )
+
+
 class VectorIndex(VitruvioIndex):
     """
     Similarity search over usearch HNSW, with an explicit key table that travels.
@@ -188,22 +196,13 @@ class VectorIndex(VitruvioIndex):
         self.expansion_search = expansion_search
         self.dtype = dtype
         super().__init__(memory_type, home, autoload=autoload)
-        self._legacy_path: Path | None = None
-        if self._refused_tag is not None and home is not None:
-            # A locally chosen fallback must never replace an imported sidecar.
-            import hashlib
-
-            suffix = hashlib.sha256(self._tag().render().encode()).hexdigest()[:16]
-            refused = self._refused_tag
-            self._legacy_path = self.path
-            self.home = home / "local" / suffix
-            self._refused_tag = None
-            if autoload:
-                self._load_if_present()
-            if not self._rows:
-                self._refused_tag = refused
 
     # --- Identity -------------------------------------------------------------
+
+    @property
+    def expected_model_tag(self) -> str:
+        """Expose the expected space even when no vectors could be loaded, for runtime compatibility decisions."""
+        return self._tag().render()
 
     @property
     def model_tag(self) -> str | None:
@@ -249,24 +248,30 @@ class VectorIndex(VitruvioIndex):
         embedder vitruvio ships declares ``l2``, so this never fires today; it is here because ranking wrong looks
         exactly as plausible as ranking right.
         """
-        if not self.embedder.available or self.embedder.tag.normalization != "l2":
+        self._runtime_unavailable = not self.embedder.available
+        if self._runtime_unavailable or self.embedder.tag.normalization != "l2":
             return False
         if self._reference_pending:
             self._reference_pending = False
-            if not self._references:
+            try:
+                produced = self.embedder.embed_text(REFERENCE_TEXTS, role=TextRole.PASSAGE)
+                # Before reference probes existed the exact model tag was the compatibility contract. Preserve
+                # that contract for an unchanged tag and establish anchors for its next serialization.
+                if not self._references:
+                    self._references = produced
+                self._reference_valid = len(produced) == len(REFERENCE_TEXTS) and _vectors_agree(
+                    produced, self._references
+                )
+            except EmbedderUnavailableError:
                 self._reference_valid = False
-            else:
-                try:
-                    produced = self.embedder.embed_text(REFERENCE_TEXTS, role=TextRole.PASSAGE)
-                    self._reference_valid = len(produced) == len(self._references) and all(
-                        len(actual) == len(expected)
-                        and all(abs(a - b) <= 1e-4 for a, b in zip(actual, expected, strict=True))
-                        for actual, expected in zip(produced, self._references, strict=True)
-                    )
-                except EmbedderUnavailableError:
-                    self._reference_valid = False
-                    self._reference_pending = True
+                self._reference_pending = True
+                self._runtime_unavailable = True
         return self._reference_valid
+
+    @property
+    def query_failure(self) -> str:
+        """An offline runtime needs credentials or connectivity, whereas a failed comparison needs the right model."""
+        return "embedder_unavailable" if self._runtime_unavailable else "model_mismatch"
 
     def capability(self, *, root: str | None = None, model_tag: str | None = None) -> Capability:
         """Report an invalid reference probe as a model mismatch, never as a ready index."""
@@ -274,82 +279,78 @@ class VectorIndex(VitruvioIndex):
 
         result = super().capability(root=root, model_tag=model_tag)
         if result.state == "ready" and not self.queryable:
-            return replace(result, state="model_mismatch", detail="embedding runtime failed the reference probe")
+            return replace(
+                result, state=self.query_failure, detail="embedding runtime could not validate the reference probe"
+            )
         return result
 
     # --- Build ----------------------------------------------------------------
 
-    def build(self, blocks: Iterable[Block], content: ContentReader) -> None:
-        """Validate an old runtime-tagged index before copying it into a local model namespace."""
-        materialized = list(blocks)
-        if self._legacy_path is not None and not self._rows:
-            self._migrate_legacy(materialized, content)
-        super().build(materialized, content)
+    def restore_legacy(self, data: bytes, blocks: Sequence[Block], content: ContentReader) -> bool:
+        """Import a renamed runtime tag only after three stored passage vectors agree within 1e-4.
 
-    def _migrate_legacy(self, blocks: Sequence[Block], content: ContentReader) -> None:  # noqa: PLR0911, PLR0912
-        path = self._legacy_path
-        if path is None:
-            return
-        try:
-            found = envelope.read(path)
-        except envelope.IndexFormatError:
-            return
-        if found is None:
-            return
-        header, body = found
-        old = ModelTag.parse(header.model_tag or "")
-        new = self._tag()
-        if old is None or old.model != f"{new.provider}/{new.model}":
-            return
+        Metadata alone cannot prove two providers serve the same weights. Comparing original passage vectors
+        bounds the probe cost while rejecting a different runtime; an ambiguous identity is left untouched.
+        The caller chooses the destination, so retrieval can persist a local copy without replacing the source.
+        """
         from dataclasses import replace
 
-        if replace(old, provider=new.provider, model=new.model) != new:
-            return
-        rows = body.get("rows", {})
-        vectors = body.get("vectors", {})
-        by_id = {str(block.block_id): block for block in blocks}
-        samples: list[tuple[str, tuple[float, ...]]] = []
-        for key, row in sorted(rows.items()):
-            block = by_id.get(row[0])
-            if block is None or key not in vectors:
-                continue
-            projected = project(block, content)
-            pieces = chunk(projected.embed_text or "")
-            text = next((text for position, text, _ in pieces if position == row[2]), None)
-            if text is None:
-                continue
-            packed = bytes.fromhex(vectors[key])
-            samples.append((text, struct.unpack(f"<{len(packed) // 4}f", packed)))
-            if len(samples) == 3:
-                break
+        try:
+            header, body = envelope.decode(data)
+        except envelope.IndexFormatError:
+            return False
+        old = ModelTag.parse(header.model_tag or "")
+        new = self._tag()
+        if (
+            old is None
+            or old.model != f"{new.provider}/{new.model}"
+            or replace(old, provider=new.provider, model=new.model) != new
+            or body.get("model_tag") != header.model_tag
+            or header.memory_type != self.memory_type.value
+            or header.kind != self.KIND.value
+            or header.body_version != self.BODY_VERSION
+        ):
+            return False
+        samples = self._legacy_samples(body, blocks, content)
         if not samples or not self.embedder.available:
-            return
+            return False
         try:
             computed = self.embedder.embed_text([text for text, _ in samples], role=TextRole.PASSAGE)
+            anchors = self.embedder.embed_text(REFERENCE_TEXTS, role=TextRole.PASSAGE)
         except EmbedderUnavailableError:
-            return
-        if any(
-            len(actual) != len(expected) or any(abs(a - b) > 1e-4 for a, b in zip(actual, expected, strict=True))
-            for actual, (_, expected) in zip(computed, samples, strict=True)
-        ):
-            return
-        migrated = {**body, "model_tag": new.render()}
-        try:
-            self._load_body(migrated)
-        except Exception:
-            self._reset()
-            return
+            return False
+        if not _vectors_agree(computed, [vector for _, vector in samples]):
+            return False
+        self._load_body({**body, "model_tag": new.render()})
         self._table = type(self._table)(body.get("identities", []))
         self._bound_root = header.merkle_root
         self._built_at = header.built_at
         self._refused_tag = None
-        if not self._references:
-            self._references = self.embedder.embed_text(REFERENCE_TEXTS, role=TextRole.PASSAGE)
-            self._reference_pending = True
-        if self.queryable:
-            self.flush()
-        else:
-            self._reset()
+        self._references = anchors
+        self._reference_pending = False
+        self.flush()
+        return True
+
+    @staticmethod
+    def _legacy_samples(
+        body: dict[str, Any], blocks: Sequence[Block], content: ContentReader
+    ) -> list[tuple[str, Vector]]:
+        """Recover original chunk texts rather than comparing probes that the old model never embedded."""
+        by_id = {str(block.block_id): block for block in blocks}
+        vectors = body.get("vectors", {})
+        samples: list[tuple[str, Vector]] = []
+        for key, row in sorted(body.get("rows", {}).items()):
+            block = by_id.get(row[0])
+            if block is None or key not in vectors:
+                continue
+            pieces = chunk(project(block, content).embed_text or "")
+            text = next((text for position, text, _ in pieces if position == row[2]), None)
+            if text is not None:
+                packed = bytes.fromhex(vectors[key])
+                samples.append((text, struct.unpack(f"<{len(packed) // 4}f", packed)))
+            if len(samples) == 3:
+                break
+        return samples
 
     def _reset(self) -> None:
         """Discard every vector and the key table."""
@@ -363,6 +364,7 @@ class VectorIndex(VitruvioIndex):
         self._references = []
         self._reference_pending = False
         self._reference_valid = True
+        self._runtime_unavailable = False
 
     def _apply(self, projection: Projection) -> None:
         """Embed this block's projected text, in chunks, reusing anything the cache already holds."""

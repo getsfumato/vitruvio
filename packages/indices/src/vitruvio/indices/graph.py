@@ -421,7 +421,7 @@ class FederatedGraphView:
             for identity, score in following.items():
                 held = best.get(identity)
                 if held is None or score > held[0]:
-                    best[identity] = (score, depth)
+                    best[identity] = (score, min(held[1], depth) if held is not None else depth)
                     if identity not in origin:
                         frontier[identity] = score
             if len(best) >= query.max_nodes or not frontier:

@@ -3624,7 +3624,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
     { name = "pypdfium2", marker = "extra == 'vision'", specifier = ">=4.30.0" },
     { name = "sentence-transformers", marker = "extra == 'local-text'", specifier = ">=5.0.0" },
-    { name = "sentence-transformers", marker = "extra == 'vision'", specifier = ">=3.0.0" },
+    { name = "sentence-transformers", marker = "extra == 'vision'", specifier = ">=5.0.0" },
     { name = "vitruvio-kernel", editable = "packages/kernel" },
 ]
 provides-extras = ["local-text", "vision", "api"]

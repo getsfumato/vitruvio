@@ -25,7 +25,12 @@ from boltzmann.indices.base import Index
 from vitruvio.kernel import ResolvedConfig
 
 if TYPE_CHECKING:
+    from boltzmann.brain import Brain
+    from boltzmann.module.module import Module
+
+    from vitruvio.indices import IndexSet
     from vitruvio.indices.format import Header
+    from vitruvio.indices.vector import VectorIndex
 
 
 def indices_home(config: ResolvedConfig) -> Path:
@@ -103,6 +108,105 @@ def index_set(config: ResolvedConfig, *, local_query: bool = False) -> dict[Memo
     Returns:
         dict[MemoryType, list[Index]]: The index set, ready for ``Brain(indices=...)``.
     """
-    from vitruvio.indices import build_indices
+    return create_index_set(config, local_query=local_query).as_brain_indices()
 
-    return build_indices(config.project.indices, home=indices_home(config), config=config, local_query=local_query)
+
+def create_index_set(config: ResolvedConfig, *, local_query: bool = False) -> IndexSet:
+    """Resolve runtimes here so engines never decide whether a local fallback may replace shared vectors.
+
+    Query vectors use a separate namespace, including validated copies of a published layer. A read can therefore
+    refresh its fallback or migrate an old tag without changing the canonical sidecar used for publication.
+    """
+    import hashlib
+
+    from vitruvio.embeddings import EmbedderUnavailableError, resolve
+    from vitruvio.indices import IndexSet
+    from vitruvio.kernel import DEFAULT_TEXT_EMBEDDER
+
+    text = config.text_embedder if local_query else config.project.text_embedder
+    embedders = {}
+    for name, spec in (("text", text), ("vision", config.project.vision_embedder)):
+        if spec is None:
+            continue
+        try:
+            candidate = resolve(spec)
+        except EmbedderUnavailableError:
+            candidate = None
+        if local_query and name == "text" and (candidate is None or not candidate.available):
+            candidate = resolve(DEFAULT_TEXT_EMBEDDER)
+        if candidate is not None:
+            embedders[name] = candidate
+    home = indices_home(config)
+    vector_homes = (
+        {
+            name: home / "local" / hashlib.sha256(embedder.tag.render().encode()).hexdigest()[:16]
+            for name, embedder in embedders.items()
+        }
+        if local_query
+        else None
+    )
+    return IndexSet.from_specs(
+        config.project.indices,
+        home,
+        embedders=embedders,
+        cache_home=config.derived / "embeddings",
+        vector_homes=vector_homes,
+    )
+
+
+def prepare_query_indices(brain: Brain, config: ResolvedConfig) -> None:
+    """Restore published vectors or refresh a local fallback without writing a canonical sidecar on a read.
+
+    The snapshot's digest is authoritative for a travelling layer; a manifest annotation alone is not. Local
+    fallback freshness follows the module root so a second query after a commit sees the new blocks.
+    """
+    from vitruvio.indices import VectorIndex
+
+    snapshot = brain.snapshot()
+    for memory_type in snapshot.installed:
+        module = brain.module(memory_type)
+        reference = snapshot.modules[memory_type]
+        for vector in brain.indices.get(memory_type, ()):
+            if not isinstance(vector, VectorIndex):
+                continue
+            if not vector.population:
+                canonical = indices_home(config) / f"{memory_type.value}.vector.vidx"
+                if canonical.is_file():
+                    _restore_query_vectors(vector, canonical.read_bytes(), module)
+                if (
+                    not vector.population
+                    and reference.index_digest
+                    and brain.store.is_resolvable(reference.index_digest)
+                ):
+                    data = brain.store.get_bytes(reference.index_digest)
+                    _restore_query_vectors(vector, data, module, published_model=reference.embedding_model)
+            fallback = vector.embedder.tag.is_fallback and (
+                not config.project.text_embedder.is_fallback
+                or (reference.embedding_model is not None and reference.embedding_model != vector.expected_model_tag)
+            )
+            if fallback and (not vector.population or vector.bound_root != str(module.root)):
+                blocks = [module.get(identity) for identity in module.block_ids if module.store.is_resolvable(identity)]
+                vector.build(blocks, module.store)
+                vector.bind(str(module.root))
+
+
+def _restore_query_vectors(
+    vector: VectorIndex, data: bytes, module: Module, *, published_model: str | None = None
+) -> None:
+    """A renamed legacy tag needs passage evidence; an unchanged tag retains its existing compatibility contract."""
+    from vitruvio.indices import format as envelope
+    from vitruvio.indices.vector import IndexModelMismatchError
+
+    try:
+        header, _ = envelope.decode(data)
+        if published_model is not None and header.model_tag != published_model:
+            return
+        if header.merkle_root is not None and header.merkle_root != str(module.root):
+            return
+        try:
+            vector.load(data)
+        except IndexModelMismatchError:
+            blocks = [module.get(identity) for identity in module.block_ids if module.store.is_resolvable(identity)]
+            vector.restore_legacy(data, blocks, module.store)
+    except envelope.IndexFormatError:
+        return

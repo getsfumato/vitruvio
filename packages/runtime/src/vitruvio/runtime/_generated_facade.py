@@ -620,6 +620,30 @@ class GeneratedFacade:
         See :meth:`vitruvio.runtime.ops.embedders.EmbedderOps.test_embedder`."""
         return self.embedder_ops.test_embedder(which=which, text=text)
 
+    def use_embedder(
+        self,
+        provider: str,
+        model: str,
+        *,
+        model_id: str | None = None,
+        runtime_model: str | None = None,
+        base_url: str | None = None,
+        dims: int | None = None,
+        revision: str | None = None,
+    ) -> dict[str, Any]:
+        """Save the local query runtime; inheriting a matching model's identity prevents accidental reindexing.
+
+        See :meth:`vitruvio.runtime.ops.embedders.EmbedderOps.use_embedder`."""
+        return self.embedder_ops.use_embedder(
+            provider,
+            model,
+            model_id=model_id,
+            runtime_model=runtime_model,
+            base_url=base_url,
+            dims=dims,
+            revision=revision,
+        )
+
     @cached_property
     def diagnosis_ops(self) -> DiagnosisOps:
         """The DiagnosisOps operations."""

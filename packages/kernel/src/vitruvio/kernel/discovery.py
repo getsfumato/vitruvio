@@ -84,12 +84,17 @@ SELECTED_KEY = "selected"
 T = TypeVar("T")
 
 
-def embedding_choice(brain: Path) -> dict[str, Any] | None:
+def _embedding_choice_key(brain: Path) -> str:
+    """Use the resolved path so aliases of one local brain share one runtime choice."""
+    return hashlib.sha256(str(brain.expanduser().resolve()).encode()).hexdigest()
+
+
+def embedding_choice(brain: Path) -> EmbedderSpec | None:
     """The runtime selected on this machine for one brain, without credentials."""
-    key = hashlib.sha256(str(brain.expanduser().resolve()).encode()).hexdigest()
+    key = _embedding_choice_key(brain)
     choices = read_state().get("embedding_choices", {})
     value = choices.get(key) if isinstance(choices, dict) else None
-    return value if isinstance(value, dict) else None
+    return EmbedderSpec.model_validate(value) if isinstance(value, dict) else None
 
 
 def remember_embedding_choice(brain: Path, spec: EmbedderSpec) -> Path:
@@ -98,7 +103,7 @@ def remember_embedding_choice(brain: Path, spec: EmbedderSpec) -> Path:
         endpoint = urlsplit(spec.base_url)
         if endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
             raise ConfigError("embedding base_url must not contain credentials, query parameters or a fragment")
-    key = hashlib.sha256(str(brain.expanduser().resolve()).encode()).hexdigest()
+    key = _embedding_choice_key(brain)
     safe = spec.model_dump(exclude_none=True)
     safe.pop("options", None)
 

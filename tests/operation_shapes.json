@@ -5088,11 +5088,14 @@
     "optional": [
       "chosen.operators[].params.count",
       "chosen.operators[].params.hidden",
+      "chosen.operators[].params.high",
       "chosen.operators[].params.include_superseded",
       "chosen.operators[].params.k",
       "chosen.operators[].params.ledger_blocks",
+      "chosen.operators[].params.low",
       "chosen.operators[].params.method",
       "chosen.operators[].params.reserve",
+      "chosen.operators[].params.rows",
       "chosen.operators[].params.scopes",
       "chosen.operators[].params.scopes[]",
       "chosen.operators[].params.selectivity",
@@ -5101,9 +5104,11 @@
       "considered[].operators[].params.dimensions",
       "considered[].operators[].params.effort",
       "considered[].operators[].params.hidden",
+      "considered[].operators[].params.high",
       "considered[].operators[].params.include_superseded",
       "considered[].operators[].params.k",
       "considered[].operators[].params.ledger_blocks",
+      "considered[].operators[].params.low",
       "considered[].operators[].params.method",
       "considered[].operators[].params.postings",
       "considered[].operators[].params.recall",
@@ -5119,18 +5124,36 @@
       "degradations[].kind",
       "degradations[].recall_after",
       "degradations[].recall_before",
+      "estimation_error.0",
       "indices_available.canonical",
       "indices_available.canonical[]",
+      "indices_available.episodic",
+      "indices_available.episodic[]",
+      "indices_available.procedural",
+      "indices_available.procedural[]",
       "indices_available.provenance",
       "indices_available.provenance[]",
       "indices_available.semantic",
       "indices_available.semantic[]",
       "indices_consulted.canonical",
       "indices_consulted.canonical[]",
+      "indices_consulted.episodic",
+      "indices_consulted.episodic[]",
       "indices_consulted.provenance",
       "indices_consulted.provenance[]",
       "indices_consulted.semantic",
       "indices_consulted.semantic[]",
+      "intent.authority.BruteVector",
+      "intent.authority.GraphExpand",
+      "intent.authority.TermScan",
+      "intent.authority.VectorSearch",
+      "intent.weights.BitmapFilter",
+      "intent.weights.BruteVector",
+      "intent.weights.GraphExpand",
+      "intent.weights.RangeScan",
+      "intent.weights.SeqScan",
+      "intent.weights.TermScan",
+      "intent.weights.VectorSearch",
       "statistics[]",
       "statistics[].built_at",
       "statistics[].cardinality",
@@ -5171,9 +5194,11 @@
         "object"
       ],
       "chosen.operators[].act_cost_us": [
+        "float",
         "null"
       ],
       "chosen.operators[].act_rows": [
+        "int",
         "null"
       ],
       "chosen.operators[].est_cost_us": [
@@ -5217,6 +5242,9 @@
       "chosen.operators[].params.hidden": [
         "float"
       ],
+      "chosen.operators[].params.high": [
+        "str"
+      ],
       "chosen.operators[].params.include_superseded": [
         "bool"
       ],
@@ -5226,10 +5254,16 @@
       "chosen.operators[].params.ledger_blocks": [
         "int"
       ],
+      "chosen.operators[].params.low": [
+        "str"
+      ],
       "chosen.operators[].params.method": [
         "str"
       ],
       "chosen.operators[].params.reserve": [
+        "int"
+      ],
+      "chosen.operators[].params.rows": [
         "int"
       ],
       "chosen.operators[].params.scopes": [
@@ -5337,6 +5371,9 @@
       "considered[].operators[].params.hidden": [
         "float"
       ],
+      "considered[].operators[].params.high": [
+        "str"
+      ],
       "considered[].operators[].params.include_superseded": [
         "bool"
       ],
@@ -5345,6 +5382,9 @@
       ],
       "considered[].operators[].params.ledger_blocks": [
         "int"
+      ],
+      "considered[].operators[].params.low": [
+        "str"
       ],
       "considered[].operators[].params.method": [
         "str"
@@ -5417,6 +5457,9 @@
       "estimation_error": [
         "object"
       ],
+      "estimation_error.0": [
+        "float"
+      ],
       "indices_available": [
         "object"
       ],
@@ -5424,6 +5467,18 @@
         "array"
       ],
       "indices_available.canonical[]": [
+        "str"
+      ],
+      "indices_available.episodic": [
+        "array"
+      ],
+      "indices_available.episodic[]": [
+        "str"
+      ],
+      "indices_available.procedural": [
+        "array"
+      ],
+      "indices_available.procedural[]": [
         "str"
       ],
       "indices_available.provenance": [
@@ -5445,6 +5500,12 @@
         "array"
       ],
       "indices_consulted.canonical[]": [
+        "str"
+      ],
+      "indices_consulted.episodic": [
+        "array"
+      ],
+      "indices_consulted.episodic[]": [
         "str"
       ],
       "indices_consulted.provenance": [
@@ -5498,10 +5559,19 @@
       "intent.weights": [
         "object"
       ],
+      "intent.weights.BitmapFilter": [
+        "float"
+      ],
       "intent.weights.BruteVector": [
         "float"
       ],
       "intent.weights.GraphExpand": [
+        "float"
+      ],
+      "intent.weights.RangeScan": [
+        "float"
+      ],
+      "intent.weights.SeqScan": [
         "float"
       ],
       "intent.weights.TermScan": [
@@ -5532,6 +5602,7 @@
         "str"
       ],
       "predicates[].selectivity": [
+        "float",
         "null"
       ],
       "prelude_us": [
@@ -5547,7 +5618,8 @@
         "object"
       ],
       "statistics[].built_at": [
-        "null"
+        "null",
+        "str"
       ],
       "statistics[].cardinality": [
         "int"
@@ -5562,9 +5634,11 @@
         "null"
       ],
       "statistics[].root": [
-        "null"
+        "null",
+        "str"
       ],
       "wall_us": [
+        "float",
         "null"
       ]
     }
@@ -14006,6 +14080,26 @@
         "int"
       ],
       "theirs": [
+        "str"
+      ]
+    }
+  },
+  "use_embedder": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "brain": [
+        "str"
+      ],
+      "model": [
+        "str"
+      ],
+      "provider": [
+        "str"
+      ],
+      "state_file": [
         "str"
       ]
     }

@@ -30,7 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 local-text = ["sentence-transformers>=5.0.0"]
-vision = ["sentence-transformers>=3.0.0", "pillow>=10.0.0", "pypdfium2>=4.30.0"]
+vision = ["sentence-transformers>=5.0.0", "pillow>=10.0.0", "pypdfium2>=4.30.0"]
 api = ["httpx>=0.27.0"]
 
 [tool.hatch.build.targets.wheel]

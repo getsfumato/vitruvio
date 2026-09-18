@@ -532,7 +532,7 @@ class DiagnosisOps:
             if spec.memory_type.value == memory_type and spec.kind.value == "vector":
                 if spec.embedder == "vision":
                     return self.config.project.vision_embedder
-                return EmbedderOps(self.session)._text_spec()
+                return self.config.text_embedder
         return None
 
     def _embedders(self) -> list[dict[str, Any]]:

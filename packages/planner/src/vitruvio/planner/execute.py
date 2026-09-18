@@ -35,7 +35,7 @@ from boltzmann.query.request import Query
 
 from vitruvio.planner import fusion
 from vitruvio.planner.explain import Degradation
-from vitruvio.planner.intent import Intent
+from vitruvio.planner.intent import Intent, has_content_filters, is_date_query
 from vitruvio.planner.ir import Metrics, Op, Plan
 from vitruvio.planner.planner import Capabilities, CostBasedPlanner
 
@@ -63,6 +63,7 @@ class Executor:
     degradations: list[Degradation] = field(default_factory=list)
     _eligible_catalog_sources: frozenset[BlockId] | None = field(default=None, init=False, repr=False)
 
+    # One branch per physical operator keeps EXPLAIN metrics aligned with the plan nodes that actually ran.
     def run(self, plan: Plan) -> tuple[EvidenceBundle, Metrics, float, list[Degradation]]:  # noqa: PLR0912
         """
         Execute a plan.
@@ -147,6 +148,7 @@ class Executor:
 
     # --- Generators -----------------------------------------------------------
 
+    # Each generator returns its own exhaustiveness flag; merging the exits would hide that contract.
     def _generate(  # noqa: PLR0911
         self,
         node: Any,
@@ -190,7 +192,7 @@ class Executor:
                 ),
                 limit=0,
             )
-            return [(str(identity), float(len(hits) - rank)) for rank, (identity, _) in enumerate(hits)], True
+            return [(str(identity), 1.0) for identity, _ in hits], True
 
         if node.op is Op.TERM_SCAN:
             return self._lexical(module, limit)
@@ -535,12 +537,7 @@ class Executor:
 
     def _date_only_filters(self) -> bool:
         """Whether an exact ordered scan already checked every block predicate."""
-        filters = self.query.filters
-        return bool(
-            not self.query.text.strip()
-            and (filters.since or filters.until)
-            and not (filters.subject or filters.tags or filters.classes or filters.evidence)
-        )
+        return is_date_query(self.query) and not has_content_filters(self.query)
 
     # one return per reason a candidate is dropped; collapsing them would report the wrong reason.
     def _verify(self, candidate: fusion.Candidate, score: float, ledger: Any) -> Match | None:  # noqa: PLR0911
@@ -659,9 +656,7 @@ class Executor:
     def _has_block_filters(self) -> bool:
         """Whether candidate payloads need predicate checks before the result limit."""
         filters = self.query.filters
-        return bool(
-            filters.subject or filters.tags or filters.since or filters.until or filters.classes or filters.evidence
-        )
+        return bool(filters.since or filters.until or has_content_filters(self.query))
 
     def _catalog_sources(self) -> frozenset[BlockId] | None:
         """Compute the AND intersection of requested catalog facets once per query."""

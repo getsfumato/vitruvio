@@ -482,6 +482,17 @@ class TestBTreeIndex:
 
 
 class TestGraphIndex:
+    def test_a_stronger_deeper_path_preserves_the_shallowest_reached_depth(self) -> None:
+        graph = GraphIndex(MemoryType.SEMANTIC)
+        for source, edges in (
+            ("a", (Edge(EdgeKind.RELATION, "b", weight=0.1), Edge(EdgeKind.RELATION, "c", weight=1.0))),
+            ("c", (Edge(EdgeKind.RELATION, "b", weight=1.0),)),
+        ):
+            graph._apply(Projection(block_id=source, memory_type=MemoryType.SEMANTIC, edges=edges))
+        graph._on_build_end(None)
+        reached = FederatedGraphView({"semantic": graph}).expand(TraversalQuery(seeds=("a",), depth=2, decay=1.0))
+        assert next((score, depth) for identity, score, depth in reached if identity == "b") == (1.0, 1)
+
     def test_parallel_typed_edges_survive_and_can_be_filtered(self) -> None:
         graph = GraphIndex(MemoryType.SEMANTIC)
         graph._apply(

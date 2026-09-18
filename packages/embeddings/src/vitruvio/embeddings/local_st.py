@@ -27,6 +27,8 @@ class SentenceTransformerEmbedder:
     def __init__(self, spec: EmbedderSpec) -> None:
         self.spec = spec
         self.model = _load(spec.runtime_model or spec.model, spec.device)
+        if not all(callable(getattr(self.model, method, None)) for method in ("encode_query", "encode_document")):
+            raise EmbedderUnavailableError("local-st needs sentence-transformers>=5; upgrade vitruvio[local]")
         width = self.model.get_sentence_embedding_dimension()
         if width is None or (spec.dims is not None and spec.dims != width):
             raise EmbedderUnavailableError(f"local model width is {width}, configured dims is {spec.dims}")
