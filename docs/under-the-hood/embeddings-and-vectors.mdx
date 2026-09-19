@@ -6,8 +6,8 @@ description: "Two spaces, the model tag, and why the layer travels."
 
 ```bash
 vitruvio config embedder list
-vitruvio config embedder test "a periodic function"
-vitruvio config set embedding.text.uri "local-st:intfloat/multilingual-e5-base"
+vitruvio config embedder test --text "a periodic function"
+vitruvio config embedder use local-st intfloat/multilingual-e5-base --model-id intfloat/multilingual-e5-base
 ```
 
 | provider | uri | extra | modalities |
@@ -22,8 +22,8 @@ vitruvio config set embedding.text.uri "local-st:intfloat/multilingual-e5-base"
 
 ## The OpenAI-shaped providers
 
-`ollama` and `openrouter` both answer OpenAI's `/embeddings` request, so they share one base class and differ only
-where they genuinely differ.
+`openai`, `openrouter`, `ollama`, `cohere`, `voyage`, and `openai-compatible` share the `/embeddings` transport.
+Each adapter supplies the endpoint and any model-specific request fields, such as Voyage's query/document role.
 
 ```toml
 [embedding.text]
@@ -89,7 +89,7 @@ rank rather than by score.
 ## The model tag, and why a mismatch is not a degradation
 
 ```
-local-st/intfloat--multilingual-e5-base@a1b2c3d4#d768,f16,l2,mean,e5-qp,none,proj1,chunk1
+intfloat/multilingual-e5-base@a1b2c3d4#d768,f32,l2,model,model,cut24000,vitruvio-projection-4,vitruvio-chunker-1
 ```
 
 Everything that changes *where a vector lands in the space* is in there: provider, model, revision, dimensions, dtype,
@@ -101,6 +101,30 @@ so the cosines would be noise that silently poisons fusion, which is worse than 
 which field differs, `index verify` reports the sidecar as `model_mismatch` rather than as empty, and `inspect doctor`
 reads the tag from the sidecar header — so it says so even on a machine that cannot construct the embedder the index
 was built with.
+
+### Shared model, local runtime
+
+`[embedding.text]` declares the model used by writes, explicit `index build`, and publication. `model_id` names
+its canonical owner and model; `provider` and `runtime_model` describe how a machine reaches it. For example,
+OpenRouter serving `openai/text-embedding-3-small` now carries an `openai/text-embedding-3-small` tag rather than
+an `openrouter/openai--text-embedding-3-small` tag.
+
+`config embedder use` saves a per-brain choice in local XDG state without changing that shared declaration.
+When identities match, omitted revision and dimensions are inherited. Credentials stay in environment variables.
+Skills guide the choice using the model tags shown by `dist plan-pull` in both human and JSON output.
+
+Query copies and deterministic fallbacks live under `.vitruvio/indices/local/`. A fallback refreshes when the module
+root changes. Opening a default hashing brain for reading does not build a missing canonical vector sidecar.
+Changing the shared model requires `index build --force`, which replaces the canonical sidecar used by publication.
+
+Older semantic layers without stored reference vectors remain readable when their complete model tag matches.
+Vitruvio establishes reference probes for later serializations. For an unambiguous old runtime tag, retrieval checks
+up to three original passage vectors against the selected runtime before saving a local copy under the new tag.
+It can recover that copy directly from the snapshot-bound travelling blob after a pull, without altering the published
+blob. A failed comparison is `model_mismatch`; an offline or unconfigured runtime is `embedder_unavailable`.
+
+Installation transfers the snapshot and travelling layer without standing up an embedding runtime. Structural
+indices are rebuilt on the next indexed open; immediately after a pull, `inspect doctor` may report `indices.unbuilt`.
 
 ## The embedding cache is not optional
 

@@ -50,6 +50,7 @@ class BTreeIndex(VitruvioIndex):
     REBUILDABLE: ClassVar[bool] = True
     BODY_VERSION: ClassVar[int] = 1
     ENGINE: ClassVar[str] = "sorted-array"
+    _ordinal_values: dict[str, dict[int, str]] | None
 
     def _reset(self) -> None:
         """Discard every key's arrays."""
@@ -58,6 +59,7 @@ class BTreeIndex(VitruvioIndex):
         self._values: dict[str, list[str]] = {}
         self._owners: dict[str, list[int]] = {}
         self._pending: dict[str, list[tuple[str, int]]] = {}
+        self._ordinal_values = None
 
     @staticmethod
     def _encode(value: str | int) -> str:
@@ -175,13 +177,34 @@ class BTreeIndex(VitruvioIndex):
         if start >= end:
             return []
 
-        selected = owners[start:end]
+        if query.order is Order.DESCENDING:
+            # Reverse timestamp groups, not their identity order. Equal timestamps break ties by canonical id.
+            selected = []
+            cursor = end
+            while cursor > start:
+                first = bisect_left(values, values[cursor - 1], start, cursor)
+                selected.extend(owners[first:cursor])
+                cursor = first
+        else:
+            selected = owners[start:end]
         if query.allow is not None:
             allowed = set(query.allow)
             selected = [ordinal for ordinal in selected if ordinal in allowed]
-        if query.order is Order.DESCENDING:
-            selected = list(reversed(selected))
         return selected
+
+    def value_for(self, identity: str, key: OrderedKey) -> str | None:
+        """Retrieve an indexed value for a candidate without decoding its block."""
+        ordinal = self._table.ordinal(identity)
+        if ordinal is None:
+            return None
+        cache = self._ordinal_values
+        if cache is None:
+            cache = {
+                name: dict(zip(self._owners.get(name, ()), values, strict=True))
+                for name, values in self._values.items()
+            }
+            self._ordinal_values = cache
+        return cache.get(key.value, {}).get(ordinal)
 
     def estimate(self, query: RangeQuery) -> Estimate:
         """

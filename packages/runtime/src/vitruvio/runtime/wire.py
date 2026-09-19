@@ -365,9 +365,17 @@ def install_plan(value: InstallPlan, source: BrainManifest | None = None) -> dic
     """
     payload: dict[str, Any] = {**value.model_dump(mode="json"), "is_noop": value.is_noop}
     if source is not None:
+        from boltzmann.distribution.media_types import ANNOTATION_EMBEDDING_MODEL
+
         layers = [source.layer_for(kind) for kind in value.fetch_layers]
         vectors = [source.vector_index_for(kind) for kind in value.fetch_vector_indices]
         payload["fetch_bytes"] = sum(layer.size for layer in (*layers, *vectors) if layer is not None)
+        payload["vector_models"] = {
+            kind.value: descriptor.annotations[ANNOTATION_EMBEDDING_MODEL]
+            for kind in source.modules
+            if (descriptor := source.vector_index_for(kind)) is not None
+            and ANNOTATION_EMBEDDING_MODEL in descriptor.annotations
+        }
     return payload
 
 

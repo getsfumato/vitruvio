@@ -18,6 +18,13 @@ vitruvio dist plan-pull <REF> --tag v1 --json
 
 A canonical layer can be gigabytes. "How much is this going to cost" should be answerable without paying it, and
 `fetch_bytes` answers it. `is_noop: true` means the brain is already at the published state.
+Read `vector_models` before pulling: it names the embedding model that produced each carried vector layer.
+If this machine has no compatible runtime, ask whether to configure one or use local hashing/BOW. Use
+`vitruvio --brain PATH config embedder use PROVIDER MODEL --model-id OWNER/MODEL --dims N --revision REV --json`
+for a selected runtime, or `vitruvio --brain PATH config embedder use hashing bow --json` for the fallback.
+Copy `OWNER/MODEL`, `N`, and `REV` from the published `vector_models` tag. If the project's shared declaration
+already names that model, the CLI inherits its revision and dimensions when omitted.
+The choice is saved per local brain. Never put an API key in that command; use the provider's environment variable.
 
 ```bash
 vitruvio dist pull <REF> --tag v1 --json
@@ -43,9 +50,10 @@ attribution returns `complete: false` or `fully_vouched: false`. Include `assert
 Do not call the brain corrupt solely because this audit warns: merges can legitimately introduce an actor not vouched
 for by the head's signer. Never hide or downgrade the warning, and do not describe that head as fully authenticated.
 
-If a published vector index is incompatible with the configured embedder, keep the strict refusal by default. When
-the user explicitly chooses to install the verified modules without those derived layers, plan and pull with
-`--ignore-vector-indices`, then rebuild compatible vectors locally:
+If a published vector index is incompatible with the configured embedder, keep the strict refusal by default. A
+local hashing fallback is stored in a separate index directory and leaves the published vector layer intact.
+When the user explicitly chooses to omit the carried vectors, plan and pull with `--ignore-vector-indices`, then
+build local vectors:
 
 ```bash
 vitruvio dist plan-pull <REF> --tag v1 --ignore-vector-indices --json

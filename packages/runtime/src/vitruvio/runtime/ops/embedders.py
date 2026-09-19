@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from vitruvio.kernel import ResolvedConfig, VitruvioError
+from vitruvio.kernel import ConfigError, EmbedderSpec, ResolvedConfig, VitruvioError, remember_embedding_choice
 from vitruvio.runtime.session import BrainSession
 
 
@@ -41,7 +41,7 @@ class EmbedderOps:
         """
         from vitruvio.embeddings import available
 
-        text = self.config.project.text_embedder
+        text = self.config.text_embedder
         vision = self.config.project.vision_embedder
         return {
             "providers": available(),
@@ -73,7 +73,7 @@ class EmbedderOps:
 
         from vitruvio.embeddings import EmbedderUnavailableError, resolve
 
-        spec = self.config.project.text_embedder if which == "text" else self.config.project.vision_embedder
+        spec = self.config.text_embedder if which == "text" else self.config.project.vision_embedder
         if spec is None:
             raise VitruvioError(
                 f"no {which} embedder is configured",
@@ -106,3 +106,49 @@ class EmbedderOps:
             "elapsed_ms": round(elapsed, 1),
             "probe": probe,
         }
+
+    def use_embedder(
+        self,
+        provider: str,
+        model: str,
+        *,
+        model_id: str | None = None,
+        runtime_model: str | None = None,
+        base_url: str | None = None,
+        dims: int | None = None,
+        revision: str | None = None,
+    ) -> dict[str, Any]:
+        """Save the local query runtime; inheriting a matching model's identity prevents accidental reindexing.
+
+        Validation does not load weights or probe an endpoint: a runtime can be selected before its credentials
+        or optional package are installed. Invalidate this session so its next query observes the choice.
+        """
+        from vitruvio.embeddings import EmbedderUnavailableError
+        from vitruvio.embeddings.registry import validate_spec
+
+        shared = self.config.project.text_embedder
+        if model_id is None and model == shared.model and provider != "hashing":
+            model_id = shared.canonical_model
+        spec = EmbedderSpec(
+            provider=provider,
+            model=model,
+            model_id=model_id,
+            runtime_model=runtime_model,
+            base_url=base_url,
+            dims=dims,
+            revision=revision,
+        )
+        if spec.canonical_model == shared.canonical_model:
+            spec = spec.model_copy(
+                update={
+                    "revision": revision if revision is not None else shared.revision,
+                    "dims": dims if dims is not None else shared.dims,
+                }
+            )
+        try:
+            validate_spec(spec)
+        except EmbedderUnavailableError as error:
+            raise ConfigError(str(error)) from error
+        path = remember_embedding_choice(self.config.brain, spec)
+        self.session.invalidate()
+        return {"brain": str(self.config.brain), "provider": provider, "model": model, "state_file": str(path)}

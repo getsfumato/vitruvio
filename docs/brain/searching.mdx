@@ -22,6 +22,19 @@ One filter rule is inherited from the protocol and surprises people: **a block w
 window**. Not "passes by default" — fails. `--since` over a module of undated semantic blocks returns nothing, and
 that is correct.
 
+Both `query search` and `query explain` accept `YYYY-MM-DD` calendar bounds as well as protocol timestamps.
+`--since 2026-05-01` expands to `2026-05-01T00:00:00Z`, and `--until 2026-05-31` includes the whole day through
+`2026-05-31T23:59:59Z`. Bounds are inclusive in UTC; a reversed interval is rejected.
+
+```bash
+vitruvio query search "" --memory-type episodic --since 2026-05-01 --until 2026-05-31
+vitruvio query explain "" --memory-type episodic --since 2026-05-01 --until 2026-05-31 --json
+```
+
+With no query text, a date window uses the BTree `DateScan` when the selected modules have that index. Results are
+ordered newest first across modules, with block identity breaking timestamp ties. Additional filters, accessibility,
+and verification still apply before the result limit. Without BTree coverage, the planner can scan the blocks.
+
 ## What comes back is an evidence bundle
 
 ```

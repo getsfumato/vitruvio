@@ -161,7 +161,7 @@ class BrainSession:
             )
 
     @contextmanager
-    def write(self) -> Iterator[Brain]:
+    def write(self, *, install: bool = False) -> Iterator[Brain]:
         """Execute with the WRITE brain and keep every cached capability coherent.
 
         The durable head pointer is the authority, rather than a result type or a caller-provided hint. That makes
@@ -190,7 +190,12 @@ class BrainSession:
             self._writer = me
             self._depth += 1
         try:
-            brain = self.brain(Capability.WRITE)
+            # An install replaces the snapshot and must not build the outgoing vectors. Keep this ephemeral
+            # WRITE view out of the capability cache so a later publisher receives the normal indexed brain.
+            with translated():
+                brain = (
+                    open_brain(self.config, Capability.WRITE, install=True) if install else self.brain(Capability.WRITE)
+                )
             before = brain.store.read_pointer(HEAD_POINTER)
             try:
                 yield brain

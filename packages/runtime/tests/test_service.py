@@ -326,6 +326,20 @@ class TestMatchContent:
         assert (window["scope"], window["key"]) == ("episodic", "occurred_at")
         assert [entry["selected"] for entry in window["entries"]] == [True]
 
+    def test_date_only_window_uses_ordered_scan_without_query_text(self, derived: BrainService) -> None:
+        derived.index_build()
+        result = derived.search("", memory_types=["episodic"], since="2026-01-01", until="2026-12-31")
+        assert result["matches"]
+        assert any(node["op"] == "DateScan" for node in result["plan"]["operators"])
+
+    @pytest.mark.parametrize("analyze", [False, True])
+    def test_explain_accepts_the_same_calendar_bounds_as_search(self, derived: BrainService, analyze: bool) -> None:
+        derived.index_build()
+        explanation = derived.explain(
+            "", memory_types=["episodic"], since="2026-01-01", until="2026-12-31", analyze=analyze
+        )
+        assert any(node["op"] == "DateScan" for node in explanation["chosen"]["operators"])
+
 
 class TestSearch:
     def test_search_returns_a_verified_bundle_and_never_prose(self, service: BrainService, source_file: Path) -> None:
@@ -420,6 +434,10 @@ class TestSearch:
             match["content"]["occurred_at"] for match in result["matches"] if match["memory_type"] == "episodic"
         ]
         assert occurred == ["2026-07-01T00:00:00Z"]
+
+        calendar = service.search("", memory_types=["episodic"], since="2026-01-01", until="2026-12-31")
+        dates = [match["content"]["occurred_at"] for match in calendar["matches"] if match["memory_type"] == "episodic"]
+        assert dates == sorted(dates, reverse=True)
 
 
 class TestCapabilityGate:

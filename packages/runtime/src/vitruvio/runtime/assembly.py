@@ -69,10 +69,12 @@ def build_indices(config: ResolvedConfig, capability: Capability) -> dict[Memory
     # INSPECT-capability command must not pay for it.
     from vitruvio.runtime.indexset import index_set
 
-    return index_set(config)
+    return index_set(config, local_query=capability is Capability.RETRIEVE)
 
 
-def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPECT, *, create: bool = False) -> Brain:
+def open_brain(
+    config: ResolvedConfig, capability: Capability = Capability.INSPECT, *, create: bool = False, install: bool = False
+) -> Brain:
     """
     Open the configured brain at the given capability.
 
@@ -80,6 +82,8 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
         config (ResolvedConfig): Which brain, who as, under what policy.
         capability (Capability): How much to stand up.
         create (bool): Whether to create the layout if it is absent. Only ``brain init`` passes ``True``.
+        install (bool): Open an uncached WRITE view without indices or a planner, because a pull replaces the
+            composition and must not construct the outgoing embedding model.
 
     Returns:
         Brain: The opened brain, at whichever snapshot the directory was left on.
@@ -88,6 +92,8 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
         BrainNotFoundError: If the path is not a layout and ``create`` is false.
         ActorUnknownError: If a write capability was requested with no actor identity resolvable.
     """
+    if install and capability is not Capability.WRITE:
+        raise ValueError("installation requires WRITE capability")
     path: Path = config.brain
     if not create and not is_layout(path):
         detail = "does not exist" if not path.exists() else "is not an OCI layout"
@@ -107,14 +113,19 @@ def open_brain(config: ResolvedConfig, capability: Capability = Capability.INSPE
     # cheap: six singletons into a dict.
     bootstrap_pipelines()
 
-    return Brain(
+    brain = Brain(
         OciLayoutStore(path, create=create),
         actor=actor,
         assisted_by=config.collaborators(),
         policy=config.policy(),
-        planner=_planner(config, capability),
-        indices=build_indices(config, capability),
+        planner=None if install else _planner(config, capability),
+        indices=None if install else build_indices(config, capability),
     )
+    if capability is Capability.RETRIEVE:
+        from vitruvio.runtime.indexset import prepare_query_indices
+
+        prepare_query_indices(brain, config)
+    return brain
 
 
 def _reader_actor(config: ResolvedConfig) -> Actor:

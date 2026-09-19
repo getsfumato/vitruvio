@@ -44,6 +44,7 @@ of an actor that was configured all along. The working directory still wins when
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -51,13 +52,14 @@ import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 import tomli_w
 from boltzmann.blocks.provenance import ActorKind
 from boltzmann.exceptions import ActorIdError
 from pydantic import ValidationError
 
-from vitruvio.kernel.config import ActorSpec, CollaboratorSpec, Origin, ProjectConfig, ResolvedConfig
+from vitruvio.kernel.config import ActorSpec, CollaboratorSpec, EmbedderSpec, Origin, ProjectConfig, ResolvedConfig
 from vitruvio.kernel.errors import ActorIdInvalidError, BrainNotSelectedError, ConfigError, ProjectNotKnownError
 from vitruvio.kernel.paths import CONFIG_FILE, is_layout, state_file
 
@@ -80,6 +82,40 @@ SELECTED_KEY = "selected"
 """The state-file table mapping a project to the brain ``brain use`` last chose *within it*."""
 
 T = TypeVar("T")
+
+
+def _embedding_choice_key(brain: Path) -> str:
+    """Use the resolved path so aliases of one local brain share one runtime choice."""
+    return hashlib.sha256(str(brain.expanduser().resolve()).encode()).hexdigest()
+
+
+def embedding_choice(brain: Path) -> EmbedderSpec | None:
+    """The runtime selected on this machine for one brain, without credentials."""
+    key = _embedding_choice_key(brain)
+    choices = read_state().get("embedding_choices", {})
+    value = choices.get(key) if isinstance(choices, dict) else None
+    return EmbedderSpec.model_validate(value) if isinstance(value, dict) else None
+
+
+def remember_embedding_choice(brain: Path, spec: EmbedderSpec) -> Path:
+    """Persist a brain-specific runtime without modifying its shared model declaration."""
+    if spec.base_url:
+        endpoint = urlsplit(spec.base_url)
+        if endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
+            raise ConfigError("embedding base_url must not contain credentials, query parameters or a fragment")
+    key = _embedding_choice_key(brain)
+    safe = spec.model_dump(exclude_none=True)
+    safe.pop("options", None)
+
+    def remember(state: dict[str, Any]) -> tuple[None, bool]:
+        existing = state.get("embedding_choices", {})
+        choices = dict(existing) if isinstance(existing, dict) else {}
+        choices[key] = safe
+        state["embedding_choices"] = choices
+        return None, True
+
+    _, path = _mutate_state(remember)
+    return path
 
 
 def known_projects() -> dict[str, Path]:

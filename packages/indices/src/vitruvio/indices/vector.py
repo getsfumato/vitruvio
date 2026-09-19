@@ -30,9 +30,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
+from boltzmann.blocks.base import Block
 from boltzmann.blocks.memory_type import MemoryType
 from boltzmann.exceptions import DistributionError
-from boltzmann.indices.base import IndexKind
+from boltzmann.indices.base import ContentReader, IndexKind
 
 from vitruvio.embeddings import (
     Embedder,
@@ -46,8 +47,8 @@ from vitruvio.embeddings import (
 )
 from vitruvio.indices import format as envelope
 from vitruvio.indices.base import VitruvioIndex
-from vitruvio.indices.projection import Projection
-from vitruvio.indices.queries import VectorQuery
+from vitruvio.indices.projection import Projection, project
+from vitruvio.indices.queries import Capability, VectorQuery
 from vitruvio.stats import VectorStats
 
 CHUNKER_ID = "vitruvio-chunker/1"
@@ -70,6 +71,12 @@ SPACE_TEXT = "text"
 
 SPACE_MULTIMODAL = "multimodal"
 """Where image vectors live. Separate because a caption-trained text tower degrades pure-text retrieval."""
+
+REFERENCE_TEXTS = (
+    "Vitruvio embedding space reference: a periodic function and its Fourier coefficients.",
+    "Referencia de embeddings Vitruvio: evidencia, procedencia y fechas.",
+)
+"""Public fixed anchors used to verify a different runtime produces the same vector space."""
 
 
 class IndexModelMismatchError(DistributionError):
@@ -128,6 +135,14 @@ def chunk(text: str, *, max_chars: int = MAX_CHARS, overlap: int = OVERLAP) -> l
     return chunks
 
 
+def _vectors_agree(actual: Sequence[Vector], expected: Sequence[Vector]) -> bool:
+    """Allow float32 transport rounding, but never accept a different width or a partial provider response."""
+    return len(actual) == len(expected) and all(
+        len(left) == len(right) and all(abs(a - b) <= 1e-4 for a, b in zip(left, right, strict=True))
+        for left, right in zip(actual, expected, strict=True)
+    )
+
+
 class VectorIndex(VitruvioIndex):
     """
     Similarity search over usearch HNSW, with an explicit key table that travels.
@@ -136,6 +151,10 @@ class VectorIndex(VitruvioIndex):
         memory_type (MemoryType): Which module this indexes.
         embedder (Embedder): What produces the vectors, and whose tag gates compatibility.
     """
+
+    _references: list[Vector]
+    _reference_pending: bool
+    _reference_valid: bool
 
     KIND: ClassVar[IndexKind] = IndexKind.VECTOR
     REBUILDABLE: ClassVar[bool] = False
@@ -181,6 +200,11 @@ class VectorIndex(VitruvioIndex):
     # --- Identity -------------------------------------------------------------
 
     @property
+    def expected_model_tag(self) -> str:
+        """Expose the expected space even when no vectors could be loaded, for runtime compatibility decisions."""
+        return self._tag().render()
+
+    @property
     def model_tag(self) -> str | None:
         """The tag every vector here was produced under, including the chunker.
 
@@ -224,9 +248,109 @@ class VectorIndex(VitruvioIndex):
         embedder vitruvio ships declares ``l2``, so this never fires today; it is here because ranking wrong looks
         exactly as plausible as ranking right.
         """
-        return bool(self.embedder.available) and self.embedder.tag.normalization == "l2"
+        self._runtime_unavailable = not self.embedder.available
+        if self._runtime_unavailable or self.embedder.tag.normalization != "l2":
+            return False
+        if self._reference_pending:
+            self._reference_pending = False
+            try:
+                produced = self.embedder.embed_text(REFERENCE_TEXTS, role=TextRole.PASSAGE)
+                # Before reference probes existed the exact model tag was the compatibility contract. Preserve
+                # that contract for an unchanged tag and establish anchors for its next serialization.
+                if not self._references:
+                    self._references = produced
+                self._reference_valid = len(produced) == len(REFERENCE_TEXTS) and _vectors_agree(
+                    produced, self._references
+                )
+            except EmbedderUnavailableError:
+                self._reference_valid = False
+                self._reference_pending = True
+                self._runtime_unavailable = True
+        return self._reference_valid
+
+    @property
+    def query_failure(self) -> str:
+        """An offline runtime needs credentials or connectivity, whereas a failed comparison needs the right model."""
+        return "embedder_unavailable" if self._runtime_unavailable else "model_mismatch"
+
+    def capability(self, *, root: str | None = None, model_tag: str | None = None) -> Capability:
+        """Report an invalid reference probe as a model mismatch, never as a ready index."""
+        from dataclasses import replace
+
+        result = super().capability(root=root, model_tag=model_tag)
+        if result.state == "ready" and not self.queryable:
+            return replace(
+                result, state=self.query_failure, detail="embedding runtime could not validate the reference probe"
+            )
+        return result
 
     # --- Build ----------------------------------------------------------------
+
+    def restore_legacy(self, data: bytes, blocks: Sequence[Block], content: ContentReader) -> bool:
+        """Import a renamed runtime tag only after three stored passage vectors agree within 1e-4.
+
+        Metadata alone cannot prove two providers serve the same weights. Comparing original passage vectors
+        bounds the probe cost while rejecting a different runtime; an ambiguous identity is left untouched.
+        The caller chooses the destination, so retrieval can persist a local copy without replacing the source.
+        """
+        from dataclasses import replace
+
+        try:
+            header, body = envelope.decode(data)
+        except envelope.IndexFormatError:
+            return False
+        old = ModelTag.parse(header.model_tag or "")
+        new = self._tag()
+        if (
+            old is None
+            or old.model != f"{new.provider}/{new.model}"
+            or replace(old, provider=new.provider, model=new.model) != new
+            or body.get("model_tag") != header.model_tag
+            or header.memory_type != self.memory_type.value
+            or header.kind != self.KIND.value
+            or header.body_version != self.BODY_VERSION
+        ):
+            return False
+        samples = self._legacy_samples(body, blocks, content)
+        if not samples or not self.embedder.available:
+            return False
+        try:
+            computed = self.embedder.embed_text([text for text, _ in samples], role=TextRole.PASSAGE)
+            anchors = self.embedder.embed_text(REFERENCE_TEXTS, role=TextRole.PASSAGE)
+        except EmbedderUnavailableError:
+            return False
+        if not _vectors_agree(computed, [vector for _, vector in samples]):
+            return False
+        self._load_body({**body, "model_tag": new.render()})
+        self._table = type(self._table)(body.get("identities", []))
+        self._bound_root = header.merkle_root
+        self._built_at = header.built_at
+        self._refused_tag = None
+        self._references = anchors
+        self._reference_pending = False
+        self.flush()
+        return True
+
+    @staticmethod
+    def _legacy_samples(
+        body: dict[str, Any], blocks: Sequence[Block], content: ContentReader
+    ) -> list[tuple[str, Vector]]:
+        """Recover original chunk texts rather than comparing probes that the old model never embedded."""
+        by_id = {str(block.block_id): block for block in blocks}
+        vectors = body.get("vectors", {})
+        samples: list[tuple[str, Vector]] = []
+        for key, row in sorted(body.get("rows", {}).items()):
+            block = by_id.get(row[0])
+            if block is None or key not in vectors:
+                continue
+            pieces = chunk(project(block, content).embed_text or "")
+            text = next((text for position, text, _ in pieces if position == row[2]), None)
+            if text is not None:
+                packed = bytes.fromhex(vectors[key])
+                samples.append((text, struct.unpack(f"<{len(packed) // 4}f", packed)))
+            if len(samples) == 3:
+                break
+        return samples
 
     def _reset(self) -> None:
         """Discard every vector and the key table."""
@@ -237,6 +361,10 @@ class VectorIndex(VitruvioIndex):
         self._vectors: dict[int, tuple[float, ...]] = {}
         self._engines: dict[str, Any] = {}
         self._removed = 0
+        self._references = []
+        self._reference_pending = False
+        self._reference_valid = True
+        self._runtime_unavailable = False
 
     def _apply(self, projection: Projection) -> None:
         """Embed this block's projected text, in chunks, reusing anything the cache already holds."""
@@ -277,6 +405,22 @@ class VectorIndex(VitruvioIndex):
 
     def _on_build_end(self, delta: Any) -> None:
         """Construct the HNSW graph once, from every vector collected."""
+        if self._rows and self.embedder.available:
+            try:
+                keys = [
+                    cache_key(self._tag().render(), SPACE_TEXT, TextRole.PASSAGE.value, text)
+                    for text in REFERENCE_TEXTS
+                ]
+                cached = self.cache.get_many(keys)
+                missing = [(text, key) for text, key in zip(REFERENCE_TEXTS, keys, strict=True) if key not in cached]
+                if missing:
+                    produced = self.embedder.embed_text([text for text, _ in missing], role=TextRole.PASSAGE)
+                    fresh = {key: vector for (_, key), vector in zip(missing, produced, strict=True)}
+                    self.cache.put_many(fresh, SPACE_TEXT)
+                    cached = {**cached, **fresh}
+                self._references = [tuple(cached[key]) for key in keys]
+            except EmbedderUnavailableError:
+                self._references = []
         self._engines = {}
         self._build_engine(SPACE_TEXT)
 
@@ -421,6 +565,7 @@ class VectorIndex(VitruvioIndex):
             "next_key": self._next_key,
             "removed": self._removed,
             "model_tag": self._tag().render(),
+            "references": [struct.pack(f"<{len(vector)}f", *vector).hex() for vector in self._references],
         }
 
     def _expected_model_tag(self) -> str | None:
@@ -458,6 +603,12 @@ class VectorIndex(VitruvioIndex):
             self._vectors[int(key)] = struct.unpack(f"<{len(raw) // 4}f", raw)
         self._next_key = int(body.get("next_key", len(self._rows)))
         self._removed = int(body.get("removed", 0))
+        self._references = [
+            struct.unpack(f"<{len(raw) // 4}f", raw)
+            for value in body.get("references", [])
+            if (raw := bytes.fromhex(value))
+        ]
+        self._reference_pending = self.embedder.tag.is_semantic
         self._build_engine(SPACE_TEXT)
 
     def dump(self) -> bytes:

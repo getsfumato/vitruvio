@@ -26,6 +26,7 @@ EXTRAS = {
     "ollama": "vitruvio[api]",
     "voyage": "vitruvio[api]",
     "cohere": "vitruvio[api]",
+    "openai-compatible": "vitruvio[api]",
 }
 """Provider name to what installs it, so an error names the fix rather than the symptom."""
 
@@ -37,6 +38,7 @@ MODULES = {
     "ollama": "httpx",
     "voyage": "httpx",
     "cohere": "httpx",
+    "openai-compatible": "httpx",
 }
 """What each provider needs importable. Probed with ``find_spec``, which does not execute the module."""
 
@@ -65,11 +67,39 @@ def _ollama(spec: EmbedderSpec) -> Embedder:
     return OllamaEmbedder(spec)
 
 
+def _remote_embedder(spec: EmbedderSpec) -> Embedder:
+    """Select a transport implementation without loading optional local weights."""
+    from vitruvio.embeddings.openai_api import (
+        CohereEmbedder,
+        GenericOpenAIEmbedder,
+        OpenAIEmbedder,
+        VoyageEmbedder,
+    )
+
+    return {
+        "openai": OpenAIEmbedder,
+        "cohere": CohereEmbedder,
+        "voyage": VoyageEmbedder,
+        "openai-compatible": GenericOpenAIEmbedder,
+    }[spec.provider](spec)
+
+
+def _local_st(spec: EmbedderSpec) -> Embedder:
+    from vitruvio.embeddings.local_st import SentenceTransformerEmbedder
+
+    return SentenceTransformerEmbedder(spec)
+
+
 _REGISTRY: dict[str, Factory] = {
     "hashing": _hashing,
     "fake": _fake,
     "openrouter": _openrouter,
     "ollama": _ollama,
+    "openai": _remote_embedder,
+    "cohere": _remote_embedder,
+    "voyage": _remote_embedder,
+    "openai-compatible": _remote_embedder,
+    "local-st": _local_st,
 }
 """Providers this build can construct. A real model registers itself when its extra is installed."""
 
@@ -126,10 +156,16 @@ def resolve(spec: EmbedderSpec) -> Embedder:
             falling back to hashing: an index whose tag claims one model and whose vectors came from another is the
             precise failure the tag exists to prevent, and a silent substitution would manufacture it.
     """
-    factory = _REGISTRY.get(spec.provider)
-    if factory is None:
+    validate_spec(spec)
+    return _REGISTRY[spec.provider](spec)
+
+
+def validate_spec(spec: EmbedderSpec) -> None:
+    """Validate a saved choice without loading weights or requiring this machine's credentials yet."""
+    if spec.provider not in _REGISTRY:
         extra = EXTRAS.get(spec.provider)
         known = ", ".join(sorted(_REGISTRY))
         detail = f"install {extra}" if extra else f"known providers: {known}"
         raise EmbedderUnavailableError(f"no embedder provider named {spec.provider!r} in this build; {detail}")
-    return factory(spec)
+    if spec.provider == "hashing" and spec.model != "bow":
+        raise EmbedderUnavailableError("hashing provides only the 'bow' model")

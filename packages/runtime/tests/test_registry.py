@@ -549,6 +549,8 @@ class TestLocalRoundTrip:
 
         plan = consumer.plan_pull(reference, tag="v1", local=registry_root)
         assert plan["fetch_vector_indices"], "no vector index was published"
+        assert plan["vector_models"]
+        assert all("/" in tag for tag in plan["vector_models"].values())
 
     def test_vector_indices_can_be_ignored_without_omitting_their_modules(
         self, published: tuple[Path, str], tmp_path: Path

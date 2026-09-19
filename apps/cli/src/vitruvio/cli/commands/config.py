@@ -381,6 +381,42 @@ def embedder_list() -> ExitCode:
     return console.emit("config.embedder.list", result, view=render.stack(head, "", table))
 
 
+@embedder_app.command(name="use")
+def embedder_use(
+    provider: str,
+    model: str,
+    *,
+    model_id: str | None = None,
+    runtime_model: str | None = None,
+    base_url: str | None = None,
+    dims: int | None = None,
+    revision: str | None = None,
+) -> ExitCode:
+    """Choose this brain's local text runtime. Credentials remain in environment variables.
+
+    For a deterministic fallback use `hashing bow`. For a remote model, `model_id`
+    names the published vector space independently of `provider` and `runtime_model`.
+    """
+    result = (
+        current()
+        .service(require_brain=False)
+        .use_embedder(
+            provider,
+            model,
+            model_id=model_id,
+            runtime_model=runtime_model,
+            base_url=base_url,
+            dims=dims,
+            revision=revision,
+        )
+    )
+    return current().console.emit(
+        "config.embedder.use",
+        result,
+        view=render.fields([("brain", result["brain"]), ("runtime", provider), ("model", model)]),
+    )
+
+
 @embedder_app.command(name="test")
 def embedder_test(
     *,

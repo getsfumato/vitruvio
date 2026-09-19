@@ -10,6 +10,7 @@ about it -- which is the sentence the whole service layer exists to keep true.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import date
 from typing import cast
 
 from boltzmann.query.request import Query, RetrievalMode
@@ -57,6 +58,19 @@ def _retrieval_mode(value: str | None, default: RetrievalMode) -> RetrievalMode:
         raise UsageError(f"{value!r} is not a retrieval mode", hint=f"one of: {accepted}") from None
 
 
+def _date_bound(value: str | None, *, upper: bool) -> str | None:
+    """Expand a calendar date to the inclusive UTC bounds accepted by the protocol."""
+    if value is None or len(value) != 10:
+        return value
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.isoformat() != value:
+        return value
+    return f"{value}T{'23:59:59' if upper else '00:00:00'}Z"
+
+
 class RetrievalOps:
     """Retrieval, as operations."""
 
@@ -100,6 +114,10 @@ class RetrievalOps:
         from boltzmann.catalog import Catalog
         from boltzmann.query.request import QueryFilters, QueryHints
 
+        since = _date_bound(since, upper=False)
+        until = _date_bound(until, upper=True)
+        if since and until and since > until:
+            raise UsageError("since must be before or equal to until")
         brain = self.session.brain(Capability.RETRIEVE)
         with translated():
             catalog = Catalog(brain.modules()) if classes else None

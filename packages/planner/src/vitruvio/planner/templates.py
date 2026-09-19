@@ -22,7 +22,7 @@ from boltzmann.indices.base import IndexKind
 from boltzmann.query.request import Query
 
 from vitruvio.kernel import PlannerConfig
-from vitruvio.planner.intent import Intent, IntentKind, admissible_generators, requires
+from vitruvio.planner.intent import Intent, IntentKind, admissible_generators, is_date_query, requires
 from vitruvio.planner.ir import Op, Plan, PlanBuilder
 from vitruvio.planner.planner import Capabilities
 from vitruvio.stats import ModuleStats
@@ -71,7 +71,9 @@ def build_templates(
     # plans anyway would not be wrong -- they would cost more and recall nothing, so they would lose -- but it fills
     # EXPLAIN with alternatives that were never plausible, and reading EXPLAIN is the point of having it.
     if intent.kind is IntentKind.NAVIGATIONAL:
-        permitted = frozenset({"GraphExpand"}) if permitted is None else permitted & {"GraphExpand"}
+        permitted = (
+            frozenset({"GraphExpand", "DateScan"}) if permitted is None else permitted & {"GraphExpand", "DateScan"}
+        )
 
     candidates: list[Plan] = []
 
@@ -91,22 +93,23 @@ def build_templates(
             if plan is not None:
                 candidates.append(plan)
 
-    # The exhaustive plan is always in the space. It is not a fallback: on a small module it legitimately *wins*,
-    # because reading every block costs less than embedding one query -- and a planner that could not express it
-    # would be forced into a worse plan there.
-    candidates.append(
-        _assemble(
-            query=query,
-            scopes=scopes,
-            capabilities=capabilities,
-            statistics=statistics,
-            config=config,
-            generators=("SeqScan",),
-            pool=limit,
-            limit=limit,
+    # An exhaustive plan can win on a small module because reading every block may cost less than embedding a query.
+    # A date-only query with BTree coverage in every scope is already exhaustive through ordered date scans, so the
+    # SeqScan variant would only discard the index's ordering and add no coverage.
+    if not is_date_query(query) or not all(capabilities.has(scope, IndexKind.BTREE) for scope in scopes):
+        candidates.append(
+            _assemble(
+                query=query,
+                scopes=scopes,
+                capabilities=capabilities,
+                statistics=statistics,
+                config=config,
+                generators=("SeqScan",),
+                pool=limit,
+                limit=limit,
+            )
+            or _empty_plan()
         )
-        or _empty_plan()
-    )
 
     unique: dict[str, Plan] = {}
     for plan in candidates:
@@ -129,6 +132,8 @@ def _generator_sets(
     worse.
     """
     available: list[str] = []
+    if is_date_query(query) and all(capabilities.has(scope, IndexKind.BTREE) for scope in scopes):
+        return [("DateScan",)]
     if any(capabilities.has(scope, IndexKind.INVERTED) for scope in scopes):
         available.append("TermScan")
     if any(capabilities.has(scope, IndexKind.VECTOR) for scope in scopes):
@@ -167,7 +172,7 @@ def _assemble(
 
     for scope in scopes:
         stats = statistics.get(scope)
-        mask = _mask_for(builder, query, scope, capabilities, stats)
+        mask = _mask_for(builder, query, scope, capabilities, stats, include_time="DateScan" not in generators)
         produced: list[int] = []
 
         # An exact lookup is always worth adding when a hash map is installed and the query has text: it is a dict
@@ -238,6 +243,8 @@ def _mask_for(
     scope: str,
     capabilities: Capabilities,
     stats: ModuleStats | None,
+    *,
+    include_time: bool = True,
 ) -> int | None:
     """
     A pre-filter node for one scope, when the filters can be pushed down.
@@ -267,7 +274,7 @@ def _mask_for(
                 exact=exact,
             )
 
-    if (filters.since or filters.until) and capabilities.has(scope, IndexKind.BTREE):
+    if include_time and (filters.since or filters.until) and capabilities.has(scope, IndexKind.BTREE):
         exact = False
         if stats is not None and "occurred_at" in stats.time:
             estimated = stats.time["occurred_at"].range_selectivity(filters.since, filters.until, stats.cardinality)
@@ -309,6 +316,18 @@ def _generator_node(  # noqa: PLR0911
             scope=scope,
             terms=len(query.text.split()),
             selectivity=1.0,
+        )
+
+    if generator == "DateScan":
+        if not capabilities.has(scope, IndexKind.BTREE):
+            return None
+        return builder.add(
+            Op.DATE_SCAN,
+            scope=scope,
+            index=IndexKind.BTREE.value,
+            low=query.filters.since,
+            high=query.filters.until,
+            rows=cardinality,
         )
 
     if generator == "TermScan":

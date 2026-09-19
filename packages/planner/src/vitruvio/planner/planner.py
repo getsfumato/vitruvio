@@ -199,6 +199,14 @@ class CostBasedPlanner:
                         Degradation(kind="stats_stale", detail=f"{scope}.{kind} was built against another composition")
                     )
                     continue
+                if kind == "vector" and not getattr(index, "queryable", False):
+                    degradations.append(
+                        Degradation(
+                            kind=getattr(index, "query_failure", "model_mismatch"),
+                            detail=f"{scope}.vector cannot validate its configured embedding runtime",
+                        )
+                    )
+                    continue
                 usable[scope].add(kind)
 
             stats = self.statistics.get(scope)

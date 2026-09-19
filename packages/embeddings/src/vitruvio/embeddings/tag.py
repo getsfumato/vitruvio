@@ -145,6 +145,11 @@ class ModelTag:
         return differing
 
     @property
+    def is_fallback(self) -> bool:
+        """Identify the deterministic query substitute without spreading provider-name checks through runtime."""
+        return self.provider == "hashing" and self.model == "bow"
+
+    @property
     def is_semantic(self) -> bool:
         """
         Whether these vectors carry meaning.

@@ -87,6 +87,7 @@ class IndexSet:
         *,
         embedders: Mapping[str, Any] | None = None,
         cache_home: Path | None = None,
+        vector_homes: Mapping[str, Path] | None = None,
     ) -> IndexSet:
         """
         Construct the indices a configuration declares.
@@ -124,7 +125,8 @@ class IndexSet:
                     from vitruvio.embeddings import EmbeddingCache
 
                     cache = EmbeddingCache.for_model(cache_home, embedder.tag.render())
-                built.add(VectorIndex(spec.memory_type, home, embedder=embedder, cache=cache))
+                vector_home = (vector_homes or {}).get(spec.embedder or "text", home)
+                built.add(VectorIndex(spec.memory_type, vector_home, embedder=embedder, cache=cache))
                 continue
 
             assert engine is not None

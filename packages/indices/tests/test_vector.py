@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,8 @@ from vitruvio.indices import (
     VectorQuery,
     chunk,
 )
+from vitruvio.indices import format as envelope
+from vitruvio.indices.vector import REFERENCE_TEXTS
 
 
 def an_index(memory_type: MemoryType = MemoryType.SEMANTIC, home: Path | None = None, **kwargs: object) -> VectorIndex:
@@ -420,6 +423,79 @@ class TestVectorIndex:
 
 
 class TestTravel:
+    @pytest.mark.parametrize("matching_runtime", [True, False])
+    def test_legacy_runtime_tag_is_migrated_only_after_vector_probe(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path, matching_runtime: bool
+    ) -> None:
+        built = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=FakeEmbedder(dimensions=32))
+        built.build(semantic_blocks, content)
+        original = built.path
+        assert original is not None
+        found = envelope.read(original)
+        assert found is not None
+        header, body = found
+        old = replace(built._tag(), provider="legacy", model="fake/deterministic").render()
+        envelope.write(original, header.model_copy(update={"model_tag": old}), {**body, "model_tag": old})
+        published = original.read_bytes()
+
+        class DifferentRuntime(FakeEmbedder):
+            def _vector(self, seed: str):
+                return super()._vector("different-weights:" + seed)
+
+        runtime = FakeEmbedder(dimensions=32) if matching_runtime else DifferentRuntime(dimensions=32)
+        reopened = VectorIndex(MemoryType.SEMANTIC, tmp_path / "query", embedder=runtime)
+        assert reopened.restore_legacy(published, semantic_blocks, content) is matching_runtime
+        assert reopened.path is not None
+        assert reopened.path.exists() is matching_runtime
+        assert original.read_bytes() == published
+        assert reopened.capability().state == ("ready" if matching_runtime else "empty")
+
+    def test_pre_reference_semantic_layer_remains_queryable_after_a_noop_build(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path
+    ) -> None:
+        class SemanticFake(FakeEmbedder):
+            PROVIDER = "semantic-example"
+
+        original = VectorIndex(MemoryType.SEMANTIC, embedder=SemanticFake())
+        original.build(semantic_blocks, content)
+        header, body = envelope.decode(original.dump())
+        body.pop("references")
+        data = envelope.encode(header, body)
+        restored = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=SemanticFake())
+        restored.load(data)
+        restored.build(semantic_blocks, content)
+        assert restored.queryable
+        assert restored.search(VectorQuery(text="Fourier"))
+        assert envelope.decode(restored.dump())[1]["references"]
+
+    def test_offline_runtime_is_reported_as_unavailable_instead_of_a_model_mismatch(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        class Offline(FakeEmbedder):
+            @property
+            def available(self) -> bool:
+                return False
+
+        built = an_index()
+        built.build(semantic_blocks, content)
+        restored = VectorIndex(MemoryType.SEMANTIC, embedder=Offline())
+        restored.load(built.dump())
+        assert restored.capability().state == "embedder_unavailable"
+
+    def test_reference_vectors_refuse_a_different_runtime_with_the_same_tag(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent, tmp_path: Path
+    ) -> None:
+        class SemanticFake(FakeEmbedder):
+            @property
+            def tag(self) -> ModelTag:
+                return replace(super().tag, provider="example", model="semantic")
+
+        built = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=SemanticFake())
+        built.build(semantic_blocks, content)
+        different = SemanticFake(neighbourhoods={REFERENCE_TEXTS[0]: "changed"})
+        reopened = VectorIndex(MemoryType.SEMANTIC, tmp_path, embedder=different)
+        assert reopened.queryable is False
+
     def test_dump_and_load_round_trip(self, semantic_blocks: list[SemanticBlock], content: MemoryContent) -> None:
         first = an_index()
         first.build(semantic_blocks, content)

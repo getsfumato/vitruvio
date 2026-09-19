@@ -99,6 +99,8 @@ jobs:
       # 3x of it. The tier is above the few hundred blocks at which an exhaustive scan legitimately wins -- below
       # that this would measure the scan and pass for the wrong reason.
       - run: uv run vitruvio bench --tier 800 --queries 12 --gate
+        env:
+          VITRUVIO_ACTOR_ID: ci@vitruvio.local
 
   installer:
     name: installer

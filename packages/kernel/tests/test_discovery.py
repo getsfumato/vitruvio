@@ -16,11 +16,14 @@ from vitruvio.kernel import (
     BrainNotSelectedError,
     CollaboratorNotDeclaredError,
     ConfigError,
+    EmbedderSpec,
     Origin,
+    embedding_choice,
     find_config_file,
     load_project,
     read_state,
     remember_brain,
+    remember_embedding_choice,
     resolve,
     update_config,
 )
@@ -39,6 +42,29 @@ def write_config(root: Path, body: str) -> Path:
     path = root / "vitruvio.toml"
     path.write_text(body)
     return path
+
+
+def test_embedding_choice_is_local_to_one_brain_and_stores_no_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    first = make_brain(tmp_path, "first")
+    second = make_brain(tmp_path, "second")
+    spec = EmbedderSpec(
+        provider="openrouter",
+        model="openai/text-embedding-3-small",
+        dims=1536,
+        options={"api_key": "sk-test-secret-that-must-not-persist"},
+    )
+    state_path = remember_embedding_choice(first, spec)
+    choice = embedding_choice(first)
+    assert choice is not None
+    assert choice.provider == "openrouter"
+    assert embedding_choice(second) is None
+    assert "sk-test-secret-that-must-not-persist" not in state_path.read_text()
+    assert choice.options == {}
+    with pytest.raises(ConfigError, match="credentials"):
+        remember_embedding_choice(first, spec.model_copy(update={"base_url": "https://user:secret@host/v1"}))
 
 
 class TestConfigDiscovery:
