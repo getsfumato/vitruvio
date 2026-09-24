@@ -7,10 +7,14 @@
 - Adopt pyboltzmann 0.9 catalog declarations, class-aware retrieval, SSH authenticity and governed brains.
 - Record canonical actors and assisting collaborators in provenance v2.
 - Add the temporary `brain migrate` compatibility command for one-way recreation of legacy brains.
+- Add `vitruvio sql`: read-only SQL over tables derived from every module (COUNT, GROUP BY, boolean logic, joins
+  across memory types), exact and bound to the roots it read. Ships in the new `vitruvio-sql` distribution behind the
+  `vitruvio[sql]` extra.
 
 ### Documentation
 
 - Add catalog, authenticity and legacy-migration guides plus the pyboltzmann 0.9 integration ADR.
+- Add ADR-0026 on SQL over derived tables.
 
 ### Breaking changes
 

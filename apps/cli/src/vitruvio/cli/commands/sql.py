@@ -1,0 +1,117 @@
+"""``vitruvio sql`` -- count, group and join the brain's knowledge with SQL.
+
+The instrument for questions ``search`` cannot answer honestly. Search ranks and cuts at a limit, so "how many facts
+are there about X" asked of it returns how many made the top ten. This command answers over every accessible
+member, exactly, and says which roots it read.
+
+Nothing about the query lives here. Parsing, refusing, rewriting and running it are :mod:`vitruvio.sql`'s, reached
+through the service like every other operation; this module reads the query off the command line and prints what
+came back.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Annotated
+
+from cyclopts import App, Parameter
+
+from vitruvio.cli.context import current
+from vitruvio.cli.render import sql as view
+from vitruvio.kernel import ExitCode, UsageError
+
+app = App(
+    name="sql",
+    help="Count, group and join the brain's knowledge with SQL.",
+    result_action="return_value",
+    exit_on_error=False,
+)
+
+
+def _read(query: str | None, file: str | None) -> str:
+    """The query, from the command line or from a file -- one of the two, and not both."""
+    if query is not None and file is not None:
+        raise UsageError("give the query as an argument or with --file, not both")
+    if file == "-":
+        return sys.stdin.read()
+    if file is not None:
+        path = Path(file)
+        if not path.is_file():
+            raise UsageError(f"{file} is not a file")
+        return path.read_text(encoding="utf-8")
+    if query is None:
+        raise UsageError(
+            "no query given",
+            hint='vitruvio sql "SELECT count(*) FROM semantic"; `vitruvio sql --schema` lists the tables',
+        )
+    return query
+
+
+@app.default
+def sql(
+    query: str | None = None,
+    *,
+    file: Annotated[str | None, Parameter(name=["--file", "-f"], allow_leading_hyphen=True)] = None,
+    schema: bool = False,
+    explain: bool = False,
+    include_superseded: bool = False,
+    limit: int = 1000,
+    verify: bool = False,
+) -> ExitCode:
+    """Answer a read-only SQL query over the brain, exactly.
+
+    Every module is a table named for its memory type -- semantic, episodic, procedural, canonical, provenance --
+    and `blocks` holds every member of every module. List fields such as `tags`, `participants`, `evidence` and
+    `steps` are SQL lists: group over one with `UNNEST`. Superseded and demoted blocks are hidden, as search hides
+    them, unless `--include-superseded` is given.
+
+    Only a single SELECT is accepted. Nothing that writes, and nothing that reads outside the brain, is run.
+
+    Examples:
+
+        vitruvio sql "SELECT subject, count(*) FROM semantic WHERE kind = 'fact' GROUP BY subject"
+        vitruvio sql "SELECT tag, count(*) FROM episodic, UNNEST(tags) AS u(tag) GROUP BY tag"
+
+    Parameters
+    ----------
+    query
+        One SELECT over the brain's tables.
+    file
+        Read the query from this file instead, or from stdin with `-`.
+    schema
+        List every table and column instead of running a query.
+    explain
+        Show the query as it will run, and the engine's plan, without running it.
+    include_superseded
+        Read superseded and demoted blocks too. They stay members and stay verifiable; what changed is
+        accessibility.
+    limit
+        The most rows to print. A larger result is reported as truncated, never cut silently.
+    verify
+        When the result has an `id` column, prove each block it names into its module's root.
+    """
+    console = current().console
+    service = current().service()
+    if schema:
+        if query is not None or file is not None:
+            raise UsageError("--schema lists the tables and takes no query")
+        described = service.sql_schema()
+        return console.emit("sql", described, view=view.schema(described))
+
+    text = _read(query, file)
+    if explain:
+        explained = service.sql_explain(text, include_superseded=include_superseded)
+        return console.emit("sql", explained, view=view.explanation(explained))
+
+    result = service.sql(text, include_superseded=include_superseded, limit=limit, verify=verify)
+    if result["truncated"]:
+        console.warn(f"the result is truncated at {limit} rows; raise --limit or aggregate further")
+    for name in result["not_installed"]:
+        console.warn(f"the {name} module is not installed here, so its table was empty")
+    for degradation in result["degradations"]:
+        console.warn(f"{degradation['kind']}: {degradation['reason']}")
+    return console.emit("sql", result, view=view.result(result))
+
+
+__all__ = ["app"]

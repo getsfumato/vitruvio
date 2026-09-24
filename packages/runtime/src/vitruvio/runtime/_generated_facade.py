@@ -30,9 +30,11 @@ from vitruvio.runtime.ops.remote import RemoteOps
 from vitruvio.runtime.ops.retention import RetentionOps
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.ops.sources import SourceOps
+from vitruvio.runtime.ops.sql import SqlOps
 from vitruvio.runtime.ops.tasks import TaskOps
 from vitruvio.runtime.retrieval_result import ExplanationResult, SearchResult
 from vitruvio.runtime.session import BrainSession
+from vitruvio.runtime.sql_result import SqlResult, SqlSchemaResult
 
 
 class GeneratedFacade:
@@ -1108,6 +1110,31 @@ class GeneratedFacade:
             expand_depth=expand_depth,
             analyze=analyze,
         )
+
+    @cached_property
+    def sql_ops(self) -> SqlOps:
+        """The SqlOps operations."""
+        return SqlOps(self.session)
+
+    def sql(
+        self, query: str, *, include_superseded: bool = False, limit: int = 1000, verify: bool = False
+    ) -> SqlResult:
+        """Answer one read-only SQL query over the brain.
+
+        See :meth:`vitruvio.runtime.ops.sql.SqlOps.sql`."""
+        return self.sql_ops.sql(query, include_superseded=include_superseded, limit=limit, verify=verify)
+
+    def sql_explain(self, query: str, *, include_superseded: bool = False) -> SqlResult:
+        """Report how a query would be run, without running it.
+
+        See :meth:`vitruvio.runtime.ops.sql.SqlOps.sql_explain`."""
+        return self.sql_ops.sql_explain(query, include_superseded=include_superseded)
+
+    def sql_schema(self) -> SqlSchemaResult:
+        """Every table a query may read, and every column it may name.
+
+        See :meth:`vitruvio.runtime.ops.sql.SqlOps.sql_schema`."""
+        return self.sql_ops.sql_schema()
 
     @cached_property
     def compound_ops(self) -> CompoundOps:

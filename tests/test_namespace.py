@@ -22,6 +22,7 @@ MEMBERS = (
     "vitruvio.indices",
     "vitruvio.planner",
     "vitruvio.ingest",
+    "vitruvio.sql",
     "vitruvio.runtime",
     "vitruvio.bench",
     "vitruvio.cli",

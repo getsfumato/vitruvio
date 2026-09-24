@@ -194,6 +194,10 @@ Produce a verified Merkle inclusion proof for one block.
 
 Show how a query would be answered, and what the alternatives cost.
 
+## `vitruvio sql` `[query]` `--file` `--schema` `--explain` `--include-superseded` `--limit` `--verify`
+
+Answer a read-only SQL query over the brain, exactly.
+
 ## `vitruvio compound`
 
 Ask several brains of one project the same question.

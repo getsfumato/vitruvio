@@ -373,6 +373,16 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         ),
     ),
     OperationDomain(
+        "vitruvio.runtime.ops.sql",
+        "SqlOps",
+        "sql_ops",
+        (
+            Operation("sql", capability=_BROWSE, result=ResultKind.TYPED),
+            Operation("sql_explain", capability=_BROWSE, result=ResultKind.TYPED),
+            Operation("sql_schema", result=ResultKind.TYPED),
+        ),
+    ),
+    OperationDomain(
         "vitruvio.runtime.ops.compound",
         "CompoundOps",
         "compound_ops",
