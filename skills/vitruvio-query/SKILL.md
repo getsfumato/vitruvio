@@ -1,6 +1,6 @@
 ---
 name: vitruvio-query
-description: Search a Boltzmann brain and read the result honestly. Use when retrieving knowledge from a brain, when a search returns too much or too little, when tempted to list a module's blocks instead of searching it, when a score or a ranking needs interpreting, or when asked why the planner chose the plan it did.
+description: Search a Boltzmann brain and read the result honestly. Use when retrieving knowledge from a brain, when counting or grouping what a brain holds, when a search returns too much or too little, when tempted to list a module's blocks instead of searching it, when a score or a ranking needs interpreting, or when asked why the planner chose the plan it did.
 allowed-tools: Bash(vitruvio:*), Read
 ---
 
@@ -111,6 +111,34 @@ a block.
 Catalog navigation is also not retrieval: `catalog --json` is the structured inventory of canonical sources by
 scheme/class and includes unclassified evidence. Its use in retrieval is to pick a `--class` that bounds a search.
 Its creator verification fields are historical signature evidence, not a relevance or truth score.
+
+## Counting is SQL, not search
+
+"How many", "grouped by", "which ones satisfy" and "which procedures use X" are not relevance questions, and a
+bundle cannot answer them: it is cut at `--limit`, so a count taken from it is a count of the top-k. Ask them with
+`vitruvio sql`, which reads every accessible member of the module and answers exactly.
+
+```bash
+vitruvio sql --schema --json                                            # every table and column
+vitruvio sql "SELECT subject, count(*) FROM semantic WHERE kind = 'fact' GROUP BY subject" --json
+vitruvio sql "SELECT tag, count(*) FROM episodic, UNNEST(tags) AS u(tag)
+              WHERE list_contains(participants, 'ana') AND occurred_at >= '2025-03-01' GROUP BY tag" --json
+vitruvio sql "SELECT p.label FROM procedural p, UNNEST(p.steps) AS s(step), UNNEST(step.uses) AS u(used)
+              JOIN semantic c ON c.id = used WHERE c.label = 'Fourier series'" --json
+```
+
+Read the result the way you read a bundle:
+
+- **`verified_against`** names the root of each module the query read. Quote it with any count you report.
+- **`hidden`** counts the superseded or demoted members that were left out. `--include-superseded` shows them.
+- **`not_installed`** means a table was empty because its module is not in this brain. A zero from it is not a
+  zero from the knowledge.
+- **`truncated`** means rows were left out because of `--limit`. The rows you have are not all of them.
+- **Values are what the blocks say.** `subject = 'physics'` does not match `Physics`. Use `lower(subject)` or
+  `ILIKE` when the case is not yours to know.
+
+SQL answers structure, not meaning. "How many facts are *about* ethics" is still a search. Filter with SQL only on
+fields the blocks actually carry.
 
 ## A small brain legitimately scans
 

@@ -1,6 +1,6 @@
 # Architecture
 
-One uv workspace, eight libraries and one app, sharing the PEP 420 namespace `vitruvio`. Dependencies point
+One uv workspace, nine libraries and one app, sharing the PEP 420 namespace `vitruvio`. Dependencies point
 downhill only, enforced by `import-linter` in CI rather than by convention.
 
 ```
@@ -10,6 +10,7 @@ packages/embeddings  text and vision embedders, model tags, caching   [torch beh
 packages/indices     the six Index implementations, plus text analysis
 packages/planner     the cost-based QueryPlanner and EXPLAIN
 packages/ingest      normalization pipelines, candidate proposers, declared sources
+packages/sql         SQL over tables derived from the blocks: guard and sealed engine  [duckdb behind an extra]
 packages/runtime     the service layer every interface shares
 packages/bench       synthetic corpora and the recall/latency harness  [unpublished]
 apps/cli             the CLI, and the TUI it opens                        [dist: vitruvio]
@@ -102,6 +103,7 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/install.py` | plan_pull, pull, fetch | INSPECT, WRITE | yes |
 | `ops/reconcile.py` | declared_strategy, contains, plan, reconcile, status, resolve, accept_removals, continue, abort, tree | INSPECT, WRITE | yes |
 | `ops/retrieval.py` | search, explain | RETRIEVE | no |
+| `ops/sql.py` | sql, sql_explain, sql_schema | BROWSE | no |
 | `ops/compound.py` | compound_search, compound_explain | RETRIEVE | no |
 <!-- operations:end -->
 

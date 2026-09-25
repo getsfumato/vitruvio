@@ -29,6 +29,7 @@ from vitruvio.cli.commands import (
     retain,
     skills,
     source,
+    sql,
     task,
     update,
 )
@@ -41,6 +42,7 @@ GROUPS = (
     ingest,
     index,
     query,
+    sql,
     compound,
     browse,
     catalog,
@@ -69,6 +71,9 @@ because somebody else published first, and reconciling is what you do about it.
 
 ``compound`` follows ``query`` because it is the same question asked of several brains at once: somebody who
 has searched one subject and wants two is the reader it is placed for.
+
+``sql`` follows ``query`` because it is the other half of asking: search ranks what is most relevant, and sql counts
+and groups what is there. Somebody whose search was cut at a limit is the reader it is placed for.
 
 ``browse`` sits beside ``query`` rather than under ``inspect``, where its data comes from, because the order
 here is editorial: it is what somebody reaches for right after their first search, and a reader looking for

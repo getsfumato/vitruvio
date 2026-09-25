@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Eighteen groups, one hundred and thirteen commands. This skill is the map: which group owns a task, which command inside it, and
+Eighteen groups, one hundred and fourteen commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -153,6 +153,18 @@ policy controls permitted removals, and registry credentials control who can pub
 This group is the read path. `search` is the one command that consults the indices and ranks; every question about
 what a brain knows starts with it, and `query explain` is the second step when it disappoints. `inspect blocks` is
 not a substitute — it is the last resort, and `vitruvio-query` says when that point has been reached.
+
+### `sql` — counting, grouping and joining
+| command | for |
+|---|---|
+| `sql QUERY` | one read-only SELECT over the brain's tables, answered exactly. `--limit`, `--include-superseded`, `--verify` |
+| `sql --schema` | every table and column a query may name |
+| `sql QUERY --explain` | the query as it will run, and the engine's plan |
+
+Every module is a table named for its memory type, and `blocks` holds every member of every module. List fields
+(`tags`, `participants`, `evidence`, `steps`, `relations`) are SQL lists: group over one with `UNNEST`. Needs the
+`vitruvio[sql]` extra. This is the instrument for "how many" and "which ones": `search` cuts at a limit, so a count
+taken from its bundle is a count of the top-k. `vitruvio-query` says when to reach for which.
 
 ### `catalog` — canonical metadata
 | command | for |

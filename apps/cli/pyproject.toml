@@ -45,7 +45,8 @@ keyring = ["vitruvio-runtime[keyring]"]
 # tool: it generates brains, measures them, and nothing in a published install needs it. `vitruvio bench` reports
 # this extra by name when it is absent, rather than failing on an import nobody asked for.
 bench = ["vitruvio-bench"]
-all = ["vitruvio[local]", "vitruvio[vision]", "vitruvio[api]", "vitruvio[keyring]", "vitruvio[bench]"]
+sql = ["vitruvio-runtime[sql]"]
+all = ["vitruvio[local]", "vitruvio[vision]", "vitruvio[api]", "vitruvio[keyring]", "vitruvio[bench]", "vitruvio[sql]"]
 
 [project.scripts]
 vitruvio = "vitruvio.cli.main:main"

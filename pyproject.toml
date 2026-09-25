@@ -15,6 +15,7 @@ vitruvio-stats = { workspace = true }
 vitruvio-embeddings = { workspace = true }
 vitruvio-indices = { workspace = true }
 vitruvio-planner = { workspace = true }
+vitruvio-sql = { workspace = true }
 vitruvio-ingest = { workspace = true }
 vitruvio-runtime = { workspace = true }
 vitruvio-bench = { workspace = true }
@@ -196,6 +197,7 @@ mypy_path = [
     "packages/embeddings/src",
     "packages/indices/src",
     "packages/planner/src",
+    "packages/sql/src",
     "packages/ingest/src",
     "packages/runtime/src",
     "packages/bench/src",
@@ -288,6 +290,7 @@ version_toml = [
     "packages/embeddings/pyproject.toml:project.version",
     "packages/indices/pyproject.toml:project.version",
     "packages/planner/pyproject.toml:project.version",
+    "packages/sql/pyproject.toml:project.version",
     "packages/ingest/pyproject.toml:project.version",
     "packages/runtime/pyproject.toml:project.version",
     "packages/bench/pyproject.toml:project.version",

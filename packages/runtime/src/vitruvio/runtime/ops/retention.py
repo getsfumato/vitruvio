@@ -18,6 +18,7 @@ from vitruvio.runtime import wire
 from vitruvio.runtime.coerce import block_id
 from vitruvio.runtime.coerce import memory_type as coerce_memory_type
 from vitruvio.runtime.mapping import translated
+from vitruvio.runtime.ops.sql import purge_sql_cache
 from vitruvio.runtime.session import BrainSession
 
 
@@ -87,7 +88,9 @@ class RetentionOps:
         request = self._drop_request(blocks, memory_type, reason, rederive_against)
         with self.session.write() as brain, translated():
             plan = wire.cascade(brain.plan_drop(request))
-            return {**wire.dropped(brain.drop(request)), "cascade": plan}
+            dropped = {**wire.dropped(brain.drop(request)), "cascade": plan}
+        purge_sql_cache(self.config)
+        return dropped
 
     def drop_by_producer(
         self,
@@ -131,7 +134,9 @@ class RetentionOps:
                 reason=reason,
                 policy_name=self.config.project.policy.profile.value,
             )
-            return wire.dropped(brain.drop_by_producer(request))
+            dropped = wire.dropped(brain.drop_by_producer(request))
+        purge_sql_cache(self.config)
+        return dropped
 
     def supersede(self, block: str, *, superseded: str, memory_type: str, reason: str | None = None) -> dict[str, Any]:
         """
@@ -192,7 +197,10 @@ class RetentionOps:
             dict[str, Any]: What would be, or was, reclaimed.
         """
         with self.session.write() as brain, translated():
-            return {**wire.prune(brain.prune(dry_run=not apply)), "applied": apply}
+            pruned = {**wire.prune(brain.prune(dry_run=not apply)), "applied": apply}
+        if apply:
+            purge_sql_cache(self.config)
+        return pruned
 
     def redact(self, block: str, *, memory_type: str, reason: str) -> dict[str, Any]:
         """
@@ -214,10 +222,13 @@ class RetentionOps:
             dict[str, Any]: What was destroyed, and what was held back because another block still names it.
         """
         with self.session.write() as brain, translated():
-            return {
+            redacted = {
                 **wire.redaction(brain.redact(block_id(block), coerce_memory_type(memory_type), reason)),
                 "block": block,
             }
+        # The SQL cache holds a copy of the payload fields this just destroyed. See `purge_sql_cache`.
+        purge_sql_cache(self.config)
+        return redacted
 
     def policy(self) -> dict[str, Any]:
         """

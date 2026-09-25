@@ -19,6 +19,7 @@ root_packages =
     vitruvio.indices
     vitruvio.planner
     vitruvio.ingest
+    vitruvio.sql
     vitruvio.runtime
     vitruvio.bench
     vitruvio.cli
@@ -30,7 +31,7 @@ type = layers
 layers =
     vitruvio.cli
     vitruvio.runtime
-    vitruvio.planner : vitruvio.ingest
+    vitruvio.planner : vitruvio.ingest : vitruvio.sql
     vitruvio.indices
     vitruvio.embeddings
     vitruvio.stats
@@ -65,5 +66,6 @@ forbidden_modules =
     vitruvio.indices
     vitruvio.planner
     vitruvio.ingest
+    vitruvio.sql
     vitruvio.runtime
     vitruvio.cli

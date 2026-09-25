@@ -34,3 +34,4 @@ of the series is the reasoning, and deleting a mistake deletes the reasoning tha
 | [0023](0023-typed-retrieval-results.md) | Retrieval results are typed, and a polymorphic payload is a union over the memory type |
 | [0024](0024-typed-browse-rows.md) | The browse row is typed, and its interpretation has one owner |
 | [0025](0025-local-embedding-runtime-and-vector-identity.md) | A brain shares vector identity and each machine chooses a runtime |
+| [0026](0026-sql-over-derived-tables.md) | SQL runs over tables derived from the blocks, guarded by sqlglot and sealed in DuckDB |

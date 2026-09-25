@@ -2980,6 +2980,7 @@
       "validation.results[].candidate.payload.content.blob",
       "validation.results[].candidate.payload.content.media_type",
       "validation.results[].candidate.payload.content.size",
+      "validation.results[].candidate.payload.subject",
       "validation.results[].issues[]",
       "validation.results[].issues[].code",
       "validation.results[].issues[].detail",
@@ -3105,6 +3106,9 @@
         "str"
       ],
       "validation.results[].candidate.payload.statement": [
+        "str"
+      ],
+      "validation.results[].candidate.payload.subject": [
         "str"
       ],
       "validation.results[].conflicts_with": [
@@ -11438,6 +11442,249 @@
       ],
       "sources[].reason": [
         "null",
+        "str"
+      ]
+    }
+  },
+  "sql": {
+    "optional": [
+      "hidden.canonical",
+      "hidden.provenance",
+      "hidden.semantic",
+      "verified_against.canonical",
+      "verified_against.provenance",
+      "verified_against.semantic"
+    ],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "approximate": [
+        "array"
+      ],
+      "canonical_sql": [
+        "str"
+      ],
+      "columns": [
+        "array"
+      ],
+      "columns[]": [
+        "object"
+      ],
+      "columns[].name": [
+        "str"
+      ],
+      "columns[].type": [
+        "str"
+      ],
+      "degradations": [
+        "array"
+      ],
+      "exact": [
+        "bool"
+      ],
+      "executed_sql": [
+        "str"
+      ],
+      "hidden": [
+        "object"
+      ],
+      "hidden.canonical": [
+        "int"
+      ],
+      "hidden.provenance": [
+        "int"
+      ],
+      "hidden.semantic": [
+        "int"
+      ],
+      "include_superseded": [
+        "bool"
+      ],
+      "limit": [
+        "int"
+      ],
+      "not_installed": [
+        "array"
+      ],
+      "plan": [
+        "null"
+      ],
+      "row_count": [
+        "int"
+      ],
+      "rows": [
+        "array"
+      ],
+      "rows[]": [
+        "array"
+      ],
+      "rows[][]": [
+        "bool",
+        "int",
+        "null",
+        "str"
+      ],
+      "signature": [
+        "str"
+      ],
+      "sql": [
+        "str"
+      ],
+      "tables": [
+        "array"
+      ],
+      "tables[]": [
+        "str"
+      ],
+      "truncated": [
+        "bool"
+      ],
+      "verified_against": [
+        "object"
+      ],
+      "verified_against.canonical": [
+        "str"
+      ],
+      "verified_against.provenance": [
+        "str"
+      ],
+      "verified_against.semantic": [
+        "str"
+      ],
+      "verified_rows": [
+        "int",
+        "null"
+      ]
+    }
+  },
+  "sql_explain": {
+    "optional": [
+      "hidden.canonical",
+      "hidden.semantic",
+      "verified_against.canonical",
+      "verified_against.provenance",
+      "verified_against.semantic"
+    ],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "approximate": [
+        "array"
+      ],
+      "canonical_sql": [
+        "str"
+      ],
+      "columns": [
+        "array"
+      ],
+      "degradations": [
+        "array"
+      ],
+      "exact": [
+        "bool"
+      ],
+      "executed_sql": [
+        "str"
+      ],
+      "hidden": [
+        "object"
+      ],
+      "hidden.canonical": [
+        "int"
+      ],
+      "hidden.semantic": [
+        "int"
+      ],
+      "include_superseded": [
+        "bool"
+      ],
+      "limit": [
+        "int"
+      ],
+      "not_installed": [
+        "array"
+      ],
+      "plan": [
+        "str"
+      ],
+      "row_count": [
+        "int"
+      ],
+      "rows": [
+        "array"
+      ],
+      "signature": [
+        "str"
+      ],
+      "sql": [
+        "str"
+      ],
+      "tables": [
+        "array"
+      ],
+      "tables[]": [
+        "str"
+      ],
+      "truncated": [
+        "bool"
+      ],
+      "verified_against": [
+        "object"
+      ],
+      "verified_against.canonical": [
+        "str"
+      ],
+      "verified_against.provenance": [
+        "str"
+      ],
+      "verified_against.semantic": [
+        "str"
+      ],
+      "verified_rows": [
+        "null"
+      ]
+    }
+  },
+  "sql_schema": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "projection": [
+        "str"
+      ],
+      "tables": [
+        "array"
+      ],
+      "tables[]": [
+        "object"
+      ],
+      "tables[].columns": [
+        "array"
+      ],
+      "tables[].columns[]": [
+        "object"
+      ],
+      "tables[].columns[].doc": [
+        "str"
+      ],
+      "tables[].columns[].name": [
+        "str"
+      ],
+      "tables[].columns[].type": [
+        "str"
+      ],
+      "tables[].doc": [
+        "str"
+      ],
+      "tables[].memory_type": [
+        "null",
+        "str"
+      ],
+      "tables[].name": [
         "str"
       ]
     }
