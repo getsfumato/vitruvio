@@ -15,6 +15,9 @@
   it.
 - Add `vitruvio compound sql`: one SQL query over several brains of a project in one database, with a `brain` column
   on every table and `brain.table` for one brain's, every root reported per brain.
+- Read registered CSV, TSV and Parquet files as tables in `vitruvio sql`: `data."ventas.csv"` by file name or id,
+  `datasets` to list them, bytes verified from the store. `.parquet` files now register as
+  `application/vnd.apache.parquet`.
 
 ### Documentation
 
