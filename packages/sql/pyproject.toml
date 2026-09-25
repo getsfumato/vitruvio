@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vitruvio-sql"
-version = "0.28.0"
+version = "0.29.0"
 description = "SQL queries over a Boltzmann brain: derived tables, a read-only guard, and DuckDB"
 readme = "README.md"
 license = {text = "MIT"}
