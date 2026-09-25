@@ -11448,6 +11448,19 @@
   },
   "sql": {
     "optional": [
+      "approximate[]",
+      "approximate[].kind",
+      "approximate[].min_score",
+      "approximate[].min_score[]",
+      "approximate[].models",
+      "approximate[].models.canonical",
+      "approximate[].models.semantic",
+      "approximate[].text",
+      "approximate[].unscored",
+      "approximate[].unscored.provenance",
+      "degradations[]",
+      "degradations[].kind",
+      "degradations[].reason",
       "hidden.canonical",
       "hidden.provenance",
       "hidden.semantic",
@@ -11461,6 +11474,36 @@
       ],
       "approximate": [
         "array"
+      ],
+      "approximate[]": [
+        "object"
+      ],
+      "approximate[].kind": [
+        "str"
+      ],
+      "approximate[].min_score": [
+        "array"
+      ],
+      "approximate[].min_score[]": [
+        "float"
+      ],
+      "approximate[].models": [
+        "object"
+      ],
+      "approximate[].models.canonical": [
+        "str"
+      ],
+      "approximate[].models.semantic": [
+        "str"
+      ],
+      "approximate[].text": [
+        "str"
+      ],
+      "approximate[].unscored": [
+        "object"
+      ],
+      "approximate[].unscored.provenance": [
+        "str"
       ],
       "canonical_sql": [
         "str"
@@ -11479,6 +11522,15 @@
       ],
       "degradations": [
         "array"
+      ],
+      "degradations[]": [
+        "object"
+      ],
+      "degradations[].kind": [
+        "str"
+      ],
+      "degradations[].reason": [
+        "str"
       ],
       "exact": [
         "bool"
@@ -11521,6 +11573,7 @@
       ],
       "rows[][]": [
         "bool",
+        "float",
         "int",
         "null",
         "str"

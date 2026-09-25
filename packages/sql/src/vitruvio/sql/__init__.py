@@ -10,6 +10,8 @@ Three pieces, in the order a query meets them:
   cached against the module's Merkle root so a table is never read for a composition it was not built from.
 - :mod:`vitruvio.sql.guard` parses the query with sqlglot, refuses anything that is not a read, and rewrites the
   brain's table names onto those derived tables -- hiding superseded blocks unless the caller asks for them.
+- :mod:`vitruvio.sql.similarity` is the one approximate predicate: ``about(id, 'text', min_score)`` over scores a
+  caller-supplied :class:`Scorer` computes, marking every answer that uses it as approximate.
 - :mod:`vitruvio.sql.engine` runs what the guard admitted in an in-memory DuckDB whose access to the host is
   switched off before the first character of the caller's SQL reaches it.
 
@@ -22,6 +24,7 @@ from __future__ import annotations
 from vitruvio.sql.engine import DEFAULT_LIMIT, SqlEngine, SqlTimeoutError
 from vitruvio.sql.guard import QUERYABLE, GuardedQuery, guard
 from vitruvio.sql.result import SqlColumn, SqlOutcome, json_native
+from vitruvio.sql.similarity import Scorer, Similarity
 from vitruvio.sql.tables import BLOCKS_TABLE, SQL_PROJECTION_ID, TABLES, Column, TableSpec, project_block
 
 __all__ = [
@@ -32,6 +35,8 @@ __all__ = [
     "TABLES",
     "Column",
     "GuardedQuery",
+    "Scorer",
+    "Similarity",
     "SqlColumn",
     "SqlEngine",
     "SqlOutcome",

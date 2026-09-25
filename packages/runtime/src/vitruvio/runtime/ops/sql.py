@@ -73,6 +73,56 @@ def _engine_package() -> Any:
     return package
 
 
+class _VectorScorer:
+    """
+    Similarity for ``about`` and ``similarity``, over the brain's own vector indices.
+
+    Stood up only when a query uses one of them: scoring needs the RETRIEVE brain, which registers the configured
+    indices and may resolve an embedder, and a plain count should not pay for either. Each module is scored by its
+    own index, exactly and over its whole population, and a module that cannot be scored says why rather than
+    contributing silence -- an absent index, one built for another composition, an embedder that is unavailable or
+    does not reproduce the stored vectors.
+    """
+
+    def __init__(self, session: BrainSession) -> None:
+        self.session = session
+
+    def similarity(self, text: str) -> Any:
+        from vitruvio.embeddings import EmbedderUnavailableError
+        from vitruvio.indices import VectorIndex
+
+        package = _engine_package()
+        brain = self.session.brain(Capability.RETRIEVE)
+        scores: dict[str, float] = {}
+        models: dict[str, str] = {}
+        missing: dict[str, str] = {}
+        with translated():
+            modules = brain.modules()
+        for kind, module in sorted(modules.items(), key=lambda item: item[0].value):
+            # The same usability rule the planner applies in `CostBasedPlanner.capabilities`: an index bound to
+            # another root is stale, and one bound to none was built over this composition in this session.
+            vector = module.indices.get("vector")
+            if not isinstance(vector, VectorIndex):
+                missing[kind.value] = "no vector index is configured for this module"
+            elif not vector.population:
+                missing[kind.value] = "its vector index is empty; run `vitruvio index build`"
+            elif vector.bound_root is not None and vector.bound_root != str(module.root):
+                missing[kind.value] = "its vector index describes another composition; run `vitruvio index build`"
+            elif not vector.queryable:
+                missing[kind.value] = vector.query_failure.replace("_", " ")
+            else:
+                try:
+                    found = vector.similarities(text)
+                except EmbedderUnavailableError as error:
+                    missing[kind.value] = f"embedder unavailable: {error}"
+                    continue
+                members = {str(identity) for identity in module.block_ids}
+                scores.update({block: score for block, score in found.items() if block in members})
+                tag = vector.model_tag or vector.expected_model_tag
+                models[kind.value] = f"{tag} (local fallback)" if vector.embedder.tag.is_fallback else tag
+        return package.Similarity(scores=scores, models=models, missing=missing)
+
+
 class SqlOps:
     """SQL over the brain's derived tables, as operations."""
 
@@ -92,7 +142,9 @@ class SqlOps:
         """An engine over this brain's installed modules, caching tables beside its other derived state."""
         package = _engine_package()
         brain = self.session.brain(Capability.BROWSE)
-        return package.SqlEngine(brain.modules(), cache_dir=sql_cache_dir(self.config))
+        return package.SqlEngine(
+            brain.modules(), cache_dir=sql_cache_dir(self.config), scorer=_VectorScorer(self.session)
+        )
 
     def sql(
         self,
@@ -110,6 +162,10 @@ class SqlOps:
         Every module is a table named for its memory type -- ``semantic``, ``episodic``, ``procedural``,
         ``canonical``, ``provenance`` -- and ``blocks`` is every member of every module. Superseded and demoted
         blocks are hidden, as search hides them, unless ``include_superseded`` says otherwise.
+
+        ``about(id, 'text', min_score)`` and ``similarity(id, 'text')`` score blocks against a text with the
+        brain's vector indices. Only a query that uses them opens the RETRIEVE brain, and its result is always
+        marked approximate.
 
         Args:
             query (str): One ``SELECT`` over those tables. Anything that is not a read is refused.

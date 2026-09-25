@@ -353,6 +353,36 @@ class TestVectorIndex:
 
         assert [identity for identity, *_ in found] == identities
 
+    def test_similarities_scores_every_block_as_lookup_does(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        """The threshold path and the ranking path must agree on every score, or a threshold chosen by looking at
+        one would mean something else in the other."""
+        index = an_index()
+        index.build(semantic_blocks, content)
+        scored = index.similarities("fourier")
+        ranked = index.lookup(VectorQuery(text="fourier", exact=True), limit=len(semantic_blocks))
+        assert set(scored) == {str(block.block_id) for block in semantic_blocks}
+        for identity, score, *_ in ranked:
+            assert scored[identity] == pytest.approx(score, abs=1e-6)
+
+    def test_similarities_takes_the_best_chunk_and_floors_at_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        index = an_index()
+        owners = ["sha256:" + "a" * 64, "sha256:" + "a" * 64, "sha256:" + "b" * 64]
+        index._rows = {key: (identity, "text", key, None, b"") for key, identity in enumerate(owners)}
+        index._vectors = {0: (0.2, 0.9797958971), 1: (0.9, 0.4358898944), 2: (-1.0, 0.0)}
+        monkeypatch.setattr(index.embedder, "embed_text", lambda texts, role=None: [(1.0, 0.0)])
+        assert index.similarities("x") == pytest.approx({owners[0]: 0.9, owners[2]: 0.0})
+
+    def test_similarities_over_nothing_embeds_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        index = an_index()
+
+        def refuse(texts: object, role: object = None) -> list[tuple[float, ...]]:
+            raise AssertionError("nothing to score needs no probe")
+
+        monkeypatch.setattr(index.embedder, "embed_text", refuse)
+        assert index.similarities("fourier") == {}
+
     def test_an_empty_mask_returns_before_embedding(self) -> None:
         class Exploding(FakeEmbedder):
             def embed_text(self, texts, *, role=None):

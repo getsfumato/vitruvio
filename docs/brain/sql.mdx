@@ -64,6 +64,32 @@ FROM semantic s, UNNEST(s.evidence) AS u(e) JOIN canonical c ON c.id = e
 GROUP BY ALL;
 ```
 
+## About a topic
+
+Structure answers "how many facts have subject X". Meaning needs the brain's vector indices, and two functions
+bring them into SQL:
+
+```sql
+-- how many facts are about ethics, by a similarity of at least 0.35
+SELECT count(*) FROM semantic WHERE kind = 'fact' AND about(id, 'ethics', 0.35);
+
+-- the score itself, to look at before choosing a threshold
+SELECT label, similarity(id, 'ethics') AS score FROM semantic ORDER BY score DESC LIMIT 20;
+```
+
+- **A threshold, not a ranking.** `about` is true for every block whose score reaches `min_score`, scored over
+  every block. It is not a top-k, so the count is complete for that threshold.
+- **Choose the threshold from `similarity()`.** The score is the vector index's cosine, between 0 and 1. It is
+  not the score `search` reports, which measures agreement between retrieval strategies.
+- **Write the text and the threshold as literals.** Each distinct text is embedded once per query.
+- **Such an answer is never exact.** A query that uses either function returns `exact: false`. It also returns one
+  entry in `approximate` per text, naming the model that scored each module and every module that could not be
+  scored: no vector index, a stale one, or an embedder that is unavailable. A block in an unscored module is never
+  `about` anything, and the result says so. If nothing at all can be scored, the query is refused rather than
+  answered with zero.
+- **Scoring can be slow.** Only these queries open the brain's retrieval indices. They may need
+  `vitruvio index build`, or a working embedder (see `vitruvio config embedder`).
+
 ## What counts
 
 - **Superseded and demoted blocks are hidden by default**, the same way search hides them. `--include-superseded`
@@ -84,6 +110,8 @@ Queries are read-only and bound to the brain:
 - You may send exactly one `SELECT`. `WITH`, joins, `UNION`, `HAVING` and window functions are allowed.
 - Nothing that writes is run: no `INSERT`, `CREATE`, `COPY`, `ATTACH`, `SET` or `PRAGMA`.
 - Nothing that reads outside the brain is run: no `read_csv`, `read_parquet`, `glob`, or other table functions.
+- Names starting with `__vitruvio_` are reserved for the engine's own tables, so no CTE, alias or column may use
+  them.
 - Sampling (`TABLESAMPLE`, `USING SAMPLE`) is refused, because it answers over a subset while the result claims
   every member.
 - Functions that return a different value on each run (`random()`, `uuid()`, `now()`, `current_date`, …) are

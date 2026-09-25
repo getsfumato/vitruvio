@@ -121,6 +121,51 @@ class TestSql:
         assert schema["projection"].startswith("vitruvio-sql-projection/")
 
 
+class TestSimilarity:
+    """``about`` and ``similarity`` against the brain's own vector indices, always reported approximate."""
+
+    def test_similarity_scores_every_block_with_the_brains_model(self, written: BrainService) -> None:
+        result = written.sql(
+            "SELECT label, similarity(id, 'fourier sines') AS score FROM semantic ORDER BY score DESC, label"
+        )
+        labels = [row[0] for row in result["rows"]]
+        assert labels[0].startswith("Fourier")
+        assert labels[-1] == "Primes are infinite"
+        assert result["exact"] is False
+        (entry,) = result["approximate"]
+        assert entry["kind"] == "similarity"
+        assert set(entry["models"]) == {"semantic"}
+
+    def test_about_counts_every_block_that_clears_the_threshold(self, written: BrainService) -> None:
+        scores = written.sql("SELECT similarity(id, 'fourier') FROM semantic")["rows"]
+        above = sum(1 for (score,) in scores if score >= 0.2)
+        result = written.sql("SELECT count(*) FROM semantic WHERE about(id, 'fourier', 0.2)")
+        assert result["rows"] == [[above]]
+        assert result["approximate"][0]["min_score"] == [0.2]
+
+    def test_a_module_without_vectors_is_reported_when_read(self, written: BrainService) -> None:
+        result = written.sql("SELECT count(*) FROM provenance WHERE about(id, 'fourier', 0.2)")
+        assert result["rows"] == [[0]]
+        assert "provenance" in result["approximate"][0]["unscored"]
+        assert any(item["kind"] == "similarity_unscored" for item in result["degradations"])
+
+    def test_a_plain_query_does_not_open_the_retrieve_brain(
+        self, written: BrainService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from vitruvio.runtime.assembly import Capability
+
+        opened: list[Capability] = []
+        real = written.session.brain
+
+        def spy(capability: Capability = Capability.INSPECT) -> Any:
+            opened.append(capability)
+            return real(capability)
+
+        monkeypatch.setattr(written.session, "brain", spy)
+        written.sql("SELECT count(*) FROM semantic")
+        assert Capability.RETRIEVE not in opened
+
+
 class TestWithoutTheExtra:
     def test_a_missing_engine_is_a_usage_error_naming_the_extra(
         self, written: BrainService, monkeypatch: pytest.MonkeyPatch

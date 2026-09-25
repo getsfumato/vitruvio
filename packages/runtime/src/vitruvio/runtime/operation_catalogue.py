@@ -377,8 +377,9 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         "SqlOps",
         "sql_ops",
         (
-            Operation("sql", capability=_BROWSE, result=ResultKind.TYPED),
-            Operation("sql_explain", capability=_BROWSE, result=ResultKind.TYPED),
+            # RETRIEVE because `about()` scores against the vector indices; a query without it opens only BROWSE.
+            Operation("sql", capability=_RETRIEVE, result=ResultKind.TYPED),
+            Operation("sql_explain", capability=_RETRIEVE, result=ResultKind.TYPED),
             Operation("sql_schema", result=ResultKind.TYPED),
         ),
     ),

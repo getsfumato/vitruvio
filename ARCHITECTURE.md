@@ -103,7 +103,7 @@ earlier describes the composition that was just replaced. It can only invalidate
 | `ops/install.py` | plan_pull, pull, fetch | INSPECT, WRITE | yes |
 | `ops/reconcile.py` | declared_strategy, contains, plan, reconcile, status, resolve, accept_removals, continue, abort, tree | INSPECT, WRITE | yes |
 | `ops/retrieval.py` | search, explain | RETRIEVE | no |
-| `ops/sql.py` | sql, sql_explain, sql_schema | BROWSE | no |
+| `ops/sql.py` | sql, sql_explain, sql_schema | RETRIEVE | no |
 | `ops/compound.py` | compound_search, compound_explain | RETRIEVE | no |
 <!-- operations:end -->
 

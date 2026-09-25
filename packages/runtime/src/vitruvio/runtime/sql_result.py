@@ -12,7 +12,7 @@ No ``from __future__ import annotations`` here, for the reason ``block_result`` 
 reads ``NotRequired`` as a string and files every optional key as required, silently, on 3.11.
 """
 
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
 if TYPE_CHECKING:
     from vitruvio.sql import SqlOutcome, TableSpec
@@ -30,6 +30,23 @@ class SqlDegradationResult(TypedDict):
 
     kind: str
     reason: str
+
+
+class SqlApproximationResult(TypedDict):
+    """
+    One reason an answer is not exact.
+
+    ``kind`` says which: ``similarity`` for an ``about``/``similarity`` text, with the model that scored each module
+    and the modules that could not be scored; ``visibility_unknown`` when no provenance module could say which blocks
+    are superseded. The keys each kind carries are present only for that kind.
+    """
+
+    kind: str
+    reason: NotRequired[str]
+    text: NotRequired[str]
+    min_score: NotRequired[list[float]]
+    models: NotRequired[dict[str, str]]
+    unscored: NotRequired[dict[str, str]]
 
 
 class SqlResult(TypedDict):
@@ -57,7 +74,7 @@ class SqlResult(TypedDict):
     hidden: dict[str, int]
     include_superseded: bool
     exact: bool
-    approximate: list[dict[str, Any]]
+    approximate: list[SqlApproximationResult]
     verified_rows: int | None
     degradations: list[SqlDegradationResult]
     plan: str | None
@@ -105,7 +122,8 @@ def outcome(value: "SqlOutcome") -> SqlResult:
         "hidden": value.hidden,
         "include_superseded": value.include_superseded,
         "exact": value.exact,
-        "approximate": value.approximate,
+        # The engine builds each entry per kind, which no checker can relate to the TypedDict; ADR-0023's one cast.
+        "approximate": [cast(SqlApproximationResult, dict(entry)) for entry in value.approximate],
         "verified_rows": value.verified_rows,
         "degradations": [{"kind": item["kind"], "reason": item["reason"]} for item in value.degradations],
         "plan": value.plan,
@@ -129,6 +147,7 @@ def schema(tables: "list[TableSpec]", projection: str) -> SqlSchemaResult:
 
 
 __all__ = [
+    "SqlApproximationResult",
     "SqlColumnResult",
     "SqlDegradationResult",
     "SqlResult",

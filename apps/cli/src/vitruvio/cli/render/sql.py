@@ -32,6 +32,22 @@ def _cell(value: Any) -> Text:
     return Text(str(value))
 
 
+def _approximation(entry: Mapping[str, Any]) -> Text:
+    """One reason an answer is approximate, as a line: which text, at which threshold, by which model."""
+    if entry["kind"] != "similarity":
+        return Text(entry.get("reason", entry["kind"]), style="warn")
+    line = Text(f"similarity to {entry['text']!r}", style="warn")
+    if entry.get("min_score"):
+        line.append(" at or above " + ", ".join(f"{value:g}" for value in entry["min_score"]))
+    models = sorted(set(entry.get("models", {}).values()))
+    if models:
+        line.append(", scored by " + "; ".join(models), style="muted")
+    unscored = sorted(entry.get("unscored", {}))
+    if unscored:
+        line.append(f"; unscored: {', '.join(unscored)}", style="warn")
+    return line
+
+
 def result(payload: Mapping[str, Any]) -> list[RenderableType]:
     """
     A query's rows, then what they were computed over.
@@ -76,6 +92,8 @@ def result(payload: Mapping[str, Any]) -> list[RenderableType]:
     if payload["verified_rows"] is not None:
         facts.append(("proved", f"{payload['verified_rows']} of the returned blocks"))
     facts.append(("exact", Text("yes", style="ok") if payload["exact"] else Text("approximate", style="warn")))
+    for entry in payload["approximate"]:
+        facts.append(("because", _approximation(entry)))
     return stack(body, "", fields(facts))
 
 
