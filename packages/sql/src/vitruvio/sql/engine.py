@@ -34,6 +34,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -110,8 +111,12 @@ class _Budget:
             raise self.error()
 
 
-def _stored_table(name: str) -> str:
-    return f"__vitruvio_table_{name}"
+def _stored_table(name: str, member: int = 0) -> str:
+    return f"__vitruvio_table_{name}__{member}"
+
+
+def _ledger_table(member: int) -> str:
+    return f"__vitruvio_ledger__{member}"
 
 
 def _literal(text: str) -> str:
@@ -173,43 +178,80 @@ def _cache_key(memory_type: MemoryType, module: Module) -> str:
     return hashlib.sha256(material.encode()).hexdigest()[:32]
 
 
+@dataclass(frozen=True, slots=True)
+class SqlBrain:
+    """
+    One brain, as the engine needs it: its modules, and what only its session can supply.
+
+    Attributes:
+        modules (Mapping[MemoryType, Module]): The installed modules. A module absent here is an empty table.
+        ledger (Ledger | None): What the provenance module says about supersession and demotion. Read from
+            ``modules`` when not given; a caller that already holds one -- the planner caches it -- passes it in.
+        cache_dir (Path | None): Where this brain's derived tables are cached. ``None`` builds every table afresh.
+        scorer (Scorer | None): What scores this brain's blocks against a text, for ``about`` and ``similarity``.
+            Asked only when a query uses one of them, so it may be expensive to stand up.
+    """
+
+    modules: Mapping[MemoryType, Module]
+    ledger: Ledger | None = None
+    cache_dir: Path | None = None
+    scorer: Scorer | None = None
+
+
 class SqlEngine:
     """
-    SQL over one brain's modules.
+    SQL over one brain's modules, or over several brains of a project at once.
 
     Built per request and closed after it. DuckDB runs in memory, so an engine holds a copy of every table it
     loaded; keeping one alive across requests would mean keeping every module in memory for as long as the process
     lives, and answering from a composition the brain may since have moved past.
 
+    **One brain** is the ``modules`` form, and its tables are the ones :data:`~vitruvio.sql.tables.TABLES` lists.
+    **A compound** is the ``brains`` form: every brain is loaded into the same database, each with its own ledger,
+    cache and scorer. A bare ``semantic`` is then that table across every brain, with a leading ``brain`` column; a
+    qualified ``algebra.semantic`` is one brain's. Joins, aggregates and ``GROUP BY brain`` across brains are
+    DuckDB's, so nothing about merging results is reimplemented here. Blocks are content-addressed, so a block held
+    by two brains is two rows -- one per brain -- which is what ``GROUP BY brain`` should see, and ``count(DISTINCT
+    id)`` is how to count it once.
+
     Args:
-        modules (Mapping[MemoryType, Module]): The installed modules. A module absent here is an empty table.
-        ledger (Ledger | None): What the provenance module says about supersession and demotion. Read from
-            ``modules`` when not given; a caller that already holds one -- the planner caches it -- passes it in.
-        cache_dir (Path | None): Where derived tables are cached. ``None`` builds every table afresh.
-        scorer (Scorer | None): What scores blocks against a text, for ``about`` and ``similarity``. Asked only when a
-            query uses one of them, so a caller can hand in something expensive to stand up. Without one, a query
-            that uses them is refused.
+        modules (Mapping[MemoryType, Module] | None): One brain's installed modules.
+        ledger (Ledger | None): That brain's ledger, if already read. See :class:`SqlBrain`.
+        scorer (Scorer | None): That brain's scorer. See :class:`SqlBrain`.
+        cache_dir (Path | None): That brain's table cache. See :class:`SqlBrain`.
+        brains (Mapping[str, SqlBrain] | None): A compound: the brains by name, in the order they are consulted.
+            Give either this or ``modules``.
         timeout (float): Seconds a whole request may take: building or loading tables, running, fetching, verifying.
         memory_limit (str): DuckDB's memory limit, in its own units.
     """
 
     def __init__(
         self,
-        modules: Mapping[MemoryType, Module],
+        modules: Mapping[MemoryType, Module] | None = None,
         *,
         ledger: Ledger | None = None,
         scorer: Scorer | None = None,
         cache_dir: Path | None = None,
+        brains: Mapping[str, SqlBrain] | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         memory_limit: str = DEFAULT_MEMORY_LIMIT,
     ) -> None:
-        self.modules = dict(modules)
-        self.cache_dir = cache_dir
+        if (modules is None) == (brains is None):
+            raise TypeError("give one brain's modules, or the brains of a compound, and not both")
+        if brains is not None:
+            if not brains:
+                raise UsageError("a compound needs at least one brain")
+            self._members = [(name, brain) for name, brain in brains.items()]
+        else:
+            assert modules is not None
+            self._members = [("", SqlBrain(dict(modules), ledger=ledger, cache_dir=cache_dir, scorer=scorer))]
+        self._compound = brains is not None
         self.timeout = timeout
         self.memory_limit = memory_limit
-        self._ledger = ledger
-        self.scorer = scorer
+        self._ledgers: dict[int, Ledger] = {}
+        self._scored: dict[tuple[int, str], Similarity] = {}
         self._similarity: dict[str, Similarity] = {}
+        self._scoring: list[int] = []
         self._connection: duckdb.DuckDBPyConnection | None = None
         self._budget: _Budget | None = None
 
@@ -225,6 +267,11 @@ class SqlEngine:
         for projecting a module to learn a column name, nor need a brain at all.
         """
         return [*TABLES.values(), BLOCKS_TABLE]
+
+    @property
+    def brains(self) -> tuple[str, ...] | None:
+        """The brains a compound consults, in order; ``None`` for a single brain."""
+        return tuple(name for name, _ in self._members) if self._compound else None
 
     def query(
         self,
@@ -253,9 +300,9 @@ class SqlEngine:
         """
         if limit < 1:
             raise UsageError("limit must be at least 1")
-        guarded = guard(sql, include_superseded=include_superseded)
+        guarded = guard(sql, include_superseded=include_superseded, brains=self.brains)
         with self._budgeted() as budget:
-            connection = self._open(guarded.tables, guarded.similarity)
+            connection = self._open(guarded.references, guarded.similarity)
             cursor = self._run(connection, guarded.executed)
             columns = [SqlColumn(name=str(entry[0]), type=str(entry[1])) for entry in cursor.description or ()]
             fetched = cursor.fetchmany(limit + 1)
@@ -284,9 +331,9 @@ class SqlEngine:
         Returns:
             SqlOutcome: No rows; ``plan`` holds DuckDB's physical plan and ``executed_sql`` what it was made from.
         """
-        guarded = guard(sql, include_superseded=include_superseded)
+        guarded = guard(sql, include_superseded=include_superseded, brains=self.brains)
         with self._budgeted():
-            connection = self._open(guarded.tables, guarded.similarity)
+            connection = self._open(guarded.references, guarded.similarity)
             cursor = self._run(connection, f"EXPLAIN {guarded.executed}")
             plan = "\n".join(str(row[-1]) for row in cursor.fetchall())
             return self._outcome(guarded, columns=[], rows=[], truncated=False, limit=0, plan=plan)
@@ -323,24 +370,42 @@ class SqlEngine:
 
     # --- Loading ----------------------------------------------------------------------------------------------
 
-    def _modules_for(self, tables: Iterable[str]) -> dict[MemoryType, TableSpec]:
-        """The modules a query's tables need. ``blocks`` needs every installed one."""
-        wanted: dict[MemoryType, TableSpec] = {}
-        for name in tables:
-            if name == BLOCKS_TABLE.name:
-                wanted.update({kind: table_for(kind) for kind in self.modules})
-            else:
-                spec = TABLES[name]
-                assert spec.memory_type is not None
-                wanted[spec.memory_type] = spec
-        return wanted
+    def _key(self, member: int, name: str) -> str:
+        """How a module or table of one member is named in an outcome: bare for one brain, ``brain.name`` otherwise."""
+        return f"{self._members[member][0]}.{name}" if self._compound else name
 
-    def _open(self, tables: Iterable[str], similarity: Iterable[str] = ()) -> duckdb.DuckDBPyConnection:
+    def _targets(self, brain: str | None) -> range | list[int]:
+        """The members a table reference reads: all of them for a bare name, one for a qualified one."""
+        if brain is None:
+            return range(len(self._members))
+        return [next(index for index, (name, _) in enumerate(self._members) if name == brain)]
+
+    @staticmethod
+    def _references(tables: Iterable[str | tuple[str | None, str]]) -> tuple[tuple[str | None, str], ...]:
+        return tuple((None, table) if isinstance(table, str) else table for table in tables)
+
+    def _needed(self, references: Iterable[tuple[str | None, str]]) -> dict[int, dict[MemoryType, TableSpec]]:
+        """Per member, the modules a query's tables need. ``blocks`` needs every module that member has installed."""
+        needed: dict[int, dict[MemoryType, TableSpec]] = {index: {} for index in range(len(self._members))}
+        for brain, table in references:
+            for member in self._targets(brain):
+                if table == BLOCKS_TABLE.name:
+                    modules = self._members[member][1].modules
+                    needed[member].update({kind: table_for(kind) for kind in modules})
+                else:
+                    spec = TABLES[table]
+                    assert spec.memory_type is not None
+                    needed[member][spec.memory_type] = spec
+        return needed
+
+    def _open(
+        self, tables: Iterable[str | tuple[str | None, str]], similarity: Iterable[str] = ()
+    ) -> duckdb.DuckDBPyConnection:
         """A sealed in-memory database holding exactly the tables a query reads, and the views over them."""
         import duckdb
 
         self.close()
-        tables = tuple(tables)
+        references = self._references(tables)
         connection = duckdb.connect(
             ":memory:",
             config={
@@ -357,16 +422,27 @@ class SqlEngine:
         if self._budget is not None:
             self._budget.connection = connection
         try:
-            needed = self._modules_for(tables)
-            for kind, spec in needed.items():
+            needed = self._needed(references)
+            blocks = {
+                member for brain, table in references if table == BLOCKS_TABLE.name for member in self._targets(brain)
+            }
+            for member, specs in needed.items():
+                for kind, spec in specs.items():
+                    self._check()
+                    self._load(connection, member, kind, spec)
                 self._check()
-                self._load(connection, kind, spec)
-            self._check()
-            self._load_ledger(connection, needed)
-            for spec in needed.values():
-                self._views(connection, spec, spec.name)
-            if BLOCKS_TABLE.name in tables:
-                self._blocks_view(connection, needed)
+                self._load_ledger(connection, member, specs)
+                for spec in specs.values():
+                    self._views(connection, member, spec)
+                if member in blocks:
+                    self._blocks_view(connection, member, specs)
+            for table in sorted({table for brain, table in references if brain is None}):
+                self._union(connection, table)
+            # Only the brains a query reads may score it. `FROM a.semantic` is a question about brain a, and a block it
+            # shares with brain b must not become "about" the text because b's model thinks so.
+            self._scoring = sorted(
+                {member for brain, _ in references for member in self._targets(brain)} or range(len(self._members))
+            )
             for position, text in enumerate(similarity):
                 self._check()
                 self._load_similarity(connection, position, text)
@@ -381,15 +457,16 @@ class SqlEngine:
         self._connection = connection
         return connection
 
-    def _load(self, connection: duckdb.DuckDBPyConnection, kind: MemoryType, spec: TableSpec) -> None:
-        target = _stored_table(spec.name)
-        module = self.modules.get(kind)
+    def _load(self, connection: duckdb.DuckDBPyConnection, member: int, kind: MemoryType, spec: TableSpec) -> None:
+        target = _stored_table(spec.name, member)
+        brain = self._members[member][1]
+        module = brain.modules.get(kind)
         if module is None:
             connection.execute(f"CREATE TABLE {target} ({_column_list(spec)})")
             return
         cached = None
-        if self.cache_dir is not None:
-            cached = self.cache_dir / f"{spec.name}-{_cache_key(kind, module)}.parquet"
+        if brain.cache_dir is not None:
+            cached = brain.cache_dir / f"{spec.name}-{_cache_key(kind, module)}.parquet"
             if cached.is_file():
                 connection.execute(f"CREATE TABLE {target} AS SELECT * FROM read_parquet({_literal(str(cached))})")
                 return
@@ -403,25 +480,49 @@ class SqlEngine:
         connection.execute(f"CREATE TABLE {target} ({_column_list(spec)})")
         _insert(connection, target, {column.name: column.type for column in spec.stored}, rows)
 
+    def _score(self, member: int, text: str) -> Similarity:
+        """One member's scores for a text, asked of its scorer once per request."""
+        cached = self._scored.get((member, text))
+        if cached is not None:
+            return cached
+        brain = self._members[member][1]
+        if brain.scorer is None:
+            scored = Similarity(
+                scores={}, missing={kind.value: "no vector indices were made available" for kind in brain.modules}
+            )
+        else:
+            scored = brain.scorer.similarity(text)
+        self._scored[(member, text)] = scored
+        return scored
+
     def _load_similarity(self, connection: duckdb.DuckDBPyConnection, position: int, text: str) -> None:
         """Score every block against one text and load the scores as a table, before the seal."""
-        if self.scorer is None:
+        if all(brain.scorer is None for _, brain in self._members):
             raise UsageError(
                 "about() and similarity() need the brain's vector indices, and none were made available here",
                 hint="run the query through `vitruvio sql`, which scores against the brain's vector indices",
             )
-        scored = self._similarity.get(text)
-        if scored is None:
-            scored = self._similarity[text] = self.scorer.similarity(text)
-        if not scored.scores:
-            reasons = "; ".join(f"{kind}: {why}" for kind, why in sorted(scored.missing.items())) or "no vectors"
+        scores: dict[str, float] = {}
+        models: dict[str, str] = {}
+        missing: dict[str, str] = {}
+        for member in self._scoring:
+            scored = self._score(member, text)
+            # A block two of the brains read both hold is about the text if either scores it so. With one model across
+            # a project the two scores agree; with two, `approximate` names both, which is what makes the rule visible.
+            for block, score in scored.scores.items():
+                scores[block] = max(score, scores.get(block, 0.0))
+            models.update({self._key(member, kind): tag for kind, tag in scored.models.items()})
+            missing.update({self._key(member, kind): why for kind, why in scored.missing.items()})
+        combined = self._similarity[text] = Similarity(scores=scores, models=models, missing=missing)
+        if not combined.scores:
+            reasons = "; ".join(f"{kind}: {why}" for kind, why in sorted(combined.missing.items())) or "no vectors"
             raise UsageError(
                 f"nothing could be scored against {text!r}, so about() would be false for every block ({reasons})",
                 hint="build the vector indices with `vitruvio index build`, or check `vitruvio config embedder`",
             )
         table = similarity_table(position)
         connection.execute(f"CREATE TABLE {table} ({SCORE_BLOCK} VARCHAR PRIMARY KEY, {SCORE_VALUE} DOUBLE)")
-        rows = [{SCORE_BLOCK: block, SCORE_VALUE: score} for block, score in sorted(scored.scores.items())]
+        rows = [{SCORE_BLOCK: block, SCORE_VALUE: score} for block, score in sorted(combined.scores.items())]
         _insert(connection, table, {SCORE_BLOCK: "VARCHAR", SCORE_VALUE: "DOUBLE"}, rows)
 
     def _persist(self, connection: duckdb.DuckDBPyConnection, target: str, path: Path, name: str) -> None:
@@ -439,46 +540,64 @@ class SqlEngine:
                 with contextlib.suppress(OSError):
                     stale.unlink()
 
-    def _load_ledger(self, connection: duckdb.DuckDBPyConnection, needed: Mapping[MemoryType, TableSpec]) -> None:
-        connection.execute(
-            "CREATE TABLE __vitruvio_ledger (id VARCHAR PRIMARY KEY, superseded BOOLEAN, demoted BOOLEAN)"
-        )
+    def _load_ledger(
+        self, connection: duckdb.DuckDBPyConnection, member: int, needed: Mapping[MemoryType, TableSpec]
+    ) -> None:
+        table = _ledger_table(member)
+        connection.execute(f"CREATE TABLE {table} (id VARCHAR PRIMARY KEY, superseded BOOLEAN, demoted BOOLEAN)")
         if not needed:
             return
-        ledger = self._ledger
+        brain = self._members[member][1]
+        ledger = self._ledgers.get(member, brain.ledger)
         if ledger is None:
             from boltzmann.module.ledger import Ledger
 
-            ledger = self._ledger = Ledger.of(self.modules)
+            ledger = Ledger.of(dict(brain.modules))
+        self._ledgers[member] = ledger
         superseded = {str(identity) for identity in ledger.superseded_by}
         demoted = {str(identity) for identity in ledger.demoted}
         entries = [(identity, identity in superseded, identity in demoted) for identity in sorted(superseded | demoted)]
         if entries:
-            connection.executemany("INSERT INTO __vitruvio_ledger VALUES (?, ?, ?)", entries)
+            connection.executemany(f"INSERT INTO {table} VALUES (?, ?, ?)", entries)
 
-    @staticmethod
-    def _views(connection: duckdb.DuckDBPyConnection, spec: TableSpec, name: str) -> None:
+    def _brain_column(self, member: int) -> str:
+        """A compound's leading ``brain`` column, as a projection; nothing for a single brain."""
+        return f"{_literal(self._members[member][0])} AS brain, " if self._compound else ""
+
+    def _views(self, connection: duckdb.DuckDBPyConnection, member: int, spec: TableSpec) -> None:
         stored = ", ".join(f't."{column.name}"' for column in spec.stored)
         connection.execute(
-            f"CREATE VIEW {every_name(name)} AS SELECT {stored}, "
+            f"CREATE VIEW {every_name(spec.name, member)} AS SELECT {self._brain_column(member)}{stored}, "
             "coalesce(l.superseded, false) AS superseded, coalesce(l.demoted, false) AS demoted "
-            f"FROM {_stored_table(spec.name)} AS t LEFT JOIN __vitruvio_ledger AS l ON l.id = t.id"
+            f"FROM {_stored_table(spec.name, member)} AS t LEFT JOIN {_ledger_table(member)} AS l ON l.id = t.id"
         )
         connection.execute(
-            f"CREATE VIEW {visible_name(name)} AS SELECT * FROM {every_name(name)} WHERE NOT superseded AND NOT demoted"
+            f"CREATE VIEW {visible_name(spec.name, member)} AS SELECT * FROM {every_name(spec.name, member)} "
+            "WHERE NOT superseded AND NOT demoted"
         )
 
-    @staticmethod
-    def _blocks_view(connection: duckdb.DuckDBPyConnection, needed: Mapping[MemoryType, TableSpec]) -> None:
-        shared = ", ".join(f'"{column.name}"' for column in BLOCKS_TABLE.columns)
-        parts = [f"SELECT {shared} FROM {every_name(spec.name)}" for spec in needed.values()]
+    def _blocks_view(
+        self, connection: duckdb.DuckDBPyConnection, member: int, specs: Mapping[MemoryType, TableSpec]
+    ) -> None:
+        brain = "brain, " if self._compound else ""
+        shared = brain + ", ".join(f'"{column.name}"' for column in BLOCKS_TABLE.columns)
+        parts = [f"SELECT {shared} FROM {every_name(spec.name, member)}" for spec in specs.values()]
         if not parts:
-            columns = ", ".join(f'CAST(NULL AS {column.type}) AS "{column.name}"' for column in BLOCKS_TABLE.columns)
-            parts = [f"SELECT {columns} WHERE false"]
+            typed = ", ".join(f'CAST(NULL AS {column.type}) AS "{column.name}"' for column in BLOCKS_TABLE.columns)
+            parts = [f"SELECT {self._brain_column(member)}{typed} WHERE false"]
         name = BLOCKS_TABLE.name
-        connection.execute(f"CREATE VIEW {every_name(name)} AS {' UNION ALL '.join(parts)}")
+        connection.execute(f"CREATE VIEW {every_name(name, member)} AS {' UNION ALL '.join(parts)}")
         connection.execute(
-            f"CREATE VIEW {visible_name(name)} AS SELECT * FROM {every_name(name)} WHERE NOT superseded AND NOT demoted"
+            f"CREATE VIEW {visible_name(name, member)} AS SELECT * FROM {every_name(name, member)} "
+            "WHERE NOT superseded AND NOT demoted"
+        )
+
+    def _union(self, connection: duckdb.DuckDBPyConnection, table: str) -> None:
+        """A bare table name: the table across every member, which for one brain is simply that brain's."""
+        parts = [f"SELECT * FROM {every_name(table, member)}" for member in range(len(self._members))]
+        connection.execute(f"CREATE VIEW {every_name(table)} AS {' UNION ALL '.join(parts)}")
+        connection.execute(
+            f"CREATE VIEW {visible_name(table)} AS SELECT * FROM {every_name(table)} WHERE NOT superseded AND NOT demoted"
         )
 
     # --- Running ----------------------------------------------------------------------------------------------
@@ -508,7 +627,7 @@ class SqlEngine:
     def _verify(
         self, columns: list[SqlColumn], rows: list[list[Any]]
     ) -> tuple[list[list[Any]], int | None, list[dict[str, str]]]:
-        """Check the inclusion proof of every block a result names in its ``id`` column."""
+        """Check the inclusion proof of every block a result names in its ``id`` column, in whichever brain holds it."""
         from boltzmann.identity.digest import BlockId
 
         position = next((index for index, column in enumerate(columns) if column.name == "id"), None)
@@ -518,6 +637,7 @@ class SqlEngine:
                 None,
                 [{"kind": "verification_skipped", "reason": "the result has no id column, so no block to prove"}],
             )
+        modules = [module for _, brain in self._members for module in brain.modules.values()]
         kept: list[list[Any]] = []
         degradations: list[dict[str, str]] = []
         for row in rows:
@@ -527,7 +647,7 @@ class SqlEngine:
                 identity = BlockId.parse(value) if isinstance(value, str) else None
             except ValueError:
                 identity = None
-            module = next((module for module in self.modules.values() if identity in module), None)
+            module = next((module for module in modules if identity in module), None)
             if identity is None or module is None:
                 degradations.append({"kind": "verification_failed", "reason": f"{value!r} is not a member here"})
                 continue
@@ -537,16 +657,24 @@ class SqlEngine:
             kept.append(row)
         return kept, len(kept), degradations
 
-    def _hidden(self, tables: Iterable[str]) -> dict[str, int]:
+    def _hidden(self, guarded: GuardedQuery) -> dict[str, int]:
+        """
+        Per table read, how many members visibility left out -- per brain, in a compound.
+
+        A bare table in a compound spans every brain, and one sum over all of them could not say which brain hid what,
+        so it is counted by member and keyed ``brain.table`` like every other key of the outcome.
+        """
         assert self._connection is not None
         counts = {}
-        for name in tables:
-            self._check()
-            (count,) = self._connection.execute(
-                f"SELECT count(*) FROM {every_name(name)} WHERE superseded OR demoted"
-            ).fetchone() or (0,)
-            counts[name] = int(count)
-        return counts
+        for brain, table in guarded.references:
+            members: list[int | None] = list(self._targets(brain)) if self._compound else [None]
+            for member in members:
+                self._check()
+                (count,) = self._connection.execute(
+                    f"SELECT count(*) FROM {every_name(table, member)} WHERE superseded OR demoted"
+                ).fetchone() or (0,)
+                counts[table if member is None else self._key(member, table)] = int(count)
+        return dict(sorted(counts.items()))
 
     def _outcome(
         self,
@@ -560,18 +688,35 @@ class SqlEngine:
         degradations: list[dict[str, str]] | None = None,
         plan: str | None = None,
     ) -> SqlOutcome:
-        needed = self._modules_for(guarded.tables)
-        verified_against = {
-            kind.value: str(self.modules[kind].root) for kind in sorted(needed, key=str) if kind in self.modules
-        }
-        not_installed = sorted(
-            name
-            for name in guarded.tables
-            if name != BLOCKS_TABLE.name and TABLES[name].memory_type not in self.modules
-        )
+        needed = self._needed(guarded.references)
+        verified_against: dict[str, str] = {}
+        not_installed: set[str] = set()
         approximate: list[dict[str, Any]] = []
         degradations = list(degradations or [])
-        scope = {kind.value for kind in needed}
+        for member, specs in needed.items():
+            modules = self._members[member][1].modules
+            verified_against.update(
+                {self._key(member, kind.value): str(modules[kind].root) for kind in specs if kind in modules}
+            )
+            not_installed.update(self._key(member, spec.name) for kind, spec in specs.items() if kind not in modules)
+            # Hiding superseded and demoted blocks reads the provenance module, so it is an input to the answer
+            # whether or not the query names it. Its root is reported with the others; its absence as what it is.
+            if not specs or guarded.include_superseded:
+                continue
+            provenance = modules.get(MemoryType.PROVENANCE)
+            if provenance is not None:
+                verified_against[self._key(member, MemoryType.PROVENANCE.value)] = str(provenance.root)
+                continue
+            where = f" of {self._members[member][0]}" if self._compound else ""
+            reason = (
+                f"the provenance module{where} is not installed, so superseded and demoted blocks could not be told "
+                "apart and none were hidden"
+            )
+            not_installed.add(self._key(member, MemoryType.PROVENANCE.value))
+            approximate.append({"kind": "visibility_unknown", "reason": reason})
+            degradations.append({"kind": "visibility_unknown", "reason": reason})
+
+        scope = {self._key(member, kind.value) for member, specs in needed.items() for kind in specs}
         for text in guarded.similarity:
             scored = self._similarity[text]
             missing = {kind: why for kind, why in sorted(scored.missing.items()) if kind in scope}
@@ -591,21 +736,6 @@ class SqlEngine:
                 }
                 for kind, why in missing.items()
             )
-        # Hiding superseded and demoted blocks reads the provenance module, so it is an input to the answer whether
-        # or not the query names it. Its root is reported with the others; its absence is reported as what it is.
-        if needed and not guarded.include_superseded:
-            provenance = self.modules.get(MemoryType.PROVENANCE)
-            if provenance is not None:
-                verified_against[MemoryType.PROVENANCE.value] = str(provenance.root)
-            else:
-                reason = (
-                    "the provenance module is not installed, so superseded and demoted blocks could not be told "
-                    "apart and none were hidden"
-                )
-                if MemoryType.PROVENANCE.value not in not_installed:
-                    not_installed = sorted([*not_installed, MemoryType.PROVENANCE.value])
-                approximate.append({"kind": "visibility_unknown", "reason": reason})
-                degradations.append({"kind": "visibility_unknown", "reason": reason})
         return SqlOutcome(
             sql=guarded.sql,
             canonical_sql=guarded.canonical,
@@ -618,15 +748,16 @@ class SqlEngine:
             limit=limit,
             tables=list(guarded.tables),
             verified_against=dict(sorted(verified_against.items())),
-            not_installed=not_installed,
-            hidden={} if guarded.include_superseded else self._hidden(guarded.tables),
+            not_installed=sorted(not_installed),
+            hidden={} if guarded.include_superseded else self._hidden(guarded),
             include_superseded=guarded.include_superseded,
             exact=not approximate,
             approximate=approximate,
             verified_rows=verified_rows,
             degradations=degradations,
             plan=plan,
+            brains=list(self.brains or ()),
         )
 
 
-__all__ = ["DEFAULT_LIMIT", "DEFAULT_MEMORY_LIMIT", "DEFAULT_TIMEOUT", "SqlEngine", "SqlTimeoutError"]
+__all__ = ["DEFAULT_LIMIT", "DEFAULT_MEMORY_LIMIT", "DEFAULT_TIMEOUT", "SqlBrain", "SqlEngine", "SqlTimeoutError"]

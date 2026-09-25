@@ -90,6 +90,12 @@ SELECT label, similarity(id, 'ethics') AS score FROM semantic ORDER BY score DES
 - **Scoring can be slow.** Only these queries open the brain's retrieval indices. They may need
   `vitruvio index build`, or a working embedder (see `vitruvio config embedder`).
 
+## Several brains
+
+`vitruvio compound sql` runs one query over several brains of a project in a single database. A bare `semantic` spans
+every brain, with a leading `brain` column; `algebra.semantic` is one brain's table; every root is reported as
+`brain.module`. See [Searching several brains](/compound/searching-several-brains#counting-across-brains-with-sql).
+
 ## What counts
 
 - **Superseded and demoted blocks are hidden by default**, the same way search hides them. `--include-superseded`

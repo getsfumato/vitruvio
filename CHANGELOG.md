@@ -13,6 +13,8 @@
 - Add `about(id, 'text', min_score)` and `similarity(id, 'text')` to `vitruvio sql`: a similarity threshold scored
   exactly over every block by the brain's vector indices, always reported as approximate with the model that scored
   it.
+- Add `vitruvio compound sql`: one SQL query over several brains of a project in one database, with a `brain` column
+  on every table and `brain.table` for one brain's, every root reported per brain.
 
 ### Documentation
 

@@ -210,6 +210,10 @@ Search several brains of this project at once and print the composed evidence.
 
 Show how each brain of a compound would answer the query, side by side.
 
+### `vitruvio compound sql` `[query]` `--brains` `--all` `--file` `--explain` `--include-superseded` `--limit` `--verify`
+
+Answer one read-only SQL query over several brains of this project at once.
+
 ## `vitruvio browse` `--memory-type`
 
 Read and query the brain in a terminal workspace that also shows the executed plan and selected indices.

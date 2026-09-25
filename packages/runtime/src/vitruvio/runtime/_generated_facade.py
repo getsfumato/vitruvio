@@ -34,7 +34,7 @@ from vitruvio.runtime.ops.sql import SqlOps
 from vitruvio.runtime.ops.tasks import TaskOps
 from vitruvio.runtime.retrieval_result import ExplanationResult, SearchResult
 from vitruvio.runtime.session import BrainSession
-from vitruvio.runtime.sql_result import SqlResult, SqlSchemaResult
+from vitruvio.runtime.sql_result import CompoundSqlResult, SqlResult, SqlSchemaResult
 
 
 class GeneratedFacade:
@@ -1213,6 +1213,43 @@ class GeneratedFacade:
             limit=limit,
             expand_depth=expand_depth,
             analyze=analyze,
+        )
+
+    def compound_sql(
+        self,
+        query: str,
+        *,
+        brains: Iterable[str] | None = None,
+        all_brains: bool = False,
+        include_superseded: bool = False,
+        limit: int = 1000,
+        verify: bool = False,
+    ) -> CompoundSqlResult:
+        """Answer one read-only SQL query over several brains of this project at once.
+
+        See :meth:`vitruvio.runtime.ops.compound.CompoundOps.compound_sql`."""
+        return self.compound_ops.compound_sql(
+            query,
+            brains=brains,
+            all_brains=all_brains,
+            include_superseded=include_superseded,
+            limit=limit,
+            verify=verify,
+        )
+
+    def compound_sql_explain(
+        self,
+        query: str,
+        *,
+        brains: Iterable[str] | None = None,
+        all_brains: bool = False,
+        include_superseded: bool = False,
+    ) -> CompoundSqlResult:
+        """Report how a query over several brains would run, without running it.
+
+        See :meth:`vitruvio.runtime.ops.compound.CompoundOps.compound_sql_explain`."""
+        return self.compound_ops.compound_sql_explain(
+            query, brains=brains, all_brains=all_brains, include_superseded=include_superseded
         )
 
 

@@ -77,21 +77,28 @@ _VOLATILE = frozenset(
 _HINT = "vitruvio sql is read-only: write one SELECT over " + ", ".join(QUERYABLE)
 
 
-def visible_name(table: str) -> str:
+def _suffix(member: int | None) -> str:
+    return "" if member is None else f"__{member}"
+
+
+def visible_name(table: str, member: int | None = None) -> str:
     """
     Where a caller's ``FROM semantic`` is pointed by default.
 
     Prefixed so that no name a caller may write can reach it directly: the guard admits only :data:`QUERYABLE`,
     none of which starts with ``__vitruvio_``, so the only way onto a view is the rewrite that chose it -- and the
     visibility the outcome reports is the visibility the query ran under.
+
+    ``member`` names one brain of a compound by its position, never by its name: a brain name is caller data, and
+    caller data does not belong in an identifier. Without it, the view is the table across every brain consulted.
     """
-    return f"__vitruvio_visible_{table}"
+    return f"__vitruvio_visible_{table}{_suffix(member)}"
 
 
-def every_name(table: str) -> str:
+def every_name(table: str, member: int | None = None) -> str:
     """Where ``FROM semantic`` is pointed under ``include_superseded``. A separate view rather than a flag on one, so
     the choice is visible in ``executed_sql`` instead of hiding in a join the caller never sees."""
-    return f"__vitruvio_all_{table}"
+    return f"__vitruvio_all_{table}{_suffix(member)}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +111,11 @@ class GuardedQuery:
         canonical (str): The same query as sqlglot writes it back: one spelling per meaning, which is what the
             signature is taken over.
         executed (str): What the engine runs -- canonical, with the tables rewritten and the order made total.
-        tables (tuple[str, ...]): The brain tables it reads, sorted, each once.
+        tables (tuple[str, ...]): The brain tables it reads, sorted, each once. In a compound a table read in one brain
+            is spelled ``brain.table``; a bare ``table`` is that table across every brain consulted.
+        references (tuple[tuple[str | None, str], ...]): The same, structured: ``(brain, table)``, where ``brain`` is
+            ``None`` for a bare reference.
+        brains (tuple[str, ...]): The brains a compound consults, in order. Empty for a single brain.
         ordered (bool): Whether the caller gave an order. When not, ``ORDER BY ALL`` was added.
         include_superseded (bool): Whether the tables were rewritten onto every member rather than the
             accessible ones.
@@ -119,9 +130,11 @@ class GuardedQuery:
     canonical: str
     executed: str
     tables: tuple[str, ...]
+    references: tuple[tuple[str | None, str], ...]
     ordered: bool
     include_superseded: bool
     signature: str
+    brains: tuple[str, ...] = ()
     similarity: tuple[str, ...] = ()
     thresholds: dict[str, tuple[float, ...]] | None = None
 
@@ -220,10 +233,12 @@ def _ctes_in_scope(table: exp.Table) -> set[str]:
     return names
 
 
-def _rewrite_tables(tree: exp.Expr, *, include_superseded: bool) -> tuple[str, ...]:
+def _rewrite_tables(
+    tree: exp.Expr, *, include_superseded: bool, brains: tuple[str, ...] | None
+) -> tuple[tuple[str | None, str], ...]:
     from sqlglot import exp
 
-    used: set[str] = set()
+    used: set[tuple[str | None, str]] = set()
     for table in list(tree.find_all(exp.Table)):
         if not isinstance(table.this, exp.Identifier):
             raise UsageError(
@@ -231,22 +246,34 @@ def _rewrite_tables(tree: exp.Expr, *, include_superseded: bool) -> tuple[str, .
                 hint=_HINT,
             )
         name = table.name.lower()
+        brain: str | None = None
         if table.db or table.catalog:
             qualified = ".".join(part for part in (table.catalog, table.db, table.name) if part)
-            raise UsageError(
-                f"{qualified!r} names a schema, and a single brain has none",
-                hint="query one brain's tables by their bare name: " + ", ".join(QUERYABLE),
-            )
-        if name in _ctes_in_scope(table):
+            if brains is None:
+                raise UsageError(
+                    f"{qualified!r} names a schema, and a single brain has none",
+                    hint="query one brain's tables by their bare name, or several brains with `vitruvio compound sql`",
+                )
+            if table.catalog or table.db not in brains:
+                raise UsageError(
+                    f"{qualified!r} names no brain this compound consults",
+                    hint="the brains are: " + ", ".join(brains) + "; a brain name with a dash needs double quotes",
+                )
+            brain = table.db
+        elif name in _ctes_in_scope(table):
             continue
         if name not in QUERYABLE:
             raise UsageError(f"there is no table called {table.name!r}", hint="the tables are: " + ", ".join(QUERYABLE))
-        used.add(name)
+        used.add((brain, name))
+        member = None if brain is None else (brains or ()).index(brain)
         alias = table.alias
-        table.set("this", exp.to_identifier(every_name(name) if include_superseded else visible_name(name)))
+        table.set("db", None)
+        table.set(
+            "this", exp.to_identifier(every_name(name, member) if include_superseded else visible_name(name, member))
+        )
         if not alias:
             table.set("alias", exp.TableAlias(this=exp.to_identifier(name)))
-    return tuple(sorted(used))
+    return tuple(sorted(used, key=lambda reference: (reference[0] or "", reference[1])))
 
 
 def _literal_text(argument: exp.Expr, function: str) -> str:
@@ -313,13 +340,15 @@ def _rewrite_similarity(tree: exp.Expr) -> tuple[tuple[str, ...], dict[str, tupl
     return tuple(texts), {text: tuple(sorted(set(values))) for text, values in thresholds.items()}
 
 
-def guard(sql: str, *, include_superseded: bool = False) -> GuardedQuery:
+def guard(sql: str, *, include_superseded: bool = False, brains: tuple[str, ...] | None = None) -> GuardedQuery:
     """
     Admit a query or refuse it, and rewrite what is admitted onto the engine's views.
 
     Args:
         sql (str): The caller's SQL. One statement; a trailing semicolon is allowed.
         include_superseded (bool): Read every member rather than only the accessible ones.
+        brains (tuple[str, ...] | None): The brains of a compound, in order. With them, ``brain.table`` reads one
+            brain's table and a bare ``table`` reads it across all of them; without them, a qualified name is refused.
 
     Returns:
         GuardedQuery: The admitted query, canonicalised and rewritten.
@@ -341,18 +370,24 @@ def guard(sql: str, *, include_superseded: bool = False) -> GuardedQuery:
 
     canonical = tree.sql(dialect="duckdb")
     rewritten = tree.copy()
-    tables = _rewrite_tables(rewritten, include_superseded=include_superseded)
+    references = _rewrite_tables(rewritten, include_superseded=include_superseded, brains=brains)
     similarity, thresholds = _rewrite_similarity(rewritten)
     ordered = rewritten.args.get("order") is not None
     if not ordered:
         rewritten = rewritten.order_by(exp.Column(this=exp.Var(this="ALL")), copy=False)
 
-    digest = hashlib.sha256(f"{canonical}\x00superseded={include_superseded}".encode()).hexdigest()
+    # The brains are part of the question: a bare `semantic` over two brains is not the same table as over three.
+    consulted = "\x00".join(brains or ())
+    digest = hashlib.sha256(
+        f"{canonical}\x00superseded={include_superseded}\x00brains={consulted}".encode()
+    ).hexdigest()
     return GuardedQuery(
         sql=sql,
         canonical=canonical,
         executed=rewritten.sql(dialect="duckdb"),
-        tables=tables,
+        tables=tuple(table if brain is None else f"{brain}.{table}" for brain, table in references),
+        references=references,
+        brains=tuple(brains or ()),
         ordered=ordered,
         include_superseded=include_superseded,
         signature=f"sha256:{digest}",

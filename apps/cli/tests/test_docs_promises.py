@@ -209,25 +209,26 @@ def test_the_cli_skill_covers_every_group() -> None:
 
 def test_the_counts_in_the_skill_are_the_real_ones() -> None:
     """The skill states the exact group and command counts. Pinned so that adding a command forces the prose to
-        be updated rather than quietly becoming wrong -- the same bargain `reference --check` makes.
+            be updated rather than quietly becoming wrong -- the same bargain `reference --check` makes.
 
-        `browse` is a top-level command rather than a group, which is why adding it and its three reading commands moved
-        the command count and left the group count alone. `reconcile` moved both: ten commands and a group of their own,
-        because joining two histories is not transport and does not belong under `dist`. `update` moved only the
-        command count, for the same reason `browse` did -- it is one verb about the tool rather than a group of
-        verbs about a brain. `compound` moved both: a group of its own with two commands, because asking several
-        brains one question is retrieval over a project rather than a flag on `query`. `sql` moved only the command count,
-    like `update`: one verb, whose flags select between running, explaining and listing the schema."""
+            `browse` is a top-level command rather than a group, which is why adding it and its three reading commands moved
+            the command count and left the group count alone. `reconcile` moved both: ten commands and a group of their own,
+            because joining two histories is not transport and does not belong under `dist`. `update` moved only the
+            command count, for the same reason `browse` did -- it is one verb about the tool rather than a group of
+            verbs about a brain. `compound` moved both: a group of its own with two commands, because asking several
+            brains one question is retrieval over a project rather than a flag on `query`. `sql` moved only the command count,
+        like `update`: one verb, whose flags select between running, explaining and listing the schema. `compound sql` moved
+    only the command count too: the same query over several brains belongs beside `compound search`."""
     text = CLI_SKILL.read_text(encoding="utf-8")
     commands = known_commands()
     leaves = [command for command in commands if not any(other.startswith(f"{command} ") for other in commands)]
     groups = {command.split()[0] for command in commands if " " in command}
 
-    words = {18: "Eighteen", 114: "one hundred and fourteen"}
+    words = {18: "Eighteen", 115: "one hundred and fifteen"}
     assert words[18] in text or str(len(groups)) in text, f"there are {len(groups)} groups"
-    assert words[114] in text, f"the skill does not state the command count; there are {len(leaves)}"
+    assert words[115] in text, f"the skill does not state the command count; there are {len(leaves)}"
     assert len(groups) == 18, f"the skill says eighteen groups; there are now {len(groups)}"
-    assert len(leaves) == 114, f"the skill says one hundred and fourteen commands; there are now {len(leaves)}"
+    assert len(leaves) == 115, f"the skill says one hundred and fifteen commands; there are now {len(leaves)}"
 
 
 EVIDENCE_BUNDLE = ROOT / "skills" / "vitruvio" / "references" / "evidence-bundle.md"

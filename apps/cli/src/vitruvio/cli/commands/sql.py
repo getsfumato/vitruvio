@@ -12,8 +12,9 @@ came back.
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from cyclopts import App, Parameter
 
@@ -29,7 +30,7 @@ app = App(
 )
 
 
-def _read(query: str | None, file: str | None) -> str:
+def text_of(query: str | None, file: str | None) -> str:
     """The query, from the command line or from a file -- one of the two, and not both."""
     if query is not None and file is not None:
         raise UsageError("give the query as an argument or with --file, not both")
@@ -104,19 +105,27 @@ def sql(
         described = service.sql_schema()
         return console.emit("sql", described, view=view.schema(described))
 
-    text = _read(query, file)
+    text = text_of(query, file)
     if explain:
         explained = service.sql_explain(text, include_superseded=include_superseded)
         return console.emit("sql", explained, view=view.explanation(explained))
 
     result = service.sql(text, include_superseded=include_superseded, limit=limit, verify=verify)
+    report(console, result, limit)
+    return console.emit("sql", result, view=view.result(result))
+
+
+def report(console: Any, result: Mapping[str, Any], limit: int) -> None:
+    """Warn about everything that makes a result less than it looks: truncation, absent modules, degradations.
+
+    Shared with `compound sql`, whose result says the same things about several brains at once.
+    """
     if result["truncated"]:
         console.warn(f"the result is truncated at {limit} rows; raise --limit or aggregate further")
     for name in result["not_installed"]:
         console.warn(f"the {name} module is not installed here, so its table was empty")
     for degradation in result["degradations"]:
         console.warn(f"{degradation['kind']}: {degradation['reason']}")
-    return console.emit("sql", result, view=view.result(result))
 
 
-__all__ = ["app"]
+__all__ = ["app", "report", "text_of"]

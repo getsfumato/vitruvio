@@ -59,6 +59,8 @@ class SqlOutcome:
             they were not asked for.
         degradations (list[dict[str, str]]): What went less well than asked, and why.
         plan (str | None): DuckDB's physical plan, when the query was explained rather than run.
+        brains (list[str]): The brains a compound consulted, in order. Empty for one brain; when not, every key in
+            ``verified_against``, ``hidden`` and ``not_installed`` is spelled ``brain.module``.
     """
 
     sql: str
@@ -80,6 +82,7 @@ class SqlOutcome:
     verified_rows: int | None = None
     degradations: list[dict[str, str]] = field(default_factory=list)
     plan: str | None = None
+    brains: list[str] = field(default_factory=list)
 
 
 def json_native(value: Any) -> Any:

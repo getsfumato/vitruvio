@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Eighteen groups, one hundred and fourteen commands. This skill is the map: which group owns a task, which command inside it, and
+Eighteen groups, one hundred and fifteen commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -205,6 +205,7 @@ not proof of corruption: a merge may legitimately introduce an actor the head's 
 |---|---|
 | `compound search TEXT` | one query across two or more of the project's brains. `--brains a --brains b` (or `--brains a,b`), or `--all`; `--fuse` merges by rank instead of grouping per brain |
 | `compound explain TEXT` | one plan per brain, side by side. Same selection flags |
+| `compound sql QUERY` | one SQL query over several brains in one database: bare `semantic` spans them with a `brain` column, `algebra.semantic` is one. Same selection flags |
 
 Brains are named, never given as paths — a compound composes *this* project's brains only. `vitruvio-compound` is the
 skill that walks a user through choosing them.

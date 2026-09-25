@@ -16,13 +16,18 @@ from this one -- same actor, same policy, same planner calibration, a different 
 those sessions for the duration of one call and never a ``Brain``, which keeps the session rule of ADR-0013 intact.
 It opens every member at RETRIEVE, and a RETRIEVE open rebuilds that brain's indices: a compound of three brains
 costs three rebuilds, which is the price of the feature and is stated in the guide rather than hidden.
+
+``compound_sql`` is the exception to "each brain answers on its own". A count or a join across brains is one
+question over their union, not several answers composed, so every member's tables are loaded into one engine and
+DuckDB answers once. What each member still owns -- its ledger, its table cache, its vector indices -- it brings
+with it, and the result reports every root by brain.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from functools import partial
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from vitruvio.kernel import ResolvedConfig, UsageError, VitruvioError, is_layout
 from vitruvio.runtime.compound_result import (
@@ -34,6 +39,7 @@ from vitruvio.runtime.compound_result import (
 from vitruvio.runtime.ops.retrieval import RetrievalOps
 from vitruvio.runtime.retrieval_result import SearchResult
 from vitruvio.runtime.session import BrainSession
+from vitruvio.runtime.sql_result import CompoundSqlResult
 
 T = TypeVar("T")
 
@@ -69,16 +75,23 @@ class CompoundOps:
     def _members(
         self, brains: Iterable[str] | None, all_brains: bool
     ) -> tuple[list[tuple[str, RetrievalOps]], list[SkippedBrainResult]]:
+        """Which brains to consult, each behind its own retrieval operations. See :meth:`_selected`."""
+        selected, skipped = self._selected(brains, all_brains)
+        return [(name, RetrievalOps(BrainSession(config))) for name, config in selected], skipped
+
+    def _selected(
+        self, brains: Iterable[str] | None, all_brains: bool
+    ) -> tuple[list[tuple[str, ResolvedConfig]], list[SkippedBrainResult]]:
         """
-        Which brains to consult, each behind its own retrieval operations, and which declared brains were skipped.
+        Which brains to consult, each with its own derived configuration, and which declared brains were skipped.
 
         Args:
             brains (Iterable[str] | None): Brain names the project declares. Order is kept, duplicates dropped.
             all_brains (bool): Every declared brain whose layout exists on this machine.
 
         Returns:
-            tuple[list[tuple[str, RetrievalOps]], list[SkippedBrainResult]]: The members, and the skipped brains with
-            the reason each was skipped.
+            tuple[list[tuple[str, ResolvedConfig]], list[SkippedBrainResult]]: The members, and the skipped brains
+            with the reason each was skipped.
 
         Raises:
             UsageError: If both or neither selection was given, a name is not one this project declares, or fewer
@@ -125,13 +138,12 @@ class CompoundOps:
                 hint=f"for one brain use `vitruvio search`; known: {known}",
             )
 
-        members: list[tuple[str, RetrievalOps]] = []
+        members: list[tuple[str, ResolvedConfig]] = []
         for name in names:
             path = document.brain_path(name)
             # Derived rather than re-resolved, as `dist push --all` does: every brain in a project shares its actor,
             # policy and planner calibration, so the only thing that varies is which layout is open.
-            derived = self.config.model_copy(update={"brain": path, "brain_name": name})
-            members.append((name, RetrievalOps(BrainSession(derived))))
+            members.append((name, self.config.model_copy(update={"brain": path, "brain_name": name})))
         return members, skipped
 
     @staticmethod
@@ -285,3 +297,84 @@ class CompoundOps:
             "members": explanations,
         }
         return payload
+
+    def _sql_engine(self, brains: Iterable[str] | None, all_brains: bool) -> tuple[Any, list[SkippedBrainResult]]:
+        """One engine over every member, each bringing its own modules, table cache and scorer."""
+        from vitruvio.runtime.ops.sql import SqlOps, _engine_package
+
+        package = _engine_package()
+        selected, skipped = self._selected(brains, all_brains)
+        members = {name: self._consult(name, SqlOps(BrainSession(config))._sql_brain) for name, config in selected}
+        return package.SqlEngine(brains=members), skipped
+
+    def compound_sql(
+        self,
+        query: str,
+        *,
+        brains: Iterable[str] | None = None,
+        all_brains: bool = False,
+        include_superseded: bool = False,
+        limit: int = 1000,
+        verify: bool = False,
+    ) -> CompoundSqlResult:
+        """
+        Answer one read-only SQL query over several brains of this project at once.
+
+        Every member's tables are loaded into one database. A bare ``semantic`` is that table across every brain,
+        with a leading ``brain`` column; ``algebra.semantic`` is one brain's. Each brain hides superseded blocks by its
+        own ledger and scores ``about`` with its own vectors, and every root is reported as ``brain.module``.
+
+        Args:
+            query (str): One ``SELECT`` over the brains' tables.
+            brains (Iterable[str] | None): Brain names this project declares. At least two. A path is refused.
+            all_brains (bool): Every declared brain whose layout exists here; the others are reported as skipped.
+            include_superseded (bool): Read superseded and demoted blocks too, in every brain.
+            limit (int): The most rows to return; ``truncated`` says when there were more.
+            verify (bool): When the result has an ``id`` column, prove each block into the root of the brain holding it.
+
+        Returns:
+            CompoundSqlResult: The rows, and the roots of every module of every brain they were computed over.
+        """
+        from vitruvio.runtime import sql_result
+        from vitruvio.runtime.mapping import translated
+
+        engine, skipped = self._sql_engine(brains, all_brains)
+        with translated(), engine:
+            outcome = engine.query(query, include_superseded=include_superseded, limit=limit, verify=verify)
+        return {
+            **sql_result.outcome(outcome),
+            "project": self.config.project.project.name,
+            "skipped": skipped,
+        }
+
+    def compound_sql_explain(
+        self,
+        query: str,
+        *,
+        brains: Iterable[str] | None = None,
+        all_brains: bool = False,
+        include_superseded: bool = False,
+    ) -> CompoundSqlResult:
+        """
+        Report how a query over several brains would run, without running it.
+
+        Args:
+            query (str): The query.
+            brains (Iterable[str] | None): Brain names this project declares. At least two.
+            all_brains (bool): Every declared brain whose layout exists here.
+            include_superseded (bool): Explain it over every member rather than the accessible ones.
+
+        Returns:
+            CompoundSqlResult: No rows; ``plan`` holds the engine's plan over the brains' combined tables.
+        """
+        from vitruvio.runtime import sql_result
+        from vitruvio.runtime.mapping import translated
+
+        engine, skipped = self._sql_engine(brains, all_brains)
+        with translated(), engine:
+            outcome = engine.explain(query, include_superseded=include_superseded)
+        return {
+            **sql_result.outcome(outcome),
+            "project": self.config.project.project.name,
+            "skipped": skipped,
+        }

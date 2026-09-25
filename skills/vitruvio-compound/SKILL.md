@@ -95,6 +95,20 @@ Branch on `data.fused`, then read three things:
 The fused `score` is agreement between brains and retrieval strategies -- a string, not a probability, and not to
 be reformatted. The brain returns evidence and you write the prose; there is no field that does it for you.
 
+## Counting across brains
+
+`compound search` composes separate answers. For "how many per brain", or "which blocks do these two brains share",
+use `compound sql`, which runs one query over every brain's tables at once:
+
+```bash
+vitruvio compound sql "SELECT brain, count(*) FROM semantic WHERE kind = 'fact' GROUP BY brain" --all --json
+vitruvio compound sql 'SELECT count(*) FROM algebra.semantic a JOIN "analisis-ii".semantic b ON a.id = b.id' --brains algebra,analisis-ii --json
+```
+
+- A bare table spans the brains, with a `brain` column. `algebra.semantic` is one brain's table.
+- A block held by two brains counts twice unless you write `count(DISTINCT id)`. Say which of the two you report.
+- Roots come back as `brain.module`. Cite them with the count.
+
 ## When it refuses
 
 | exit | what happened | what to do |

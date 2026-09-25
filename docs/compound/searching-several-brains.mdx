@@ -111,6 +111,29 @@ Three fields beyond what a single bundle carries:
 Cite the block **and** the brain. Everything chapter 5 says about `truncated`, `superseded_by` and `resolvable`
 holds per match.
 
+## Counting across brains with SQL
+
+`compound search` asks each brain separately and composes the answers. A count or a join across brains is one
+question about all of them together, so `compound sql` loads every brain's tables into one database and runs the
+query once:
+
+```bash
+vitruvio compound sql "SELECT brain, count(*) FROM semantic WHERE kind = 'fact' GROUP BY brain" --all
+vitruvio compound sql 'SELECT a.label FROM algebra.semantic a JOIN "analisis-ii".semantic b ON b.id = a.id' \
+  --brains algebra,analisis-ii
+```
+
+- A bare table such as `semantic` covers every brain consulted and gains a leading `brain` column. A qualified
+  one, such as `algebra.semantic`, reads one brain. Quote a brain name that contains a dash.
+- Each brain hides superseded blocks according to its own provenance, uses its own table cache, and scores
+  `about()` with its own vectors.
+- Blocks are content-addressed, so a block held by two brains is one row per brain. Use `count(DISTINCT id)` to
+  count it once.
+- Every key in `verified_against`, `hidden` and `not_installed` is written `brain.module`. `hidden` is counted
+  per brain even when the query reads a bare table.
+- `about()` is scored only by the brains the query reads. `algebra.semantic` is scored by algebra's model alone. `skipped` names the
+  brains that were declared but have no layout on this machine.
+
 ## When a brain returns nothing
 
 `compound explain` shows why each brain planned as it did, side by side. A brain with no indices built scans; a brain
