@@ -77,6 +77,72 @@ class TestRefusals:
             guard("SELECT FROM WHERE (")
 
 
+class TestOneAnswer:
+    """What would make one signature over one set of roots name two answers is refused."""
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT count(*) FROM semantic TABLESAMPLE RESERVOIR(2 ROWS)",
+            "SELECT * FROM semantic USING SAMPLE 10%",
+        ],
+    )
+    def test_sampling_is_refused(self, sql: str) -> None:
+        with pytest.raises(UsageError, match="sampling"):
+            guard(sql)
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT random() AS x",
+            "SELECT uuid()",
+            "SELECT gen_random_uuid()",
+            "SELECT now()",
+            "SELECT current_timestamp",
+            "SELECT current_date",
+            "SELECT today()",
+            "SELECT count(*) FROM episodic WHERE occurred_at > now() - INTERVAL 1 DAY",
+            "SELECT setseed(0.5)",
+            "SELECT nextval('s')",
+        ],
+    )
+    def test_a_volatile_function_is_refused(self, sql: str) -> None:
+        with pytest.raises(UsageError, match="different value on every run"):
+            guard(sql)
+
+
+class TestCteScope:
+    """A CTE name shadows a table only where that CTE is visible."""
+
+    def test_a_nested_cte_does_not_hide_the_outer_table(self) -> None:
+        admitted = guard(
+            "SELECT count(*) FROM semantic WHERE EXISTS (WITH semantic AS (SELECT 1) SELECT * FROM semantic)"
+        )
+        outer, inner = admitted.executed.split("EXISTS", 1)
+        assert visible_name("semantic") in outer
+        assert visible_name("semantic") not in inner
+
+    def test_a_cte_can_shadow_the_table_it_reads(self) -> None:
+        admitted = guard("WITH semantic AS (SELECT * FROM semantic WHERE kind = 'fact') SELECT count(*) FROM semantic")
+        body = admitted.executed.rsplit(")", 1)[1]
+        assert visible_name("semantic") in admitted.executed
+        assert visible_name("semantic") not in body
+
+    def test_a_later_cte_sees_an_earlier_one(self) -> None:
+        admitted = guard(
+            "WITH a AS (SELECT * FROM semantic), b AS (SELECT * FROM a) SELECT * FROM b UNION SELECT * FROM a"
+        )
+        assert admitted.tables == ("semantic",)
+
+    def test_an_earlier_cte_does_not_see_a_later_one(self) -> None:
+        with pytest.raises(UsageError, match="no table called 'a'"):
+            guard("WITH b AS (SELECT * FROM a), a AS (SELECT 1) SELECT * FROM b")
+
+    def test_a_recursive_cte_sees_itself(self) -> None:
+        admitted = guard("WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r")
+        assert admitted.tables == ()
+
+
 class TestRewriting:
     """Admitted queries read the engine's views, keep the caller's names, and are ordered totally."""
 

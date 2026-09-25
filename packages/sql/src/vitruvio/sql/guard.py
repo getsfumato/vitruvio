@@ -5,17 +5,21 @@ query runs -- so this is the first of two walls, not the only one. It is the one
 DuckDB reads "Permission Error: file system operations are disabled"; a refusal from here names the construct and
 what to write instead, which is the difference between an agent that rephrases and one that reports a bug.
 
-Four things happen, in order:
+Five things happen, in order:
 
 1. **Parse.** One statement, in DuckDB's dialect. Two statements are refused rather than the first one run.
 2. **Refuse what is not a read.** The statement must be a query -- a ``SELECT``, a set operation, a ``WITH`` over
    them. DDL, DML, ``COPY``, ``ATTACH``, ``PRAGMA``, ``SET`` and ``INSTALL`` are refused by kind; table functions
    and the file readers are refused by name, so ``FROM read_csv('/etc/passwd')`` never becomes a question for the
    sandbox to answer.
-3. **Rewrite the tables.** ``semantic`` becomes the engine's view of that module -- the accessible blocks by
+3. **Refuse what cannot have one answer.** ``TABLESAMPLE`` and ``USING SAMPLE`` read a subset while the outcome
+   claims every member; ``random()``, ``uuid()``, ``now()`` and their kin return something different on each run.
+   Either would make one signature over one set of roots name two answers, so both are refused.
+4. **Rewrite the tables.** ``semantic`` becomes the engine's view of that module -- the accessible blocks by
    default, every member when superseded blocks are asked for. The alias stays what the caller wrote, so
-   ``semantic.label`` still resolves.
-4. **Make the order total.** A query with no ``ORDER BY`` gets ``ORDER BY ALL``. Without it the same query over the
+   ``semantic.label`` still resolves. A name is a CTE only where that CTE is in scope: a ``WITH semantic`` inside a
+   subquery does not shadow the real table outside it.
+5. **Make the order total.** A query with no ``ORDER BY`` gets ``ORDER BY ALL``. Without it the same query over the
    same root could return its rows in two orders, and a signature over the query would then name two answers.
 """
 
@@ -38,16 +42,49 @@ _FILE_READERS = ("read_", "glob", "sniff_csv", "parquet_", "iceberg_", "delta_sc
 """Function-name prefixes that read from outside the brain. DuckDB's sandbox refuses them too; naming them here is what
 makes the refusal say what was refused."""
 
+_VOLATILE = frozenset(
+    {
+        "random",
+        "rand",
+        "setseed",
+        "uuid",
+        "gen_random_uuid",
+        "uuidv4",
+        "uuidv7",
+        "now",
+        "today",
+        "current_timestamp",
+        "current_date",
+        "current_time",
+        "current_localtimestamp",
+        "get_current_timestamp",
+        "get_current_time",
+        "transaction_timestamp",
+        "localtimestamp",
+        "localtime",
+        "nextval",
+        "currval",
+    }
+)
+"""Functions whose value is not determined by their arguments and the tables: each run, or each row, differs."""
+
 _HINT = "vitruvio sql is read-only: write one SELECT over " + ", ".join(QUERYABLE)
 
 
 def visible_name(table: str) -> str:
-    """The engine's view of a table with superseded and demoted blocks hidden."""
+    """
+    Where a caller's ``FROM semantic`` is pointed by default.
+
+    Prefixed so that no name a caller may write can reach it directly: the guard admits only :data:`QUERYABLE`,
+    none of which starts with ``__vitruvio_``, so the only way onto a view is the rewrite that chose it -- and the
+    visibility the outcome reports is the visibility the query ran under.
+    """
     return f"__vitruvio_visible_{table}"
 
 
 def every_name(table: str) -> str:
-    """The engine's view of a table with every member, superseded or not."""
+    """Where ``FROM semantic`` is pointed under ``include_superseded``. A separate view rather than a flag on one, so
+    the choice is visible in ``executed_sql`` instead of hiding in a join the caller never sees."""
     return f"__vitruvio_all_{table}"
 
 
@@ -97,6 +134,11 @@ def _parse(sql: str) -> exp.Expr:
 def _refuse_functions(tree: exp.Expr) -> None:
     from sqlglot import exp
 
+    volatile = tuple(
+        getattr(exp, name)
+        for name in ("Rand", "Uuid", "CurrentTimestamp", "CurrentDate", "CurrentTime", "Localtimestamp", "Localtime")
+        if hasattr(exp, name)
+    )
     for function in tree.find_all(exp.Func):
         name = (function.name if isinstance(function, exp.Anonymous) else function.sql_name()).lower()
         if name.startswith(_FILE_READERS) or isinstance(function, exp.ReadCSV):
@@ -104,12 +146,49 @@ def _refuse_functions(tree: exp.Expr) -> None:
                 f"{name}() reads from outside the brain, and queries may only read the brain's tables",
                 hint=_HINT,
             )
+        if name in _VOLATILE or isinstance(function, volatile):
+            raise UsageError(
+                f"{name}() returns a different value on every run, and a query here has one answer per set of roots",
+                hint="compute it outside the query, or compare against a literal",
+            )
+    for sample in tree.find_all(exp.TableSample):
+        raise UsageError(
+            f"sampling is not supported: {sample.sql(dialect='duckdb')} reads a subset, and the answer claims every "
+            "accessible member",
+            hint="use LIMIT with ORDER BY for a bounded, repeatable subset",
+        )
+
+
+def _ctes_in_scope(table: exp.Table) -> set[str]:
+    """
+    The CTE names a table reference can see, walking outward from it.
+
+    A query's ``WITH`` is visible in that query's body and in the CTEs defined after it -- and in the CTE itself when
+    the ``WITH`` is recursive -- but not outside the query. Collecting every CTE in the statement into one set, as
+    the first version did, let ``EXISTS (WITH semantic AS (...) ...)`` hide the real ``semantic`` in the outer query.
+    """
+    from sqlglot import exp
+
+    names: set[str] = set()
+    child: exp.Expr = table
+    node = table.parent
+    while node is not None:
+        if isinstance(node, exp.With):
+            defined = node.expressions
+            position = next((index for index, cte in enumerate(defined) if cte is child), len(defined))
+            visible = defined[: position + 1] if node.args.get("recursive") else defined[:position]
+            names |= {cte.alias_or_name.lower() for cte in visible}
+        elif isinstance(node, exp.Query):
+            clause = node.args.get("with_")
+            if clause is not None and clause is not child:
+                names |= {cte.alias_or_name.lower() for cte in clause.expressions}
+        child, node = node, node.parent
+    return names
 
 
 def _rewrite_tables(tree: exp.Expr, *, include_superseded: bool) -> tuple[str, ...]:
     from sqlglot import exp
 
-    local = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
     used: set[str] = set()
     for table in list(tree.find_all(exp.Table)):
         if not isinstance(table.this, exp.Identifier):
@@ -124,7 +203,7 @@ def _rewrite_tables(tree: exp.Expr, *, include_superseded: bool) -> tuple[str, .
                 f"{qualified!r} names a schema, and a single brain has none",
                 hint="query one brain's tables by their bare name: " + ", ".join(QUERYABLE),
             )
-        if name in local:
+        if name in _ctes_in_scope(table):
             continue
         if name not in QUERYABLE:
             raise UsageError(f"there is no table called {table.name!r}", hint="the tables are: " + ", ".join(QUERYABLE))
