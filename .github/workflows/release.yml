@@ -28,7 +28,7 @@ permissions:
   contents: write
 
 concurrency:
-  # Never two releases at once: they would race on the tag, on the nine versions in the manifests, and on
+  # Never two releases at once: they would race on the tag, on every member's version in the manifests, and on
   # the lock. Not cancel-in-progress -- interrupting a release between the tag push and the assets is
   # worse than queueing behind it.
   group: release
@@ -153,7 +153,7 @@ jobs:
       # would make the release fail on the very file it is supposed to update.
       - run: uv sync --all-packages
 
-      - name: bump the nine versions, write the changelog, tag and push
+      - name: bump every member's version, write the changelog, tag and push
         env:
           # `[tool.semantic_release.remote]` reads the token from here. It is used for the push, not for
           # creating the release -- that is `--no-vcs-release` below.
@@ -183,12 +183,12 @@ jobs:
             exit 1
           }
 
-      - name: bundle the nine distributions
+      - name: bundle every distribution
         run: |
           set -eu
-          # One archive rather than eighteen loose assets. The nine distributions are only installable
-          # together -- `vitruvio` depends on vitruvio-kernel and vitruvio-runtime, which depend on five
-          # more -- so the unit an installer needs is the whole set. install.sh downloads this, points
+          # One archive rather than a pair of loose assets per member. The distributions are only installable
+          # together -- `vitruvio` depends on vitruvio-kernel and vitruvio-runtime, which depend on the rest,
+          # and an extra such as `vitruvio[sql]` names one more -- so the unit an installer needs is the set. install.sh downloads this, points
           # `uv tool install --find-links` at the extracted directory, and lets uv resolve within it.
           name="vitruvio-v${VERSION}-wheels"
           mkdir -p "bundle/${name}"
@@ -197,13 +197,16 @@ jobs:
           # bundled -- the cost of one is a release that installs the wrong code.
           cp dist/*-"${VERSION}"-py3-none-any.whl dist/*-"${VERSION}".tar.gz "bundle/${name}/"
 
-          # Nine of each. A bundle short a package installs nothing and says "no solution found", so the
-          # count is asserted here rather than discovered by whoever ran the installer first.
+          # One of each per workspace member. A bundle short a package installs nothing and says "no solution
+          # found", so the count is asserted here rather than discovered by whoever ran the installer first.
+          # Counted from the members rather than written down: a literal went stale the day vitruvio-sql
+          # became the tenth, and failed the v0.26.0 release after its tag had already been pushed.
+          members=$(find packages apps -mindepth 2 -maxdepth 2 -name pyproject.toml | wc -l | tr -d ' ')
           wheels=$(find "bundle/${name}" -name '*.whl' | wc -l | tr -d ' ')
           sdists=$(find "bundle/${name}" -name '*.tar.gz' | wc -l | tr -d ' ')
-          echo "wheels: $wheels, sdists: $sdists"
-          [ "$wheels" -eq 9 ] && [ "$sdists" -eq 9 ] || {
-            echo "::error::expected 9 wheels and 9 sdists, got $wheels and $sdists"
+          echo "members: $members, wheels: $wheels, sdists: $sdists"
+          [ "$members" -gt 0 ] && [ "$wheels" -eq "$members" ] && [ "$sdists" -eq "$members" ] || {
+            echo "::error::expected $members wheels and $members sdists, got $wheels and $sdists"
             exit 1
           }
 
