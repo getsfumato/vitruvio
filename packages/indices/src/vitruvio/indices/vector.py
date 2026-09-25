@@ -762,6 +762,45 @@ class VectorIndex(VitruvioIndex):
         ordered = sorted(best.items(), key=lambda item: (-item[1][0], item[0]))
         return [(block_id, score, position, span) for block_id, (score, position, span) in ordered[:limit]]
 
+    def similarities(self, text: str, *, space: str = SPACE_TEXT) -> dict[str, float]:
+        """
+        Every block's similarity to a text: the whole population, scored exactly, with no limit.
+
+        What a threshold needs and :meth:`lookup` cannot give. A lookup answers "the best k", and its approximate path
+        may miss a block a threshold should admit; a count taken over it would be a count of whatever the graph
+        happened to visit. This walks every chunk, so the set of blocks at or above a score is the same set on every
+        run over the same vectors.
+
+        The score is the one :meth:`lookup` computes -- the max over a block's chunks of the dot product, floored at
+        zero. It is *not* the score a search reports, which is agreement between retrieval strategies after fusion.
+
+        Args:
+            text (str): What to compare against, embedded as a query.
+            space (str): Which embedding space to score in.
+
+        Returns:
+            dict[str, float]: Block identity to score, for every block with a vector in ``space``.
+
+        Raises:
+            EmbedderUnavailableError: If the probe cannot be embedded.
+        """
+        keys = [key for key, row in self._rows.items() if row[1] == space]
+        if not keys or not text:
+            return {}
+        import numpy as np
+
+        probe = np.asarray(self.embedder.embed_text([text], role=TextRole.QUERY)[0], dtype=np.float64)
+        matrix = np.asarray([self._vectors[key] for key in keys], dtype=np.float64)
+        if matrix.shape[1] != probe.shape[0]:
+            raise ValueError(f"probe has {probe.shape[0]} dimensions and the stored vectors {matrix.shape[1]}")
+        scores = np.maximum(matrix @ probe, 0.0)
+        best: dict[str, float] = {}
+        for key, score in zip(keys, scores.tolist(), strict=True):
+            block_id = self._rows[key][0]
+            if score > best.get(block_id, -1.0):
+                best[block_id] = float(score)
+        return best
+
     def search(self, query: Any, limit: int = 10) -> list[tuple[Any, float]]:
         """
         The SDK's entry point.
