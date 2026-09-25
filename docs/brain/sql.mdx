@@ -110,6 +110,8 @@ Queries are read-only and bound to the brain:
 - You may send exactly one `SELECT`. `WITH`, joins, `UNION`, `HAVING` and window functions are allowed.
 - Nothing that writes is run: no `INSERT`, `CREATE`, `COPY`, `ATTACH`, `SET` or `PRAGMA`.
 - Nothing that reads outside the brain is run: no `read_csv`, `read_parquet`, `glob`, or other table functions.
+- Names starting with `__vitruvio_` are reserved for the engine's own tables, so no CTE, alias or column may use
+  them.
 - Sampling (`TABLESAMPLE`, `USING SAMPLE`) is refused, because it answers over a subset while the result claims
   every member.
 - Functions that return a different value on each run (`random()`, `uuid()`, `now()`, `current_date`, …) are

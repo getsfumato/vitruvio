@@ -140,8 +140,29 @@ class TestRefusals:
             guard(sql)
 
     def test_the_score_tables_cannot_be_named_directly(self) -> None:
-        with pytest.raises(UsageError, match="no table called"):
+        with pytest.raises(UsageError, match="reserved"):
             guard(f"SELECT {SCORE_BLOCK} FROM {similarity_table(0)}")
+
+    def test_a_cte_cannot_forge_a_score_table(self, brain: Brain, scorer: FixedScorer) -> None:
+        """The review's reproduction: a CTE named like the score table would be resolved before it."""
+        forged = (
+            f"WITH {similarity_table(0)} AS (SELECT 'sha256:fake' AS {SCORE_BLOCK}, 1.0 AS __vitruvio_score) "
+            "SELECT about('sha256:fake', 'ethics', 0.5)"
+        )
+        with pytest.raises(UsageError, match="reserved"):
+            _query(brain, scorer, forged)
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT label AS __vitruvio_score FROM semantic",
+            "SELECT x.label FROM semantic AS __vitruvio_visible_x",
+            "WITH __VITRUVIO_similarity_0 AS (SELECT 1) SELECT 1",
+        ],
+    )
+    def test_the_engine_prefix_is_reserved_everywhere(self, sql: str) -> None:
+        with pytest.raises(UsageError, match="reserved"):
+            guard(sql)
 
 
 class TestGuard:

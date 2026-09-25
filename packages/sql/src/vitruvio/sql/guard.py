@@ -12,7 +12,9 @@ Six things happen, in order:
    them. DDL, DML, ``COPY``, ``ATTACH``, ``PRAGMA``, ``SET`` and ``INSTALL`` are refused by kind; table functions
    and the file readers are refused by name, so ``FROM read_csv('/etc/passwd')`` never becomes a question for the
    sandbox to answer.
-3. **Refuse what cannot have one answer.** ``TABLESAMPLE`` and ``USING SAMPLE`` read a subset while the outcome
+3. **Refuse what cannot have one answer, or could impersonate the engine.** Names starting with ``__vitruvio_`` are
+   the engine's, and a caller's CTE or alias using the prefix is refused, so nothing a query defines can shadow a
+   table the rewrite points at. ``TABLESAMPLE`` and ``USING SAMPLE`` read a subset while the outcome
    claims every member; ``random()``, ``uuid()``, ``now()`` and their kin return something different on each run.
    Either would make one signature over one set of roots name two answers, so both are refused.
 4. **Rewrite the tables.** ``semantic`` becomes the engine's view of that module -- the accessible blocks by
@@ -168,6 +170,29 @@ def _refuse_functions(tree: exp.Expr) -> None:
         )
 
 
+RESERVED_PREFIX = "__vitruvio_"
+"""The prefix of every name the engine creates. A caller may not use it for anything."""
+
+
+def _refuse_reserved(tree: exp.Expr) -> None:
+    """
+    Refuse any name a caller writes that starts with the engine's own prefix.
+
+    The rewrite points `about()` at a score table and ``data."x"`` at a loaded file, by unqualified names. A CTE of
+    the same name would be resolved first, so ``WITH __vitruvio_similarity_0 AS (...)`` could forge a score and still
+    have the outcome attribute it to the vector model. Refusing the prefix everywhere -- CTE, alias, column -- is
+    simpler to state than working out which positions could shadow what, and costs a caller nothing it needs.
+    """
+    from sqlglot import exp
+
+    for identifier in tree.find_all(exp.Identifier):
+        if str(identifier.this).lower().startswith(RESERVED_PREFIX):
+            raise UsageError(
+                f"{identifier.this!r} uses the prefix {RESERVED_PREFIX!r}, which is reserved for the engine's own tables",
+                hint="rename it; nothing a query needs starts with that prefix",
+            )
+
+
 def _ctes_in_scope(table: exp.Table) -> set[str]:
     """
     The CTE names a table reference can see, walking outward from it.
@@ -312,6 +337,7 @@ def guard(sql: str, *, include_superseded: bool = False) -> GuardedQuery:
         if isinstance(node, exp.DML | exp.DDL | exp.Command | exp.Pragma | exp.Set | exp.Copy):
             raise UsageError(f"only queries are allowed, and this contains a {type(node).__name__.upper()}", hint=_HINT)
     _refuse_functions(tree)
+    _refuse_reserved(tree)
 
     canonical = tree.sql(dialect="duckdb")
     rewritten = tree.copy()
@@ -335,4 +361,4 @@ def guard(sql: str, *, include_superseded: bool = False) -> GuardedQuery:
     )
 
 
-__all__ = ["QUERYABLE", "GuardedQuery", "every_name", "guard", "visible_name"]
+__all__ = ["QUERYABLE", "RESERVED_PREFIX", "GuardedQuery", "every_name", "guard", "visible_name"]

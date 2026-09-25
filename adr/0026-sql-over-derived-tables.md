@@ -57,6 +57,9 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
   - It accepts one statement, and that statement must be a query.
   - It refuses by construct: DDL and DML, `COPY`, `ATTACH`, `INSTALL`, `PRAGMA`, `SET`, table functions, and
     file-reading functions.
+  - It reserves the prefix `__vitruvio_` for every name the engine creates, and refuses it in any identifier a caller
+    writes. The rewrite points at internal tables by unqualified names, so a caller's CTE of the same name would be
+    resolved first and could forge a score.
   - It refuses sampling, and functions whose value differs from run to run (`random()`, `uuid()`, `now()` and
     their kin). Either would make one signature over one set of roots name two answers.
   - It rewrites table names onto the engine's views and keeps the caller's aliases. A CTE name shadows a table
