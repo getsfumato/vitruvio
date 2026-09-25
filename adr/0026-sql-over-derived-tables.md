@@ -39,16 +39,28 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
   - A cache file is therefore right for exactly one composition, and is never invalidated because nothing stale is
     ever looked up. Files for older compositions are removed when a newer one is written.
   - The cache does not travel with the brain; it is rebuilt locally.
+  - It is a copy of block payloads, so every retention mechanism that removes knowledge (drop, drop-by-producer,
+    applied prune, redaction) deletes it. An erasure that left a copy in a derived cache would not be an erasure.
+  - A member is unreadable only when the composition says so: tombstoned, or not installed. A read that fails is an
+    error that propagates, never a null row. A passing I/O fault would otherwise become a false tombstone, cached
+    under a key that cannot change until the composition does.
 - **The ledger is joined in when tables are loaded, not stored with them.**
   - Supersession and demotion are recorded in the provenance module, so they can change while another module's
     root does not.
   - Superseded and demoted blocks are hidden by default, as search hides them, and `include_superseded` shows them.
   - Each result reports how many members it hid.
+  - Hiding reads the provenance module, so that module is an input to every query that hides anything. Its root is
+    reported in `verified_against` even when the query never names it.
+  - Without a provenance module nothing can be hidden. The result then lists `provenance` in `not_installed` and
+    sets `exact: false`, rather than presenting the count as a count of accessible blocks.
 - **The guard (sqlglot).**
   - It accepts one statement, and that statement must be a query.
   - It refuses by construct: DDL and DML, `COPY`, `ATTACH`, `INSTALL`, `PRAGMA`, `SET`, table functions, and
     file-reading functions.
-  - It rewrites table names onto the engine's views and keeps the caller's aliases.
+  - It refuses sampling, and functions whose value differs from run to run (`random()`, `uuid()`, `now()` and
+    their kin). Either would make one signature over one set of roots name two answers.
+  - It rewrites table names onto the engine's views and keeps the caller's aliases. A CTE name shadows a table
+    only where that CTE is in scope.
   - It adds `ORDER BY ALL` when the query gives no order, so one question over one root has one answer.
   - Its signature is a digest of the canonical query plus the visibility it ran under.
 - **The seal (DuckDB).**
@@ -56,15 +68,20 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
   - Then external access is switched off and the configuration locked, so no statement can read or write a file,
     load an extension, or turn access back on.
   - The guard is the wall that explains a refusal; the seal is the wall that holds if the guard misses something.
-  - Queries run under a timeout and a memory limit.
+  - DuckDB runs single-threaded over tables inserted in identity order, so order-sensitive aggregates and a
+    `LIMIT` inside a subquery also see one order.
+  - One time budget covers the whole request: projecting or loading tables, running, fetching and verifying. It
+    is enforced by interrupting DuckDB and by checks inside the Python loops. A memory limit applies as well.
 - **Honesty in the result.**
   - `verified_against` names the root of every module read.
   - `not_installed` names tables that were empty because their module is absent. Zero from a module that is not
     here is different from zero from one that is.
   - `truncated` reports a row limit that was hit, instead of cutting the result silently.
   - `--verify` proves every block the result names in an `id` column.
-  - `exact` is true. Only a future similarity predicate, which needs an explicit threshold, may set it to false,
-    and it will list why.
+  - `exact` is true unless something the answer depends on could not be established. Today that means a missing
+    provenance module; later it will include a thresholded similarity predicate. `approximate` lists the cause.
+  - No value is rounded. A `DECIMAL` leaves as its exact decimal string. Nonfinite floats leave as `"Infinity"`,
+    `"-Infinity"` and `"NaN"`, so strict JSON serialization never fails.
 - **Packaging.** The distribution sits behind the `sql` extra of `vitruvio-runtime` and the CLI. Without it,
   `vitruvio sql` is a usage error naming the extra.
 

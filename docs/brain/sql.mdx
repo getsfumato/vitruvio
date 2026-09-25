@@ -1,0 +1,135 @@
+---
+title: "Counting with SQL"
+description: "How many, grouped how, satisfying what: exact answers over every accessible block."
+---
+
+```bash
+vitruvio sql --schema
+vitruvio sql "SELECT subject, count(*) FROM semantic WHERE kind = 'fact' GROUP BY subject"
+vitruvio sql "SELECT tag, count(*) FROM episodic, UNNEST(tags) AS u(tag) GROUP BY tag"
+vitruvio sql --file query.sql --json
+```
+
+Search ranks, and it stops at `--limit`. If you ask it how many facts there are about a subject, you get the number
+that made the top ten. `vitruvio sql` answers that kind of question over **every** accessible member of a module,
+exactly. It also names the Merkle roots it read, so you can check that the answer belongs to the brain you think it
+does.
+
+Use `search` to ask what the brain knows *about* something. Use `sql` to ask *how much* of something the brain holds,
+*which* blocks meet a condition, or how blocks in one memory refer to blocks in another.
+
+SQL needs the engine, which ships as an extra:
+
+```bash
+pip install 'vitruvio[sql]'   # or: uv tool install 'vitruvio[sql]'
+```
+
+## The tables
+
+Each module is a table with the name of its memory type, and each block is a row. `blocks` is a union of every
+module, restricted to the columns they all share. `vitruvio sql --schema` lists every column with its type.
+
+| table | a row is | notable columns |
+|---|---|---|
+| `semantic` | a concept, fact, formula, relation, … | `kind`, `label`, `statement`, `subject`, `aliases[]`, `evidence[]`, `relations[]` |
+| `episodic` | something that happened | `summary`, `occurred_at`, `ended_at`, `participants[]`, `outcome`, `tags[]` |
+| `procedural` | a procedure | `label`, `goal`, `subject`, `steps[]` (each with `action`, `condition`, `uses[]`) |
+| `canonical` | a registered source | `blob`, `media_type`, `size`, `normalized_view` |
+| `provenance` | one provenance record | `record_type`, `block`, `recorded_at`, `actor_id`, `producer_id`, `origin`, `record` |
+| `blocks` | any member | the columns below |
+
+Every table has the columns `id`, `memory_type`, `schema_version`, `resolvable`, `superseded` and `demoted`.
+
+Values are stored exactly as the block wrote them:
+
+- `subject = 'physics'` does not match `Physics`. Write `lower(subject) = 'physics'` or use `ILIKE` when you don't
+  know the case.
+- Timestamps are UTC, and a comparison such as `occurred_at >= '2025-03-01'` works as written.
+- List fields are SQL lists. Use `list_contains(participants, 'ana')` to test membership, and `UNNEST` to group over
+  the values.
+
+A block with two tags appears once per tag after `UNNEST`, so the group counts can add up to more than the number of
+blocks.
+
+```sql
+-- which procedures use a concept: follow `steps[].uses` into semantic
+SELECT p.label
+FROM procedural p, UNNEST(p.steps) AS s(step), UNNEST(step.uses) AS u(used)
+JOIN semantic c ON c.id = used
+WHERE c.label = 'Fourier series';
+
+-- which registered media types the semantic facts cite
+SELECT c.media_type, count(*)
+FROM semantic s, UNNEST(s.evidence) AS u(e) JOIN canonical c ON c.id = e
+GROUP BY ALL;
+```
+
+## What counts
+
+- **Superseded and demoted blocks are hidden by default**, the same way search hides them. `--include-superseded`
+  shows them, and in either case the result's `hidden` field says how many members were left out. The ledger that
+  decides what to hide is read from the provenance module, so the provenance root appears in `verified_against` even
+  when your query never names that table.
+- **Every member is a row, including one whose bytes are gone.** A redacted or uninstalled block has
+  `resolvable = false` and null fields. It still proves into the root, so `count(*)` still counts it. Write
+  `WHERE resolvable` to count only the blocks you can read.
+- **A module this brain does not hold is an empty table**, and `not_installed` names it. A count of zero from a
+  missing module does not mean the knowledge is absent. If the provenance module is missing, nothing can be hidden:
+  the result says `exact: false` and explains why.
+
+## What is refused
+
+Queries are read-only and bound to the brain:
+
+- You may send exactly one `SELECT`. `WITH`, joins, `UNION`, `HAVING` and window functions are allowed.
+- Nothing that writes is run: no `INSERT`, `CREATE`, `COPY`, `ATTACH`, `SET` or `PRAGMA`.
+- Nothing that reads outside the brain is run: no `read_csv`, `read_parquet`, `glob`, or other table functions.
+- Sampling (`TABLESAMPLE`, `USING SAMPLE`) is refused, because it answers over a subset while the result claims
+  every member.
+- Functions that return a different value on each run (`random()`, `uuid()`, `now()`, `current_date`, …) are
+  refused. Compare against a literal instead.
+
+A refused query exits with code 2 and names the construct. If something slipped past those checks, it would still
+run in a database with file access switched off.
+
+## Reading the result
+
+With `--json`, the `data` field of the envelope holds:
+
+| field | means |
+|---|---|
+| `columns`, `rows` | the answer. Rows are positional lists under `columns`, because SQL allows two columns with one name |
+| `verified_against` | every module the answer depends on, and the root its table was built from |
+| `hidden` | per table, how many superseded or demoted members were left out |
+| `not_installed` | tables that were empty because their module is not here |
+| `truncated` | more rows existed than `--limit` (1000 by default) allowed |
+| `exact` | whether this is exactly the query over the accessible members; `approximate` says why when it is not |
+| `signature` | identifies the question. The same signature over the same roots returns the same rows in the same order |
+| `verified_rows` | with `--verify`, how many of the blocks named in an `id` column proved into their root |
+
+Values are never rounded:
+
+- A `DECIMAL` comes back as its exact decimal string, for example `"0.12345678901234567890"`. The column type tells
+  you to parse it.
+- Infinite and not-a-number floats come back as `"Infinity"`, `"-Infinity"` and `"NaN"`, because JSON has no
+  numbers for them.
+
+A query with no `ORDER BY` is ordered by every column. DuckDB runs single-threaded over rows stored in identity
+order, so order-sensitive functions such as `list()`, or a `LIMIT` inside a subquery, see the same order on every
+run.
+
+`--explain` shows the query as it will actually run, after the table names are rewritten, and DuckDB's plan for it.
+Nothing is executed.
+
+## Limits and cost
+
+- **Time.** One budget of 30 seconds covers the whole request: building or loading the tables, running the query,
+  and fetching and verifying the rows. A query that runs past it exits with code 2 (`SQL_TIMEOUT`). Narrow it with
+  `WHERE`, or aggregate before you join.
+- **The first query after a change is slower.** The first query after a module changes projects its blocks into a
+  table and caches it under `<brain>/.vitruvio/sql/`, keyed by the module's root. Later queries over the same
+  composition read the cache.
+- **The cache stays local.** It is not published with the brain. Every drop, prune and redaction deletes it, so no
+  copy of removed knowledge stays behind.
+- **Tables do not use the brain's indices.** DuckDB scans them column by column, which takes milliseconds on brains
+  of this size.

@@ -43,6 +43,7 @@
         "group": "Working with a brain",
         "pages": [
           "brain/searching",
+          "brain/sql",
           "brain/browsing",
           "brain/ingest",
           "brain/retention",
