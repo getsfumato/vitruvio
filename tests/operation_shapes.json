@@ -4157,9 +4157,10 @@
       "degradations[].kind",
       "degradations[].reason",
       "hidden.algebra.canonical",
+      "hidden.algebra.semantic",
       "hidden.analisis-ii.canonical",
-      "hidden.canonical",
-      "hidden.semantic",
+      "hidden.analisis-ii.semantic",
+      "hidden.fisica-i.semantic",
       "not_installed[]",
       "verified_against.algebra.canonical",
       "verified_against.algebra.semantic",
@@ -4227,13 +4228,16 @@
       "hidden.algebra.canonical": [
         "int"
       ],
+      "hidden.algebra.semantic": [
+        "int"
+      ],
       "hidden.analisis-ii.canonical": [
         "int"
       ],
-      "hidden.canonical": [
+      "hidden.analisis-ii.semantic": [
         "int"
       ],
-      "hidden.semantic": [
+      "hidden.fisica-i.semantic": [
         "int"
       ],
       "include_superseded": [
@@ -4344,7 +4348,10 @@
       "hidden": [
         "object"
       ],
-      "hidden.semantic": [
+      "hidden.algebra.semantic": [
+        "int"
+      ],
+      "hidden.analisis-ii.semantic": [
         "int"
       ],
       "include_superseded": [

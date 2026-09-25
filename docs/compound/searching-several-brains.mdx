@@ -129,7 +129,9 @@ vitruvio compound sql 'SELECT a.label FROM algebra.semantic a JOIN "analisis-ii"
   `about()` with its own vectors.
 - Blocks are content-addressed, so a block held by two brains is one row per brain. Use `count(DISTINCT id)` to
   count it once.
-- Every key in `verified_against`, `hidden` and `not_installed` is written `brain.module`. `skipped` names the
+- Every key in `verified_against`, `hidden` and `not_installed` is written `brain.module`. `hidden` is counted
+  per brain even when the query reads a bare table.
+- `about()` is scored only by the brains the query reads. `algebra.semantic` is scored by algebra's model alone. `skipped` names the
   brains that were declared but have no layout on this machine.
 
 ## When a brain returns nothing

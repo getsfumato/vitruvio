@@ -92,7 +92,7 @@ class TestHonesty:
         with _engine(brain, other) as engine:
             outcome = engine.query("SELECT count(*) FROM semantic WHERE label = 'Old fact'")
         assert outcome.rows == [[0]]
-        assert outcome.hidden == {"semantic": 1}
+        assert outcome.hidden == {"algebra.semantic": 0, "physics.semantic": 1}, "counted per brain, never summed"
         assert outcome.exact is False
         assert "algebra.provenance" in outcome.not_installed
         assert "of algebra" in outcome.approximate[0]["reason"]
@@ -136,6 +136,34 @@ class TestSimilarity:
             outcome = engine.query("SELECT brain, count(*) FROM semantic WHERE about(id, 'x', 0.5) GROUP BY brain")
         assert outcome.rows == [["algebra", 1], ["physics", 1]]
         assert outcome.approximate[-1]["models"] == {"algebra.semantic": "model/b", "physics.semantic": "model/a"}
+
+    def test_a_qualified_query_is_scored_only_by_the_brain_it_reads(self, brain: Brain, other: Any) -> None:
+        """The review's reproduction: a block both brains hold, low in the brain read and high in the other. Only the
+        brain read may decide whether it is about the text."""
+        shared = brain.id("physics")
+        engine = SqlEngine(
+            brains={
+                "physics": SqlBrain(brain.modules, scorer=self.Scorer({shared: 0.1}, "model/a")),
+                "algebra": SqlBrain(other, scorer=self.Scorer({shared: 0.9}, "model/b")),
+            }
+        )
+        with engine:
+            outcome = engine.query("SELECT count(*) FROM physics.semantic WHERE about(id, 'x', 0.5)")
+        assert outcome.rows == [[0]]
+        assert outcome.approximate[-1]["models"] == {"physics.semantic": "model/a"}
+
+    def test_a_query_over_both_brains_takes_the_higher_score_and_names_both(self, brain: Brain, other: Any) -> None:
+        shared = brain.id("physics")
+        engine = SqlEngine(
+            brains={
+                "physics": SqlBrain(brain.modules, scorer=self.Scorer({shared: 0.1}, "model/a")),
+                "algebra": SqlBrain(other, scorer=self.Scorer({shared: 0.9}, "model/b")),
+            }
+        )
+        with engine:
+            outcome = engine.query("SELECT brain FROM semantic WHERE about(id, 'x', 0.5)")
+        assert outcome.rows == [["algebra"], ["physics"]]
+        assert set(outcome.approximate[-1]["models"]) == {"algebra.semantic", "physics.semantic"}
 
     def test_a_brain_without_a_scorer_is_reported_unscored(self, brain: Brain, other: Any) -> None:
         engine = SqlEngine(

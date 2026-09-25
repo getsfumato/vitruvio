@@ -251,6 +251,7 @@ class SqlEngine:
         self._ledgers: dict[int, Ledger] = {}
         self._scored: dict[tuple[int, str], Similarity] = {}
         self._similarity: dict[str, Similarity] = {}
+        self._scoring: list[int] = []
         self._connection: duckdb.DuckDBPyConnection | None = None
         self._budget: _Budget | None = None
 
@@ -437,6 +438,11 @@ class SqlEngine:
                     self._blocks_view(connection, member, specs)
             for table in sorted({table for brain, table in references if brain is None}):
                 self._union(connection, table)
+            # Only the brains a query reads may score it. `FROM a.semantic` is a question about brain a, and a block it
+            # shares with brain b must not become "about" the text because b's model thinks so.
+            self._scoring = sorted(
+                {member for brain, _ in references for member in self._targets(brain)} or range(len(self._members))
+            )
             for position, text in enumerate(similarity):
                 self._check()
                 self._load_similarity(connection, position, text)
@@ -499,10 +505,10 @@ class SqlEngine:
         scores: dict[str, float] = {}
         models: dict[str, str] = {}
         missing: dict[str, str] = {}
-        for member in range(len(self._members)):
+        for member in self._scoring:
             scored = self._score(member, text)
-            # A block two brains both hold is about the text if either scores it so. With one model across a
-            # project the two scores agree; with two, `approximate` names both, which is what makes the rule visible.
+            # A block two of the brains read both hold is about the text if either scores it so. With one model across
+            # a project the two scores agree; with two, `approximate` names both, which is what makes the rule visible.
             for block, score in scored.scores.items():
                 scores[block] = max(score, scores.get(block, 0.0))
             models.update({self._key(member, kind): tag for kind, tag in scored.models.items()})
@@ -652,16 +658,23 @@ class SqlEngine:
         return kept, len(kept), degradations
 
     def _hidden(self, guarded: GuardedQuery) -> dict[str, int]:
+        """
+        Per table read, how many members visibility left out -- per brain, in a compound.
+
+        A bare table in a compound spans every brain, and one sum over all of them could not say which brain hid what,
+        so it is counted by member and keyed ``brain.table`` like every other key of the outcome.
+        """
         assert self._connection is not None
         counts = {}
-        for label, (brain, table) in zip(guarded.tables, guarded.references, strict=True):
-            self._check()
-            member = None if brain is None else self._targets(brain)[0]
-            (count,) = self._connection.execute(
-                f"SELECT count(*) FROM {every_name(table, member)} WHERE superseded OR demoted"
-            ).fetchone() or (0,)
-            counts[label] = int(count)
-        return counts
+        for brain, table in guarded.references:
+            members: list[int | None] = list(self._targets(brain)) if self._compound else [None]
+            for member in members:
+                self._check()
+                (count,) = self._connection.execute(
+                    f"SELECT count(*) FROM {every_name(table, member)} WHERE superseded OR demoted"
+                ).fetchone() or (0,)
+                counts[table if member is None else self._key(member, table)] = int(count)
+        return dict(sorted(counts.items()))
 
     def _outcome(
         self,

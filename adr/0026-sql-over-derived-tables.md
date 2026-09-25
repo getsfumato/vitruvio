@@ -113,8 +113,11 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
   - A block held by two brains is one row per brain. `count(DISTINCT id)` counts it once.
   - The brains consulted are part of the signature.
   - Every key in `verified_against`, `hidden` and `not_installed` is `brain.module`.
-  - Under `about()`, a block two brains hold takes the higher of their scores, and `approximate` names both
-    models.
+  - Under `about()`, only the brains a query reads score it, so `FROM a.semantic` is never decided by brain b's
+    model. Among those brains, a block two of them hold takes the higher score, and `approximate` names every
+    model that contributed.
+  - `hidden` is counted per brain even for a bare table, because a sum across brains could not say which brain
+    hid what.
 - **Packaging.** The distribution sits behind the `sql` extra of `vitruvio-runtime` and the CLI. Without it,
   `vitruvio sql` is a usage error naming the extra.
 
