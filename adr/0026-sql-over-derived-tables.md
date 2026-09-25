@@ -118,6 +118,21 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
     model that contributed.
   - `hidden` is counted per brain even for a bare table, because a sum across brains could not say which brain
     hid what.
+- **Registered data files are tables, read from the store.**
+  - A canonical block registered as CSV, TSV or Parquet is readable as `data."<file>"`. It is named by the last
+    segment of its registration's origin, by its id, or by a unique id prefix.
+  - An ambiguous name is refused. A superseded version is reachable only by id unless superseded blocks are
+    included.
+  - The engine reads the bytes through the module's store, which verifies them against their digest. It writes
+    them to its own temporary file and parses them before the seal. A query can name a dataset, never a path.
+  - Only the datasets a query names are parsed. `datasets` lists every one without reading any.
+  - `--verify` proves each dataset's block. It keeps a row whose `id` value is not a block identity, such as a
+    CSV's own `id` column, and reports it as unproven. Only a value that is a block identity and fails its proof
+    drops its row.
+  - A query that reads only datasets is subject to the same visibility rule as one that reads module tables:
+    without provenance it is `exact: false`.
+  - The result names each dataset it read and the block the dataset resolved to. The canonical and provenance
+    roots are reported, because the bytes come from one and the name from the other.
 - **Packaging.** The distribution sits behind the `sql` extra of `vitruvio-runtime` and the CLI. Without it,
   `vitruvio sql` is a usage error naming the extra.
 
@@ -132,6 +147,7 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
   the price of a threshold that means the same thing on every run.
 - A compound holds every member's tables in memory at once. That is bounded by the memory limit, and it is the
   reason a compound is built per request.
-- Later phases:
-  - CSV and Parquet canonical blocks exposed as tables. The runtime would read their blobs out of the store, so
-    DuckDB still never touches the filesystem.
+- A dataset is parsed on every query that names it; its table is not cached. The file is already local and
+  verified, and a cache would be one more copy for retention to purge.
+- CSV types are sniffed by DuckDB from the bytes, which is deterministic for the same file. A column whose type a
+  query depends on is safest cast explicitly.

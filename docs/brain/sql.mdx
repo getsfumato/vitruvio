@@ -90,6 +90,34 @@ SELECT label, similarity(id, 'ethics') AS score FROM semantic ORDER BY score DES
 - **Scoring can be slow.** Only these queries open the brain's retrieval indices. They may need
   `vitruvio index build`, or a working embedder (see `vitruvio config embedder`).
 
+## Data files as tables
+
+A CSV, TSV or Parquet file registered into the brain is a table as well:
+
+```bash
+vitruvio source register exports/ventas.csv        # registered as text/csv
+vitruvio sql 'SELECT region, sum(amount) FROM data."ventas.csv" GROUP BY region'
+vitruvio sql 'SELECT name, format, size FROM datasets'
+```
+
+- **Naming.** A dataset is named after the last segment of the path it was registered from. It can also be named by
+  its block id, or by any unique id prefix of at least 8 hex digits: `data."sha256:3ba21fde"`.
+- **Ambiguous names are refused.** If two accessible datasets share a file name, the query fails and the error
+  lists their ids.
+- **Superseded versions.** A superseded version is not reachable by its name unless superseded blocks are included,
+  but its id always works, because an id names exactly one version.
+- **What counts as data is decided at registration.** Only `text/csv`, `text/tab-separated-values` and Parquet
+  (`application/vnd.apache.parquet`) are read as tables, and the media type is part of the block's identity. A CSV
+  registered as `text/plain` stays text. Pass `--media-type text/csv` when the file extension would guess wrong.
+- **Bytes come from the store.** They are checked against their digest there, and the result lists each dataset it
+  read, with the block it resolved to, under `datasets`. A query can name a dataset but never a path.
+- **Only named datasets are parsed.** Each query parses the datasets it names. `datasets` lists them all without
+  reading any.
+- **Joins with knowledge work.** A dataset joins with the knowledge tables like any other table:
+  `JOIN semantic s ON s.label = v.region`.
+
+In a compound, qualify a dataset with its brain: `shop.data."ventas.csv"`.
+
 ## Several brains
 
 `vitruvio compound sql` runs one query over several brains of a project in a single database. A bare `semantic` spans
@@ -139,7 +167,7 @@ With `--json`, the `data` field of the envelope holds:
 | `truncated` | more rows existed than `--limit` (1000 by default) allowed |
 | `exact` | whether this is exactly the query over the accessible members; `approximate` says why when it is not |
 | `signature` | identifies the question. The same signature over the same roots returns the same rows in the same order |
-| `verified_rows` | with `--verify`, how many of the blocks named in an `id` column proved into their root |
+| `verified_rows` | with `--verify`, how many blocks named in an `id` column proved into their root. A row whose `id` is not a block identity at all, such as a dataset's own `id` column, is kept and reported as unproven. Every dataset read is proved too |
 
 Values are never rounded:
 

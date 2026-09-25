@@ -127,6 +127,16 @@ vitruvio sql "SELECT p.label FROM procedural p, UNNEST(p.steps) AS s(step), UNNE
               JOIN semantic c ON c.id = used WHERE c.label = 'Fourier series'" --json
 ```
 
+A registered CSV, TSV or Parquet file is a table too, so data and the knowledge derived from it can be queried
+together:
+
+```bash
+vitruvio sql "SELECT name, format FROM datasets" --json
+vitruvio sql 'SELECT region, sum(amount) FROM data."ventas.csv" GROUP BY region' --json
+```
+
+Report which file was read from `datasets[]`, with its id: two registrations can share a name.
+
 Read the result the way you read a bundle:
 
 - **`verified_against`** names the root of each module the query read. Quote it with any count you report.

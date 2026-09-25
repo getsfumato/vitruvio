@@ -67,6 +67,9 @@ def sql(
     `steps` are SQL lists: group over one with `UNNEST`. Superseded and demoted blocks are hidden, as search hides
     them, unless `--include-superseded` is given.
 
+    A registered CSV, TSV or Parquet file is a table too: `data."ventas.csv"`, named for the file it was registered
+    from or by its id. `datasets` lists them without reading any.
+
     Only a single SELECT is accepted. Nothing that writes, and nothing that reads outside the brain, is run.
 
     `about(id, 'text', min_score)` is true for a block whose similarity to the text is at least `min_score`, scored

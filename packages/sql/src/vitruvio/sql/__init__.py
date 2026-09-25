@@ -12,6 +12,8 @@ Three pieces, in the order a query meets them:
   brain's table names onto those derived tables -- hiding superseded blocks unless the caller asks for them.
 - :mod:`vitruvio.sql.similarity` is the one approximate predicate: ``about(id, 'text', min_score)`` over scores a
   caller-supplied :class:`Scorer` computes, marking every answer that uses it as approximate.
+- :mod:`vitruvio.sql.datasets` reads registered CSV, TSV and Parquet files as tables, ``data."ventas.csv"``,
+  from the store's verified bytes.
 - :mod:`vitruvio.sql.engine` runs what the guard admitted in an in-memory DuckDB whose access to the host is
   switched off before the first character of the caller's SQL reaches it.
 
@@ -21,6 +23,7 @@ lets the runtime, a future HTTP API and an MCP server share one engine without a
 
 from __future__ import annotations
 
+from vitruvio.sql.datasets import DATA_SCHEMA, DATASETS_TABLE, FORMATS, Dataset
 from vitruvio.sql.engine import DEFAULT_LIMIT, SqlBrain, SqlEngine, SqlTimeoutError
 from vitruvio.sql.guard import QUERYABLE, GuardedQuery, guard
 from vitruvio.sql.result import SqlColumn, SqlOutcome, json_native
@@ -29,6 +32,10 @@ from vitruvio.sql.tables import BLOCKS_TABLE, SQL_PROJECTION_ID, TABLES, Column,
 
 __all__ = [
     "BLOCKS_TABLE",
+    "DATASETS_TABLE",
+    "DATA_SCHEMA",
+    "FORMATS",
+    "Dataset",
     "DEFAULT_LIMIT",
     "QUERYABLE",
     "SQL_PROJECTION_ID",

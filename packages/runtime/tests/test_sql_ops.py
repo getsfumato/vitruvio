@@ -117,6 +117,7 @@ class TestSql:
             "canonical",
             "provenance",
             "blocks",
+            "datasets",
         ]
         assert schema["projection"].startswith("vitruvio-sql-projection/")
 

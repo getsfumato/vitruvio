@@ -4153,6 +4153,7 @@
       "approximate[]",
       "approximate[].kind",
       "approximate[].reason",
+      "datasets",
       "degradations[]",
       "degradations[].kind",
       "degradations[].reason",
@@ -4203,6 +4204,9 @@
       ],
       "columns[].type": [
         "str"
+      ],
+      "datasets": [
+        "array"
       ],
       "degradations": [
         "array"
@@ -4316,7 +4320,9 @@
     }
   },
   "compound_sql_explain": {
-    "optional": [],
+    "optional": [
+      "datasets"
+    ],
     "paths": {
       ".": [
         "object"
@@ -4334,6 +4340,9 @@
         "str"
       ],
       "columns": [
+        "array"
+      ],
+      "datasets": [
         "array"
       ],
       "degradations": [
@@ -11724,10 +11733,18 @@
       "approximate[].unscored",
       "approximate[].unscored.provenance",
       "brains",
+      "datasets",
+      "datasets[]",
+      "datasets[].id",
+      "datasets[].media_type",
+      "datasets[].name",
+      "datasets[].reference",
+      "datasets[].size",
       "degradations[]",
       "degradations[].kind",
       "degradations[].reason",
       "hidden.canonical",
+      "hidden.datasets",
       "hidden.provenance",
       "hidden.semantic",
       "verified_against.canonical",
@@ -11789,6 +11806,27 @@
       "columns[].type": [
         "str"
       ],
+      "datasets": [
+        "array"
+      ],
+      "datasets[]": [
+        "object"
+      ],
+      "datasets[].id": [
+        "str"
+      ],
+      "datasets[].media_type": [
+        "str"
+      ],
+      "datasets[].name": [
+        "str"
+      ],
+      "datasets[].reference": [
+        "str"
+      ],
+      "datasets[].size": [
+        "int"
+      ],
       "degradations": [
         "array"
       ],
@@ -11811,6 +11849,9 @@
         "object"
       ],
       "hidden.canonical": [
+        "int"
+      ],
+      "hidden.datasets": [
         "int"
       ],
       "hidden.provenance": [
@@ -11883,6 +11924,7 @@
   "sql_explain": {
     "optional": [
       "brains",
+      "datasets",
       "hidden.canonical",
       "hidden.semantic",
       "verified_against.canonical",
@@ -11903,6 +11945,9 @@
         "str"
       ],
       "columns": [
+        "array"
+      ],
+      "datasets": [
         "array"
       ],
       "degradations": [
@@ -11974,10 +12019,39 @@
     }
   },
   "sql_schema": {
-    "optional": [],
+    "optional": [
+      "data_formats",
+      "data_formats.application/csv",
+      "data_formats.application/parquet",
+      "data_formats.application/vnd.apache.parquet",
+      "data_formats.application/x-parquet",
+      "data_formats.text/csv",
+      "data_formats.text/tab-separated-values"
+    ],
     "paths": {
       ".": [
         "object"
+      ],
+      "data_formats": [
+        "object"
+      ],
+      "data_formats.application/csv": [
+        "str"
+      ],
+      "data_formats.application/parquet": [
+        "str"
+      ],
+      "data_formats.application/vnd.apache.parquet": [
+        "str"
+      ],
+      "data_formats.application/x-parquet": [
+        "str"
+      ],
+      "data_formats.text/csv": [
+        "str"
+      ],
+      "data_formats.text/tab-separated-values": [
+        "str"
       ],
       "projection": [
         "str"

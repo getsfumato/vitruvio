@@ -35,13 +35,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from vitruvio.kernel import UsageError
+from vitruvio.sql.datasets import DATA_SCHEMA, DATASETS_TABLE
 from vitruvio.sql.similarity import ABOUT, SCORE_BLOCK, SCORE_VALUE, SIMILARITY, similarity_table
 from vitruvio.sql.tables import BLOCKS_TABLE, TABLES
 
 if TYPE_CHECKING:
     from sqlglot import exp
 
-QUERYABLE = (*TABLES, BLOCKS_TABLE.name)
+QUERYABLE = (*TABLES, BLOCKS_TABLE.name, DATASETS_TABLE.name)
 """Every table name a query may use, in the order ``--schema`` lists them."""
 
 _FILE_READERS = ("read_", "glob", "sniff_csv", "parquet_", "iceberg_", "delta_scan", "sqlite_", "postgres_", "mysql_")
@@ -95,6 +96,12 @@ def visible_name(table: str, member: int | None = None) -> str:
     return f"__vitruvio_visible_{table}{_suffix(member)}"
 
 
+def data_name(position: int) -> str:
+    """The engine's table for the ``position``-th dataset a query names. Numbered, like a member: a dataset name is
+    a file name, which is caller data."""
+    return f"__vitruvio_data_{position}"
+
+
 def every_name(table: str, member: int | None = None) -> str:
     """Where ``FROM semantic`` is pointed under ``include_superseded``. A separate view rather than a flag on one, so
     the choice is visible in ``executed_sql`` instead of hiding in a join the caller never sees."""
@@ -116,6 +123,8 @@ class GuardedQuery:
         references (tuple[tuple[str | None, str], ...]): The same, structured: ``(brain, table)``, where ``brain`` is
             ``None`` for a bare reference.
         brains (tuple[str, ...]): The brains a compound consults, in order. Empty for a single brain.
+        datasets (tuple[tuple[str | None, str], ...]): The registered data files the query reads, as ``(brain,
+            reference)``, in order of first use; the ``n``-th is loaded as :func:`data_name` ``(n)``.
         ordered (bool): Whether the caller gave an order. When not, ``ORDER BY ALL`` was added.
         include_superseded (bool): Whether the tables were rewritten onto every member rather than the
             accessible ones.
@@ -135,6 +144,7 @@ class GuardedQuery:
     include_superseded: bool
     signature: str
     brains: tuple[str, ...] = ()
+    datasets: tuple[tuple[str | None, str], ...] = ()
     similarity: tuple[str, ...] = ()
     thresholds: dict[str, tuple[float, ...]] | None = None
 
@@ -233,18 +243,52 @@ def _ctes_in_scope(table: exp.Table) -> set[str]:
     return names
 
 
+def _dataset_brain(table: exp.Table, brains: tuple[str, ...] | None) -> str | None:
+    """Which brain a ``data.<name>`` reference reads: none for a single brain, the qualifying one in a compound."""
+    shown = ".".join(part for part in (table.catalog, table.db, table.name) if part)
+    if brains is None:
+        if table.catalog:
+            raise UsageError(
+                f"{shown!r} names a brain, and a single brain has only its own datasets", hint=f'data."{table.name}"'
+            )
+        return None
+    if not table.catalog:
+        raise UsageError(
+            f"{shown!r} does not say which brain's dataset to read",
+            hint=f'in a compound, qualify it with the brain: {brains[0]}.data."{table.name}"',
+        )
+    if table.catalog not in brains:
+        raise UsageError(
+            f"{shown!r} names no brain this compound consults", hint="the brains are: " + ", ".join(brains)
+        )
+    return table.catalog
+
+
 def _rewrite_tables(
     tree: exp.Expr, *, include_superseded: bool, brains: tuple[str, ...] | None
-) -> tuple[tuple[str | None, str], ...]:
+) -> tuple[tuple[tuple[str | None, str], ...], tuple[tuple[str | None, str], ...]]:
     from sqlglot import exp
 
     used: set[tuple[str | None, str]] = set()
+    datasets: list[tuple[str | None, str]] = []
     for table in list(tree.find_all(exp.Table)):
         if not isinstance(table.this, exp.Identifier):
             raise UsageError(
                 f"table functions are not supported: {table.this.sql(dialect='duckdb')}",
                 hint=_HINT,
             )
+        if table.db == DATA_SCHEMA:
+            file = table.name
+            reference = (_dataset_brain(table, brains), file)
+            if reference not in datasets:
+                datasets.append(reference)
+            alias = table.alias
+            table.set("catalog", None)
+            table.set("db", None)
+            table.set("this", exp.to_identifier(data_name(datasets.index(reference))))
+            if not alias:
+                table.set("alias", exp.TableAlias(this=exp.to_identifier(file, quoted=True)))
+            continue
         name = table.name.lower()
         brain: str | None = None
         if table.db or table.catalog:
@@ -252,7 +296,8 @@ def _rewrite_tables(
             if brains is None:
                 raise UsageError(
                     f"{qualified!r} names a schema, and a single brain has none",
-                    hint="query one brain's tables by their bare name, or several brains with `vitruvio compound sql`",
+                    hint='query one brain\'s tables by their bare name, a dataset as data."<file>", '
+                    "or several brains with `vitruvio compound sql`",
                 )
             if table.catalog or table.db not in brains:
                 raise UsageError(
@@ -263,7 +308,10 @@ def _rewrite_tables(
         elif name in _ctes_in_scope(table):
             continue
         if name not in QUERYABLE:
-            raise UsageError(f"there is no table called {table.name!r}", hint="the tables are: " + ", ".join(QUERYABLE))
+            raise UsageError(
+                f"there is no table called {table.name!r}",
+                hint="the tables are: " + ", ".join(QUERYABLE) + '; a registered data file is data."<file>"',
+            )
         used.add((brain, name))
         member = None if brain is None else (brains or ()).index(brain)
         alias = table.alias
@@ -273,7 +321,7 @@ def _rewrite_tables(
         )
         if not alias:
             table.set("alias", exp.TableAlias(this=exp.to_identifier(name)))
-    return tuple(sorted(used, key=lambda reference: (reference[0] or "", reference[1])))
+    return tuple(sorted(used, key=lambda reference: (reference[0] or "", reference[1]))), tuple(datasets)
 
 
 def _literal_text(argument: exp.Expr, function: str) -> str:
@@ -370,7 +418,7 @@ def guard(sql: str, *, include_superseded: bool = False, brains: tuple[str, ...]
 
     canonical = tree.sql(dialect="duckdb")
     rewritten = tree.copy()
-    references = _rewrite_tables(rewritten, include_superseded=include_superseded, brains=brains)
+    references, datasets = _rewrite_tables(rewritten, include_superseded=include_superseded, brains=brains)
     similarity, thresholds = _rewrite_similarity(rewritten)
     ordered = rewritten.args.get("order") is not None
     if not ordered:
@@ -388,6 +436,7 @@ def guard(sql: str, *, include_superseded: bool = False, brains: tuple[str, ...]
         tables=tuple(table if brain is None else f"{brain}.{table}" for brain, table in references),
         references=references,
         brains=tuple(brains or ()),
+        datasets=datasets,
         ordered=ordered,
         include_superseded=include_superseded,
         signature=f"sha256:{digest}",
@@ -396,4 +445,4 @@ def guard(sql: str, *, include_superseded: bool = False, brains: tuple[str, ...]
     )
 
 
-__all__ = ["QUERYABLE", "RESERVED_PREFIX", "GuardedQuery", "every_name", "guard", "visible_name"]
+__all__ = ["QUERYABLE", "RESERVED_PREFIX", "GuardedQuery", "data_name", "every_name", "guard", "visible_name"]

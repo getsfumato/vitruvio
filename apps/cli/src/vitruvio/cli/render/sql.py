@@ -96,6 +96,10 @@ def result(payload: Mapping[str, Any]) -> list[RenderableType]:
         facts.append(
             ("hidden", ", ".join(f"{n} superseded or demoted in {name}" for name, n in sorted(hidden.items())))
         )
+    if payload.get("datasets"):
+        facts.append(
+            ("datasets", ", ".join(f"{entry['reference']} ({entry['id'][:19]})" for entry in payload["datasets"]))
+        )
     if payload["verified_rows"] is not None:
         facts.append(("proved", f"{payload['verified_rows']} of the returned blocks"))
     facts.append(("exact", Text("yes", style="ok") if payload["exact"] else Text("approximate", style="warn")))
@@ -141,6 +145,11 @@ def schema(payload: Mapping[str, Any]) -> list[RenderableType]:
         for column in spec["columns"]:
             grid.add_row(column["name"], Text(column["type"], style="muted"), column["doc"])
         parts.extend((grid, ""))
+    formats = ", ".join(sorted(set(payload.get("data_formats", {}).values())))
+    if formats:
+        parts.append(
+            Text(f'A registered {formats} file is also a table: data."<file>", or data."<sha256 id or prefix>".')
+        )
     parts.append(Text(f"projection {payload['projection']}", style="muted"))
     return parts
 
