@@ -10,6 +10,9 @@
 - Add `vitruvio sql`: read-only SQL over tables derived from every module (COUNT, GROUP BY, boolean logic, joins
   across memory types), exact and bound to the roots it read. Ships in the new `vitruvio-sql` distribution behind the
   `vitruvio[sql]` extra.
+- Add `about(id, 'text', min_score)` and `similarity(id, 'text')` to `vitruvio sql`: a similarity threshold scored
+  exactly over every block by the brain's vector indices, always reported as approximate with the model that scored
+  it.
 
 ### Documentation
 

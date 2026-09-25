@@ -162,7 +162,9 @@ not a substitute — it is the last resort, and `vitruvio-query` says when that 
 | `sql QUERY --explain` | the query as it will run, and the engine's plan |
 
 Every module is a table named for its memory type, and `blocks` holds every member of every module. List fields
-(`tags`, `participants`, `evidence`, `steps`, `relations`) are SQL lists: group over one with `UNNEST`. Needs the
+(`tags`, `participants`, `evidence`, `steps`, `relations`) are SQL lists: group over one with `UNNEST`.
+`about(id, 'topic', min_score)` and `similarity(id, 'topic')` bring the vector indices in; results using them are
+approximate. Needs the
 `vitruvio[sql]` extra. This is the instrument for "how many" and "which ones": `search` cuts at a limit, so a count
 taken from its bundle is a count of the top-k. `vitruvio-query` says when to reach for which.
 

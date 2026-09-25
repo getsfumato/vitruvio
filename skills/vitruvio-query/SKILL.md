@@ -137,8 +137,17 @@ Read the result the way you read a bundle:
 - **Values are what the blocks say.** `subject = 'physics'` does not match `Physics`. Use `lower(subject)` or
   `ILIKE` when the case is not yours to know.
 
-SQL answers structure, not meaning. "How many facts are *about* ethics" is still a search. Filter with SQL only on
-fields the blocks actually carry.
+SQL answers structure exactly. Meaning goes through `about(id, 'topic', min_score)`, which is true for every block
+whose similarity reaches the threshold, over the whole module:
+
+```bash
+vitruvio sql "SELECT label, similarity(id, 'ethics') AS s FROM semantic ORDER BY s DESC LIMIT 20" --json  # look first
+vitruvio sql "SELECT count(*) FROM semantic WHERE about(id, 'ethics', 0.35)" --json
+```
+
+Choose the threshold from `similarity()`, never from a search score, which measures something else. Any answer that
+uses either function has `exact: false`. Report it as "about N, at similarity ≥ 0.35 under model M", and name every
+module listed under `approximate[].unscored`: those modules were not searched, they did not come back empty.
 
 ## A small brain legitimately scans
 

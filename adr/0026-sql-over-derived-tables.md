@@ -78,10 +78,28 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
     here is different from zero from one that is.
   - `truncated` reports a row limit that was hit, instead of cutting the result silently.
   - `--verify` proves every block the result names in an `id` column.
-  - `exact` is true unless something the answer depends on could not be established. Today that means a missing
-    provenance module; later it will include a thresholded similarity predicate. `approximate` lists the cause.
+  - `exact` is true unless something the answer depends on could not be established: a missing provenance module,
+    or a similarity predicate (below). `approximate` lists each cause.
   - No value is rounded. A `DECIMAL` leaves as its exact decimal string. Nonfinite floats leave as `"Infinity"`,
     `"-Infinity"` and `"NaN"`, so strict JSON serialization never fails.
+- **Similarity is a threshold over every block, and always approximate.**
+  - `about(id, 'text', min_score)` is true for a block whose similarity to the text is at least `min_score`.
+    `similarity(id, 'text')` is that score, for ordering or display.
+  - The text and the threshold must be literals, with `min_score` in `(0, 1]`. Each distinct text is embedded
+    once, and every block is scored exactly before the database is sealed. `VectorIndex.similarities` walks every
+    chunk and takes the best one per block, so nothing is cut at a limit, and a count over `about` counts every
+    block that clears the bar.
+  - The score is the vector index's cosine, not the fused score `search` reports. A threshold chosen by reading
+    search results would mean nothing here.
+  - The package receives scores through a `Scorer` protocol. The runtime's implementation reads each module's own
+    vector index under the planner's usability rule, and opens the RETRIEVE brain only for queries that use
+    similarity.
+  - A module that cannot be scored is reported, never silently zero: no vector index, a stale one, or an embedder
+    that is unavailable or mismatched. If nothing at all can be scored, the query is refused with a pointer to
+    `vitruvio index build`.
+  - Every answer that uses similarity carries `exact: false` and one `approximate` entry per text, naming its
+    thresholds, the model that scored each module (a local fallback is labelled as such), and the modules that went
+    unscored.
 - **Packaging.** The distribution sits behind the `sql` extra of `vitruvio-runtime` and the CLI. Without it,
   `vitruvio sql` is a usage error naming the extra.
 
@@ -92,8 +110,9 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
   millions of blocks costs milliseconds. The first query after a composition changes pays for projecting that module.
 - DuckDB is a binary wheel of 10 to 30 MB. That is why the engine is an extra rather than part of the default install.
 - Changing a column is a change to what saved queries mean. It needs a `SQL_PROJECTION_ID` bump and a changelog entry.
+- Scoring every block is linear in the vector population per distinct text. That is fine at this scale, and it is
+  the price of a threshold that means the same thing on every run.
 - Later phases:
-  - an `about(text, min_score)` UDF over the vector index, which makes a result approximate and says so;
   - `FROM brain.table` across a project's brains;
   - CSV and Parquet canonical blocks exposed as tables. The runtime would read their blobs out of the store, so
     DuckDB still never touches the filesystem.
