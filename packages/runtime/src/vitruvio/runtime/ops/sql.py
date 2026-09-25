@@ -15,6 +15,7 @@ without the extra is a usage error naming the extra, never an ``ImportError`` re
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from vitruvio.kernel import ResolvedConfig, UsageError
@@ -23,6 +24,41 @@ from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.mapping import translated
 from vitruvio.runtime.session import BrainSession
 from vitruvio.runtime.sql_result import SqlResult, SqlSchemaResult
+
+
+def sql_cache_dir(config: ResolvedConfig) -> Path:
+    """Where this brain's derived SQL tables are cached. One definition, so the engine and the purge agree."""
+    return config.derived / "sql"
+
+
+def purge_sql_cache(config: ResolvedConfig) -> int:
+    """
+    Delete every cached SQL table of this brain, and report how many files went.
+
+    The cache is a copy of block payloads. A cached table is keyed by the composition it was built from, so it is
+    never *read* for another -- but it is still on disk after a redaction, a drop or a prune, holding exactly the
+    fields those operations exist to make unreadable. Every retention mechanism that removes knowledge calls this,
+    and it removes the whole directory's tables rather than guessing which ones named the block: a table is rebuilt
+    by the next query that needs it, and an erasure that left one copy behind is not an erasure.
+
+    Needs no extra: deleting files imports no engine, so a brain whose cache was written by an install with
+    ``vitruvio[sql]`` is purged by one without it.
+
+    Args:
+        config (ResolvedConfig): The brain's configuration.
+
+    Returns:
+        int: How many cached files were removed.
+    """
+    directory = sql_cache_dir(config)
+    removed = 0
+    if not directory.is_dir():
+        return removed
+    for entry in directory.iterdir():
+        if entry.is_file() and (entry.suffix == ".parquet" or entry.name.startswith(".")):
+            entry.unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 def _engine_package() -> Any:
@@ -56,7 +92,7 @@ class SqlOps:
         """An engine over this brain's installed modules, caching tables beside its other derived state."""
         package = _engine_package()
         brain = self.session.brain(Capability.BROWSE)
-        return package.SqlEngine(brain.modules(), cache_dir=self.config.derived / "sql")
+        return package.SqlEngine(brain.modules(), cache_dir=sql_cache_dir(self.config))
 
     def sql(
         self,
@@ -117,4 +153,4 @@ class SqlOps:
         return sql_result.schema(package.SqlEngine.schema(), package.SQL_PROJECTION_ID)
 
 
-__all__ = ["SqlOps"]
+__all__ = ["SqlOps", "purge_sql_cache", "sql_cache_dir"]

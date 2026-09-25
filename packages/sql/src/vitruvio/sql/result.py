@@ -1,12 +1,13 @@
 """What running a query hands back: the rows, and everything a reader needs to trust them.
 
-JSON-native all the way down. DuckDB returns ``datetime``, ``Decimal``, nested lists and structs; they are converted
-here, once, so the runtime's serializer has nothing left to decide and an API or an MCP server returns exactly what
+JSON-native all the way down, and lossless. DuckDB returns ``datetime``, ``Decimal``, nonfinite floats, nested lists
+and structs; they are converted here, once, so the runtime's serializer has nothing left to decide and an API or an MCP server returns exactly what
 the CLI prints.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -50,7 +51,9 @@ class SqlOutcome:
         hidden (dict[str, int]): Per table read, how many members were hidden as superseded or demoted. Empty when
             superseded blocks were included.
         include_superseded (bool): Whether superseded and demoted blocks were included.
-        exact (bool): Whether every value is exact. True unless a predicate was approximate by construction.
+        exact (bool): Whether the answer is exactly the query over the accessible members of the roots reported.
+            False when something the answer depends on could not be established -- today, which blocks are
+            superseded when the provenance module is absent -- and ``approximate`` says what.
         approximate (list[dict[str, Any]]): What made the answer approximate, when something did.
         verified_rows (int | None): When rows were verified, how many inclusion proofs checked out. ``None`` when
             they were not asked for.
@@ -83,10 +86,16 @@ def json_native(value: Any) -> Any:
     """
     One value from DuckDB, as JSON can carry it.
 
-    Timestamps come back as naive UTC -- the tables store them that way -- and leave with the ``Z`` the protocol
-    wrote them with. A ``Decimal`` that is whole becomes an ``int`` and any other becomes a ``float``: a sum over
-    integer columns is a ``HUGEINT`` DuckDB hands over as ``Decimal``, and ``"3"`` where a count belongs would make
-    every caller parse it back.
+    Nothing is rounded, because the outcome claims ``exact``:
+
+    - Timestamps come back as naive UTC -- the tables store them that way -- and leave with the ``Z`` the protocol
+      wrote them with.
+    - A ``DECIMAL`` leaves as its exact decimal string, ``"0.12345678901234567890"``. A float would round it, and
+      ``exact: true`` beside a rounded value is the one lie this result must not tell. The column's type says
+      ``DECIMAL``, so a reader knows to parse it. Integer aggregates are ``BIGINT``/``HUGEINT`` and arrive as ints.
+    - ``inf``, ``-inf`` and ``nan`` are not JSON numbers, and a serializer that met one would fail the whole
+      response. They leave as the strings ``"Infinity"``, ``"-Infinity"`` and ``"NaN"``, which is how JSON's
+      neighbours (JavaScript, JSON5) spell them.
 
     Args:
         value (Any): What DuckDB returned.
@@ -98,6 +107,8 @@ def json_native(value: Any) -> Any:
         converted: Any = {str(key): json_native(item) for key, item in value.items()}
     elif isinstance(value, list | tuple):
         converted = [json_native(item) for item in value]
+    elif isinstance(value, float) and not math.isfinite(value):
+        converted = "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
     elif value is None or isinstance(value, bool | int | float | str):
         converted = value
     elif isinstance(value, datetime):
@@ -106,7 +117,7 @@ def json_native(value: Any) -> Any:
     elif isinstance(value, date | time):
         converted = value.isoformat()
     elif isinstance(value, Decimal):
-        converted = int(value) if value == value.to_integral_value() else float(value)
+        converted = str(value)
     elif isinstance(value, bytes | bytearray | memoryview):
         converted = bytes(value).hex()
     else:

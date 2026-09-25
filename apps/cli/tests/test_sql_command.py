@@ -48,7 +48,7 @@ class TestSqlCommand:
         assert code == ExitCode.OK, payload
         assert payload["command"] == "sql"
         assert payload["data"]["rows"] == [["text/markdown", 1], ["text/plain", 1]]
-        assert set(payload["data"]["verified_against"]) == {"canonical"}
+        assert set(payload["data"]["verified_against"]) == {"canonical", "provenance"}
 
     def test_the_query_can_come_from_stdin(
         self, capsys: pytest.CaptureFixture[str], brain: Path, monkeypatch: pytest.MonkeyPatch

@@ -11520,7 +11520,9 @@
         "array"
       ],
       "rows[][]": [
+        "bool",
         "int",
+        "null",
         "str"
       ],
       "signature": [
@@ -11561,6 +11563,7 @@
       "hidden.canonical",
       "hidden.semantic",
       "verified_against.canonical",
+      "verified_against.provenance",
       "verified_against.semantic"
     ],
     "paths": {
@@ -11631,6 +11634,9 @@
         "object"
       ],
       "verified_against.canonical": [
+        "str"
+      ],
+      "verified_against.provenance": [
         "str"
       ],
       "verified_against.semantic": [

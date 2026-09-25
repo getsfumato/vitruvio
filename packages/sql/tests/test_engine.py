@@ -138,8 +138,32 @@ class TestHonesty:
             outcome = engine.query("SELECT count(*) FROM semantic JOIN episodic ON true")
         assert outcome.verified_against == {
             "episodic": str(brain.modules[MemoryType.EPISODIC].root),
+            "provenance": str(brain.modules[MemoryType.PROVENANCE].root),
             "semantic": str(brain.modules[MemoryType.SEMANTIC].root),
-        }
+        }, "provenance decides what is hidden, so it is an input to the answer even when the query never names it"
+
+    def test_with_superseded_included_provenance_is_not_an_input(self, brain: Brain) -> None:
+        with SqlEngine(brain.modules) as engine:
+            outcome = engine.query("SELECT count(*) FROM semantic", include_superseded=True)
+        assert set(outcome.verified_against) == {"semantic"}
+
+    def test_a_brain_without_provenance_cannot_claim_an_exact_visible_count(self, brain: Brain) -> None:
+        """Without the ledger nothing can be hidden, so the superseded fact is counted -- and the outcome says so."""
+        modules = {kind: module for kind, module in brain.modules.items() if kind is not MemoryType.PROVENANCE}
+        with SqlEngine(modules) as engine:
+            outcome = engine.query("SELECT count(*) FROM semantic")
+        assert outcome.rows == [[6]]
+        assert outcome.exact is False
+        assert outcome.not_installed == ["provenance"]
+        assert outcome.approximate[0]["kind"] == "visibility_unknown"
+        assert outcome.degradations[0]["kind"] == "visibility_unknown"
+
+    def test_a_brain_without_provenance_is_exact_when_nothing_was_to_be_hidden(self, brain: Brain) -> None:
+        modules = {kind: module for kind, module in brain.modules.items() if kind is not MemoryType.PROVENANCE}
+        with SqlEngine(modules) as engine:
+            outcome = engine.query("SELECT count(*) FROM semantic", include_superseded=True)
+        assert outcome.exact is True
+        assert outcome.not_installed == []
 
     def test_a_module_that_is_not_installed_is_empty_and_named(self, brain: Brain) -> None:
         modules = {kind: module for kind, module in brain.modules.items() if kind is not MemoryType.EPISODIC}
@@ -260,3 +284,88 @@ class TestCache:
         nothing_hidden = SimpleNamespace(superseded_by={}, demoted=set())
         with SqlEngine(brain.modules, ledger=nothing_hidden, cache_dir=tmp_path) as engine:  # type: ignore[arg-type]
             assert engine.query("SELECT count(*) FROM semantic").rows == [[6]]
+
+
+class TestLosslessValues:
+    """``exact: true`` is a claim about every value, so no conversion on the way out may round or fail."""
+
+    def test_a_decimal_leaves_as_its_exact_string(self, brain: Brain) -> None:
+        (row,) = _rows(brain, "SELECT 0.12345678901234567890::DECIMAL(38,20) AS amount")
+        assert row == ["0.12345678901234567890"]
+
+    @pytest.mark.parametrize(
+        ("sql", "spelled"),
+        [
+            ("SELECT 'NaN'::DOUBLE AS x", "NaN"),
+            ("SELECT 'inf'::DOUBLE AS x", "Infinity"),
+            ("SELECT '-inf'::DOUBLE AS x", "-Infinity"),
+        ],
+    )
+    def test_a_nonfinite_float_leaves_as_a_named_string(self, brain: Brain, sql: str, spelled: str) -> None:
+        assert _rows(brain, sql) == [[spelled]]
+
+    def test_nonfinite_values_serialize_as_strict_json(self, brain: Brain) -> None:
+        import json
+
+        rows = _rows(brain, "SELECT 'NaN'::DOUBLE, ['inf'::DOUBLE]")
+        json.dumps(rows, allow_nan=False)
+
+
+class TestReadFailures:
+    """Unreadable is what the composition says. A read that fails is an error, and never becomes a cached row."""
+
+    def test_a_failing_read_is_raised_and_nothing_is_cached(
+        self, brain: Brain, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        semantic = brain.modules[MemoryType.SEMANTIC]
+        real = semantic.get
+        failing = {"left": 1}
+
+        def flaky(identity: Any) -> Any:
+            if failing["left"]:
+                failing["left"] -= 1
+                raise OSError("the disk hiccupped")
+            return real(identity)
+
+        monkeypatch.setattr(semantic, "get", flaky)
+        with SqlEngine(brain.modules, cache_dir=tmp_path) as engine, pytest.raises(OSError, match="hiccupped"):
+            engine.query("SELECT count(*) FROM semantic")
+        assert not list(tmp_path.glob("semantic-*.parquet")), "a table built over a failed read was cached"
+
+        with SqlEngine(brain.modules, cache_dir=tmp_path) as engine:
+            rows = engine.query("SELECT count(*) FROM semantic WHERE NOT resolvable", include_superseded=True).rows
+        assert rows == [[0]], "once reads work again, no member is reported unreadable"
+
+
+class TestTimeBudget:
+    """The timeout bounds the whole answer, not only the part DuckDB runs."""
+
+    def test_building_a_table_counts_against_the_timeout(self, brain: Brain, monkeypatch: pytest.MonkeyPatch) -> None:
+        import time
+
+        from vitruvio.sql import engine as module
+
+        real = module.project_block
+
+        def slow(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            time.sleep(0.02)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(module, "project_block", slow)
+        with SqlEngine(brain.modules, timeout=0.01) as engine, pytest.raises(SqlTimeoutError):
+            engine.query("SELECT count(*) FROM semantic")
+
+    def test_an_answer_within_the_budget_is_unaffected(self, brain: Brain) -> None:
+        with SqlEngine(brain.modules, timeout=10) as engine:
+            assert engine.query("SELECT count(*) FROM episodic").rows == [[3]]
+
+
+class TestDeterminism:
+    def test_an_order_sensitive_aggregate_sees_one_order(self, brain: Brain) -> None:
+        sql = "SELECT list(label) FROM semantic"
+        assert _rows(brain, sql) == _rows(brain, sql)
+
+    def test_a_limit_inside_a_subquery_takes_rows_in_identity_order(self, brain: Brain) -> None:
+        inner = _rows(brain, "SELECT label FROM (SELECT id, label FROM semantic LIMIT 2) ORDER BY id")
+        first_two = _rows(brain, "SELECT label FROM semantic ORDER BY id LIMIT 2")
+        assert inner == first_two

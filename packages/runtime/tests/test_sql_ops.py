@@ -53,7 +53,10 @@ class TestSql:
 
     def test_the_result_names_the_root_it_was_computed_over(self, written: BrainService) -> None:
         result = written.sql("SELECT count(*) FROM semantic")
-        assert result["verified_against"] == {"semantic": written.module("semantic")["root"]}
+        assert result["verified_against"] == {
+            "provenance": written.module("provenance")["root"],
+            "semantic": written.module("semantic")["root"],
+        }
 
     def test_evidence_joins_back_to_the_registered_source(self, written: BrainService) -> None:
         result = written.sql(
@@ -133,3 +136,45 @@ class TestWithoutTheExtra:
         with pytest.raises(UsageError) as raised:
             written.sql("SELECT 1")
         assert raised.value.hint == "install vitruvio[sql]"
+
+
+class TestRetentionPurgesTheCache:
+    """The SQL cache is a copy of payloads, so every mechanism that removes knowledge removes it too."""
+
+    def _label(self, service: BrainService, label: str) -> str:
+        (row,) = service.sql(f"SELECT id FROM semantic WHERE label = '{label}'")["rows"]
+        return str(row[0])
+
+    def test_a_redacted_block_leaves_no_readable_copy(self, tmp_path: Path, source_file: Path) -> None:
+        """Redaction exists to make bytes unreadable even from retained history; a cached table must not outlive it."""
+        from vitruvio.kernel import resolve
+
+        config_file = tmp_path / "vitruvio.toml"
+        config_file.write_text(
+            '[brain]\npath = "./brain"\n\n[actor]\nid = "tester@example.com"\n\n'
+            '[policy]\nprofile = "conservative"\nredactable_media_types = ["text/markdown"]\n',
+            encoding="utf-8",
+        )
+        BrainService(resolve(brain=tmp_path / "brain", config=config_file, require_layout=False)).init()
+        service = BrainService(resolve(brain=tmp_path / "brain", config=config_file, assisted_by=[]))
+        target = str(service.register(Evidence.from_path(source_file, media_type="text/markdown"))["block_id"])
+        assert service.sql("SELECT count(*) FROM canonical WHERE resolvable")["rows"] == [[1]]
+        cache = service.config.derived / "sql"
+        assert list(cache.glob("canonical-*.parquet"))
+
+        service.redact(target, memory_type="canonical", reason="personal data")
+
+        assert not list(cache.glob("*.parquet")), "a table projected before the redaction is still on disk"
+        after = service.sql(f"SELECT resolvable, media_type FROM canonical WHERE id = '{target}'")["rows"]
+        assert after == [[False, None]]
+
+    def test_a_drop_purges_the_cache(self, written: BrainService) -> None:
+        target = self._label(written, "Primes are infinite")
+        written.drop([target], memory_type="semantic", reason="wrong")
+        assert not list((written.config.derived / "sql").glob("*.parquet"))
+        assert written.sql("SELECT count(*) FROM semantic WHERE label = 'Primes are infinite'")["rows"] == [[0]]
+
+    def test_purging_an_absent_cache_is_a_no_op(self, config: Any) -> None:
+        from vitruvio.runtime.ops.sql import purge_sql_cache
+
+        assert purge_sql_cache(config) == 0

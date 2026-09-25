@@ -13,7 +13,15 @@ right or not found. Nothing is ever invalidated because nothing stale is ever lo
 
 The ledger is not cached with the tables. Whether a block is superseded is recorded in the provenance module, so it
 can change while a semantic module's root does not; it is joined on at load time instead, from a ledger the caller
-passes in or one read here.
+passes in or one read here. That makes the provenance module an input to every query that hides anything, and the
+outcome says so: its root is reported beside the tables' own, and a brain without it cannot claim an exact answer
+over "the accessible blocks", because it cannot tell which those are.
+
+One time budget covers the whole request -- projecting a module, loading a cache, running the query, fetching and
+verifying the rows -- because a caller choosing a timeout is choosing how long it is willing to wait for an answer,
+not how long DuckDB may spend on the part it happens to own. DuckDB runs single-threaded over tables inserted in
+identity order, so an aggregate that depends on row order (``first``, ``list``, a ``LIMIT`` inside a subquery) sees the
+same order every time.
 """
 
 from __future__ import annotations
@@ -24,7 +32,8 @@ import json
 import os
 import tempfile
 import threading
-from collections.abc import Iterable, Mapping
+import time
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -57,6 +66,49 @@ class SqlTimeoutError(UsageError):
     code = "SQL_TIMEOUT"
 
 
+class _Budget:
+    """
+    One deadline for a whole request, enforced two ways.
+
+    DuckDB work is interrupted when the deadline passes: a timer calls ``interrupt`` on whatever connection is open.
+    Python work -- projecting blocks into rows, verifying proofs -- cannot be interrupted from outside, so it calls
+    :meth:`check` as it goes. Between the two, no phase of producing an answer runs unbounded.
+    """
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        self.deadline = time.monotonic() + seconds
+        self.connection: duckdb.DuckDBPyConnection | None = None
+        self._expired = False
+        self._timer = threading.Timer(seconds, self._fire)
+        self._timer.daemon = True
+
+    def __enter__(self) -> _Budget:
+        self._timer.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._timer.cancel()
+
+    def _fire(self) -> None:
+        self._expired = True
+        connection = self.connection
+        if connection is not None:
+            with contextlib.suppress(Exception):
+                connection.interrupt()
+
+    def error(self) -> SqlTimeoutError:
+        return SqlTimeoutError(
+            f"answering the query took more than {self.seconds:g}s and was stopped",
+            hint="narrow it with WHERE or aggregate before joining; the first query after a change also builds tables",
+        )
+
+    def check(self) -> None:
+        """Stop Python-side work once the deadline has passed."""
+        if self._expired or time.monotonic() >= self.deadline:
+            raise self.error()
+
+
 def _stored_table(name: str) -> str:
     return f"__vitruvio_table_{name}"
 
@@ -75,23 +127,26 @@ def _json_columns(spec: TableSpec) -> str:
     return "{" + ", ".join(f"'{column.name}': '{column.type}'" for column in spec.stored) + "}"
 
 
-def _rows(memory_type: MemoryType, module: Module) -> list[dict[str, Any]]:
-    """Every member of a module, as a row, in identity order so a table's insertion order is deterministic."""
+def _rows(memory_type: MemoryType, module: Module, check: Callable[[], None]) -> list[dict[str, Any]]:
+    """
+    Every member of a module, as a row, in identity order so a table's insertion order is deterministic.
+
+    Unreadable means what ``module.resolvable()`` says: tombstoned, or not installed. Those members get their null
+    row. A block the store *claims* to hold and then fails to read -- an I/O error, a digest that does not verify --
+    is not unreadable, it is a failure, and it propagates. Turning it into a null row would be caching a false
+    tombstone under a key that cannot change until the composition does, so a passing fault would become a permanent
+    wrong answer.
+    """
     resolvable = module.resolvable()
     rows = []
     for identity in sorted(module.block_ids, key=str):
+        check()
         payload = None
         version = None
         if resolvable.get(identity, True):
-            try:
-                block = module.get(identity)
-            except Exception:
-                # A member whose bytes fail to verify is still a member. It is counted, marked unresolvable, and
-                # carries no field it might have said -- the same row a redacted block gets.
-                block = None
-            if block is not None:
-                payload = block.payload()
-                version = type(block).SCHEMA_VERSION
+            block = module.get(identity)
+            payload = block.payload()
+            version = type(block).SCHEMA_VERSION
         rows.append(project_block(memory_type, str(identity), payload, schema_version=version))
     return rows
 
@@ -115,7 +170,7 @@ class SqlEngine:
         ledger (Ledger | None): What the provenance module says about supersession and demotion. Read from
             ``modules`` when not given; a caller that already holds one -- the planner caches it -- passes it in.
         cache_dir (Path | None): Where derived tables are cached. ``None`` builds every table afresh.
-        timeout (float): Seconds a query may run.
+        timeout (float): Seconds a whole request may take: building or loading tables, running, fetching, verifying.
         memory_limit (str): DuckDB's memory limit, in its own units.
     """
 
@@ -134,12 +189,19 @@ class SqlEngine:
         self.memory_limit = memory_limit
         self._ledger = ledger
         self._connection: duckdb.DuckDBPyConnection | None = None
+        self._budget: _Budget | None = None
 
     # --- Public surface ---------------------------------------------------------------------------------------
 
     @staticmethod
     def schema() -> list[TableSpec]:
-        """Every table a query may read, with its columns: the per-module tables, then ``blocks``."""
+        """
+        The tables as data rather than as a database.
+
+        Static, and answered without loading anything, because the schema is the projection's and not any brain's:
+        a caller asking what it may write -- an agent composing a query, ``vitruvio sql --schema`` -- should not pay
+        for projecting a module to learn a column name, nor need a brain at all.
+        """
         return [*TABLES.values(), BLOCKS_TABLE]
 
     def query(
@@ -170,26 +232,28 @@ class SqlEngine:
         if limit < 1:
             raise UsageError("limit must be at least 1")
         guarded = guard(sql, include_superseded=include_superseded)
-        connection = self._open(guarded.tables)
-        cursor = self._run(connection, guarded.executed)
-        columns = [SqlColumn(name=str(entry[0]), type=str(entry[1])) for entry in cursor.description or ()]
-        fetched = cursor.fetchmany(limit + 1)
-        truncated = len(fetched) > limit
-        rows = [[json_native(value) for value in row] for row in fetched[:limit]]
+        with self._budgeted() as budget:
+            connection = self._open(guarded.tables)
+            cursor = self._run(connection, guarded.executed)
+            columns = [SqlColumn(name=str(entry[0]), type=str(entry[1])) for entry in cursor.description or ()]
+            fetched = cursor.fetchmany(limit + 1)
+            budget.check()
+            truncated = len(fetched) > limit
+            rows = [[json_native(value) for value in row] for row in fetched[:limit]]
 
-        degradations: list[dict[str, str]] = []
-        verified_rows = None
-        if verify:
-            rows, verified_rows, degradations = self._verify(columns, rows)
-        return self._outcome(
-            guarded,
-            columns=columns,
-            rows=rows,
-            truncated=truncated,
-            limit=limit,
-            verified_rows=verified_rows,
-            degradations=degradations,
-        )
+            degradations: list[dict[str, str]] = []
+            verified_rows = None
+            if verify:
+                rows, verified_rows, degradations = self._verify(columns, rows)
+            return self._outcome(
+                guarded,
+                columns=columns,
+                rows=rows,
+                truncated=truncated,
+                limit=limit,
+                verified_rows=verified_rows,
+                degradations=degradations,
+            )
 
     def explain(self, sql: str, *, include_superseded: bool = False) -> SqlOutcome:
         """
@@ -199,16 +263,35 @@ class SqlEngine:
             SqlOutcome: No rows; ``plan`` holds DuckDB's physical plan and ``executed_sql`` what it was made from.
         """
         guarded = guard(sql, include_superseded=include_superseded)
-        connection = self._open(guarded.tables)
-        cursor = self._run(connection, f"EXPLAIN {guarded.executed}")
-        plan = "\n".join(str(row[-1]) for row in cursor.fetchall())
-        return self._outcome(guarded, columns=[], rows=[], truncated=False, limit=0, plan=plan)
+        with self._budgeted():
+            connection = self._open(guarded.tables)
+            cursor = self._run(connection, f"EXPLAIN {guarded.executed}")
+            plan = "\n".join(str(row[-1]) for row in cursor.fetchall())
+            return self._outcome(guarded, columns=[], rows=[], truncated=False, limit=0, plan=plan)
 
     def close(self) -> None:
         """Release the in-memory database."""
         if self._connection is not None:
             self._connection.close()
             self._connection = None
+
+    @contextlib.contextmanager
+    def _budgeted(self) -> Iterator[_Budget]:
+        """Run one request under the time budget, turning an interruption anywhere in it into the timeout error."""
+        import duckdb
+
+        with _Budget(self.timeout) as budget:
+            self._budget = budget
+            try:
+                yield budget
+            except duckdb.InterruptException:
+                raise budget.error() from None
+            finally:
+                self._budget = None
+
+    def _check(self) -> None:
+        if self._budget is not None:
+            self._budget.check()
 
     def __enter__(self) -> SqlEngine:
         return self
@@ -242,12 +325,21 @@ class SqlEngine:
                 "autoinstall_known_extensions": False,
                 "autoload_known_extensions": False,
                 "memory_limit": self.memory_limit,
+                # One thread over tables inserted in identity order: an order-sensitive aggregate or a LIMIT without
+                # ORDER BY inside a subquery reads rows in the same order on every run. The brains this answers over
+                # are small enough that parallelism would buy milliseconds and cost the guarantee.
+                "threads": 1,
+                "preserve_insertion_order": True,
             },
         )
+        if self._budget is not None:
+            self._budget.connection = connection
         try:
             needed = self._modules_for(tables)
             for kind, spec in needed.items():
+                self._check()
                 self._load(connection, kind, spec)
+            self._check()
             self._load_ledger(connection, needed)
             for spec in needed.values():
                 self._views(connection, spec, spec.name)
@@ -275,7 +367,7 @@ class SqlEngine:
             if cached.is_file():
                 connection.execute(f"CREATE TABLE {target} AS SELECT * FROM read_parquet({_literal(str(cached))})")
                 return
-        self._build(connection, target, spec, _rows(kind, module))
+        self._build(connection, target, spec, _rows(kind, module, self._check))
         if cached is not None:
             self._persist(connection, target, cached, spec.name)
 
@@ -300,8 +392,12 @@ class SqlEngine:
         """Write a table's cache atomically, and drop the ones for compositions this module has moved past."""
         path.parent.mkdir(parents=True, exist_ok=True)
         partial = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
-        connection.execute(f"COPY {target} TO {_literal(str(partial))} (FORMAT parquet)")
-        partial.replace(path)
+        try:
+            connection.execute(f"COPY {target} TO {_literal(str(partial))} (FORMAT parquet)")
+            partial.replace(path)
+        finally:
+            with contextlib.suppress(OSError):
+                partial.unlink()
         for stale in path.parent.glob(f"{name}-*.parquet"):
             if stale != path:
                 with contextlib.suppress(OSError):
@@ -352,18 +448,12 @@ class SqlEngine:
     # --- Running ----------------------------------------------------------------------------------------------
 
     def _run(self, connection: duckdb.DuckDBPyConnection, sql: str) -> duckdb.DuckDBPyConnection:
+        """Run the caller's statement, reporting what DuckDB refuses as the caller's mistake rather than ours."""
         import duckdb
 
-        timer = threading.Timer(self.timeout, connection.interrupt)
-        timer.daemon = True
-        timer.start()
+        self._check()
         try:
             return connection.execute(sql)
-        except duckdb.InterruptException:
-            raise SqlTimeoutError(
-                f"the query ran for more than {self.timeout:g}s and was interrupted",
-                hint="narrow it with WHERE, or aggregate before joining",
-            ) from None
         except (
             duckdb.ParserException,
             duckdb.BinderException,
@@ -378,8 +468,6 @@ class SqlEngine:
         ) as error:
             first = str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
             raise UsageError(first, hint="`vitruvio sql --schema` lists every table and column") from None
-        finally:
-            timer.cancel()
 
     def _verify(
         self, columns: list[SqlColumn], rows: list[list[Any]]
@@ -397,6 +485,7 @@ class SqlEngine:
         kept: list[list[Any]] = []
         degradations: list[dict[str, str]] = []
         for row in rows:
+            self._check()
             value = row[position]
             try:
                 identity = BlockId.parse(value) if isinstance(value, str) else None
@@ -416,6 +505,7 @@ class SqlEngine:
         assert self._connection is not None
         counts = {}
         for name in tables:
+            self._check()
             (count,) = self._connection.execute(
                 f"SELECT count(*) FROM {every_name(name)} WHERE superseded OR demoted"
             ).fetchone() or (0,)
@@ -435,6 +525,31 @@ class SqlEngine:
         plan: str | None = None,
     ) -> SqlOutcome:
         needed = self._modules_for(guarded.tables)
+        verified_against = {
+            kind.value: str(self.modules[kind].root) for kind in sorted(needed, key=str) if kind in self.modules
+        }
+        not_installed = sorted(
+            name
+            for name in guarded.tables
+            if name != BLOCKS_TABLE.name and TABLES[name].memory_type not in self.modules
+        )
+        approximate: list[dict[str, Any]] = []
+        degradations = list(degradations or [])
+        # Hiding superseded and demoted blocks reads the provenance module, so it is an input to the answer whether
+        # or not the query names it. Its root is reported with the others; its absence is reported as what it is.
+        if needed and not guarded.include_superseded:
+            provenance = self.modules.get(MemoryType.PROVENANCE)
+            if provenance is not None:
+                verified_against[MemoryType.PROVENANCE.value] = str(provenance.root)
+            else:
+                reason = (
+                    "the provenance module is not installed, so superseded and demoted blocks could not be told "
+                    "apart and none were hidden"
+                )
+                if MemoryType.PROVENANCE.value not in not_installed:
+                    not_installed = sorted([*not_installed, MemoryType.PROVENANCE.value])
+                approximate.append({"kind": "visibility_unknown", "reason": reason})
+                degradations.append({"kind": "visibility_unknown", "reason": reason})
         return SqlOutcome(
             sql=guarded.sql,
             canonical_sql=guarded.canonical,
@@ -446,18 +561,14 @@ class SqlEngine:
             truncated=truncated,
             limit=limit,
             tables=list(guarded.tables),
-            verified_against={
-                kind.value: str(self.modules[kind].root) for kind in sorted(needed, key=str) if kind in self.modules
-            },
-            not_installed=sorted(
-                name
-                for name in guarded.tables
-                if name != BLOCKS_TABLE.name and TABLES[name].memory_type not in self.modules
-            ),
+            verified_against=dict(sorted(verified_against.items())),
+            not_installed=not_installed,
             hidden={} if guarded.include_superseded else self._hidden(guarded.tables),
             include_superseded=guarded.include_superseded,
+            exact=not approximate,
+            approximate=approximate,
             verified_rows=verified_rows,
-            degradations=degradations or [],
+            degradations=degradations,
             plan=plan,
         )
 
