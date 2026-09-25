@@ -72,3 +72,21 @@ def test_the_version_is_declared_once() -> None:
         if declared != __version__:
             mismatched[str(pyproject.relative_to(REPO))] = declared
     assert not mismatched, f"versions disagree with vitruvio.kernel.__version__ ({__version__}): {mismatched}"
+
+
+def test_the_release_versions_every_member() -> None:
+    """semantic-release bumps the manifests `version_toml` names, and the release bundles one wheel per member.
+
+    A member missing from that list builds at the old version and installs beside the new ones; the bundle step then
+    rejects it only after the tag is already pushed. This catches both at review time instead.
+    """
+    import tomllib
+
+    members = {path.parent.relative_to(REPO).as_posix() for path in REPO.glob("*/*/pyproject.toml")}
+    config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    versioned = {
+        entry.split(":")[0].removesuffix("/pyproject.toml")
+        for entry in config["tool"]["semantic_release"]["version_toml"]
+    }
+    assert versioned == members
+    assert len(members) == len(MEMBERS)
