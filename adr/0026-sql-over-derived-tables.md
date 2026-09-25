@@ -103,6 +103,18 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
   - Every answer that uses similarity carries `exact: false` and one `approximate` entry per text, naming its
     thresholds, the model that scored each module (a local fallback is labelled as such), and the modules that went
     unscored.
+- **Several brains are one database.**
+  - `compound sql` loads every member's tables into a single engine, and DuckDB answers once. A count or join
+    across brains is one question over their union, not answers to be merged, so no merge rule is written here.
+  - A bare table spans every member, with a leading `brain` column. `brain.table` reads one member. A reference to
+    a brain outside the compound is refused.
+  - Internally, a member is named by its position, never by its name, because a brain name is caller data.
+  - Each member brings its own ledger, table cache and scorer.
+  - A block held by two brains is one row per brain. `count(DISTINCT id)` counts it once.
+  - The brains consulted are part of the signature.
+  - Every key in `verified_against`, `hidden` and `not_installed` is `brain.module`.
+  - Under `about()`, a block two brains hold takes the higher of their scores, and `approximate` names both
+    models.
 - **Packaging.** The distribution sits behind the `sql` extra of `vitruvio-runtime` and the CLI. Without it,
   `vitruvio sql` is a usage error naming the extra.
 
@@ -115,7 +127,8 @@ interface reaches it through `BrainService`: the CLI's `vitruvio sql`, and the f
 - Changing a column is a change to what saved queries mean. It needs a `SQL_PROJECTION_ID` bump and a changelog entry.
 - Scoring every block is linear in the vector population per distinct text. That is fine at this scale, and it is
   the price of a threshold that means the same thing on every run.
+- A compound holds every member's tables in memory at once. That is bounded by the memory limit, and it is the
+  reason a compound is built per request.
 - Later phases:
-  - `FROM brain.table` across a project's brains;
   - CSV and Parquet canonical blocks exposed as tables. The runtime would read their blobs out of the store, so
     DuckDB still never touches the filesystem.
