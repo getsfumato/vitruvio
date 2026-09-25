@@ -25,6 +25,9 @@ EXTRA_MEDIA_TYPES = {
     ".org": "text/org",
     ".tex": "text/x-tex",
     ".jsonl": "application/x-ndjson",
+    # The IANA registration, which `mimetypes` does not carry. `vitruvio sql` reads a canonical block of this type
+    # as a table, so a guess of `application/octet-stream` would register the file and hide the data.
+    ".parquet": "application/vnd.apache.parquet",
     ".yaml": "application/yaml",
     ".yml": "application/yaml",
     ".toml": "application/toml",
