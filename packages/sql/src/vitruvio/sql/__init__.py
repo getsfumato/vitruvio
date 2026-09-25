@@ -21,7 +21,7 @@ lets the runtime, a future HTTP API and an MCP server share one engine without a
 
 from __future__ import annotations
 
-from vitruvio.sql.engine import DEFAULT_LIMIT, SqlEngine, SqlTimeoutError
+from vitruvio.sql.engine import DEFAULT_LIMIT, SqlBrain, SqlEngine, SqlTimeoutError
 from vitruvio.sql.guard import QUERYABLE, GuardedQuery, guard
 from vitruvio.sql.result import SqlColumn, SqlOutcome, json_native
 from vitruvio.sql.similarity import Scorer, Similarity
@@ -37,6 +37,7 @@ __all__ = [
     "GuardedQuery",
     "Scorer",
     "Similarity",
+    "SqlBrain",
     "SqlColumn",
     "SqlEngine",
     "SqlOutcome",
