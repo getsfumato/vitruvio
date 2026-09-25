@@ -42,6 +42,7 @@ from boltzmann.blocks.memory_type import MemoryType
 from vitruvio.kernel import UsageError
 from vitruvio.sql.guard import GuardedQuery, every_name, guard, visible_name
 from vitruvio.sql.result import SqlColumn, SqlOutcome, json_native
+from vitruvio.sql.similarity import SCORE_BLOCK, SCORE_VALUE, Scorer, Similarity, similarity_table
 from vitruvio.sql.tables import BLOCKS_TABLE, SQL_PROJECTION_ID, TABLES, TableSpec, project_block, table_for
 
 if TYPE_CHECKING:
@@ -122,11 +123,6 @@ def _column_list(spec: TableSpec) -> str:
     return ", ".join(f'"{column.name}" {column.type}' for column in spec.stored)
 
 
-def _json_columns(spec: TableSpec) -> str:
-    """The ``columns`` argument of ``read_json``: DuckDB's struct literal, name to type."""
-    return "{" + ", ".join(f"'{column.name}': '{column.type}'" for column in spec.stored) + "}"
-
-
 def _rows(memory_type: MemoryType, module: Module, check: Callable[[], None]) -> list[dict[str, Any]]:
     """
     Every member of a module, as a row, in identity order so a table's insertion order is deterministic.
@@ -151,6 +147,26 @@ def _rows(memory_type: MemoryType, module: Module, check: Callable[[], None]) ->
     return rows
 
 
+def _insert(
+    connection: duckdb.DuckDBPyConnection, target: str, columns: Mapping[str, str], rows: list[dict[str, Any]]
+) -> None:
+    """Load rows through newline-delimited JSON, which is the one path that types nested lists of structs -- and,
+    unlike ``executemany``, stays fast at a hundred thousand rows."""
+    if not rows:
+        return
+    typed = "{" + ", ".join(f"'{name}': '{kind}'" for name, kind in columns.items()) + "}"
+    with tempfile.TemporaryDirectory(prefix="vitruvio-sql-") as scratch:
+        path = Path(scratch) / "rows.ndjson"
+        with path.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, ensure_ascii=False))
+                handle.write("\n")
+        connection.execute(
+            f"INSERT INTO {target} SELECT * FROM read_json({_literal(str(path))}, "
+            f"format = 'newline_delimited', columns = {typed})"
+        )
+
+
 def _cache_key(memory_type: MemoryType, module: Module) -> str:
     unreadable = sorted(str(identity) for identity, readable in module.resolvable().items() if not readable)
     material = "\x00".join((SQL_PROJECTION_ID, memory_type.value, str(module.root), *unreadable))
@@ -170,6 +186,9 @@ class SqlEngine:
         ledger (Ledger | None): What the provenance module says about supersession and demotion. Read from
             ``modules`` when not given; a caller that already holds one -- the planner caches it -- passes it in.
         cache_dir (Path | None): Where derived tables are cached. ``None`` builds every table afresh.
+        scorer (Scorer | None): What scores blocks against a text, for ``about`` and ``similarity``. Asked only when a
+            query uses one of them, so a caller can hand in something expensive to stand up. Without one, a query
+            that uses them is refused.
         timeout (float): Seconds a whole request may take: building or loading tables, running, fetching, verifying.
         memory_limit (str): DuckDB's memory limit, in its own units.
     """
@@ -179,6 +198,7 @@ class SqlEngine:
         modules: Mapping[MemoryType, Module],
         *,
         ledger: Ledger | None = None,
+        scorer: Scorer | None = None,
         cache_dir: Path | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         memory_limit: str = DEFAULT_MEMORY_LIMIT,
@@ -188,6 +208,8 @@ class SqlEngine:
         self.timeout = timeout
         self.memory_limit = memory_limit
         self._ledger = ledger
+        self.scorer = scorer
+        self._similarity: dict[str, Similarity] = {}
         self._connection: duckdb.DuckDBPyConnection | None = None
         self._budget: _Budget | None = None
 
@@ -233,7 +255,7 @@ class SqlEngine:
             raise UsageError("limit must be at least 1")
         guarded = guard(sql, include_superseded=include_superseded)
         with self._budgeted() as budget:
-            connection = self._open(guarded.tables)
+            connection = self._open(guarded.tables, guarded.similarity)
             cursor = self._run(connection, guarded.executed)
             columns = [SqlColumn(name=str(entry[0]), type=str(entry[1])) for entry in cursor.description or ()]
             fetched = cursor.fetchmany(limit + 1)
@@ -264,7 +286,7 @@ class SqlEngine:
         """
         guarded = guard(sql, include_superseded=include_superseded)
         with self._budgeted():
-            connection = self._open(guarded.tables)
+            connection = self._open(guarded.tables, guarded.similarity)
             cursor = self._run(connection, f"EXPLAIN {guarded.executed}")
             plan = "\n".join(str(row[-1]) for row in cursor.fetchall())
             return self._outcome(guarded, columns=[], rows=[], truncated=False, limit=0, plan=plan)
@@ -313,7 +335,7 @@ class SqlEngine:
                 wanted[spec.memory_type] = spec
         return wanted
 
-    def _open(self, tables: Iterable[str]) -> duckdb.DuckDBPyConnection:
+    def _open(self, tables: Iterable[str], similarity: Iterable[str] = ()) -> duckdb.DuckDBPyConnection:
         """A sealed in-memory database holding exactly the tables a query reads, and the views over them."""
         import duckdb
 
@@ -345,6 +367,10 @@ class SqlEngine:
                 self._views(connection, spec, spec.name)
             if BLOCKS_TABLE.name in tables:
                 self._blocks_view(connection, needed)
+            for position, text in enumerate(similarity):
+                self._check()
+                self._load_similarity(connection, position, text)
+            self._check()
             # The seal. After these two statements nothing the query says can read or write a file, load an
             # extension, or turn either back on.
             connection.execute("SET enable_external_access = false")
@@ -373,20 +399,30 @@ class SqlEngine:
 
     @staticmethod
     def _build(connection: duckdb.DuckDBPyConnection, target: str, spec: TableSpec, rows: list[dict[str, Any]]) -> None:
-        """Load rows through newline-delimited JSON, which is the one path that types nested lists of structs."""
+        """Create a module's table and fill it."""
         connection.execute(f"CREATE TABLE {target} ({_column_list(spec)})")
-        if not rows:
-            return
-        with tempfile.TemporaryDirectory(prefix="vitruvio-sql-") as scratch:
-            path = Path(scratch) / f"{spec.name}.ndjson"
-            with path.open("w", encoding="utf-8") as handle:
-                for row in rows:
-                    handle.write(json.dumps(row, ensure_ascii=False))
-                    handle.write("\n")
-            connection.execute(
-                f"INSERT INTO {target} SELECT * FROM read_json({_literal(str(path))}, "
-                f"format = 'newline_delimited', columns = {_json_columns(spec)})"
+        _insert(connection, target, {column.name: column.type for column in spec.stored}, rows)
+
+    def _load_similarity(self, connection: duckdb.DuckDBPyConnection, position: int, text: str) -> None:
+        """Score every block against one text and load the scores as a table, before the seal."""
+        if self.scorer is None:
+            raise UsageError(
+                "about() and similarity() need the brain's vector indices, and none were made available here",
+                hint="run the query through `vitruvio sql`, which scores against the brain's vector indices",
             )
+        scored = self._similarity.get(text)
+        if scored is None:
+            scored = self._similarity[text] = self.scorer.similarity(text)
+        if not scored.scores:
+            reasons = "; ".join(f"{kind}: {why}" for kind, why in sorted(scored.missing.items())) or "no vectors"
+            raise UsageError(
+                f"nothing could be scored against {text!r}, so about() would be false for every block ({reasons})",
+                hint="build the vector indices with `vitruvio index build`, or check `vitruvio config embedder`",
+            )
+        table = similarity_table(position)
+        connection.execute(f"CREATE TABLE {table} ({SCORE_BLOCK} VARCHAR PRIMARY KEY, {SCORE_VALUE} DOUBLE)")
+        rows = [{SCORE_BLOCK: block, SCORE_VALUE: score} for block, score in sorted(scored.scores.items())]
+        _insert(connection, table, {SCORE_BLOCK: "VARCHAR", SCORE_VALUE: "DOUBLE"}, rows)
 
     def _persist(self, connection: duckdb.DuckDBPyConnection, target: str, path: Path, name: str) -> None:
         """Write a table's cache atomically, and drop the ones for compositions this module has moved past."""
@@ -535,6 +571,26 @@ class SqlEngine:
         )
         approximate: list[dict[str, Any]] = []
         degradations = list(degradations or [])
+        scope = {kind.value for kind in needed}
+        for text in guarded.similarity:
+            scored = self._similarity[text]
+            missing = {kind: why for kind, why in sorted(scored.missing.items()) if kind in scope}
+            approximate.append(
+                {
+                    "kind": "similarity",
+                    "text": text,
+                    "min_score": list((guarded.thresholds or {}).get(text, ())),
+                    "models": {kind: tag for kind, tag in sorted(scored.models.items()) if kind in scope},
+                    "unscored": missing,
+                }
+            )
+            degradations.extend(
+                {
+                    "kind": "similarity_unscored",
+                    "reason": f"{kind} could not be scored against {text!r} ({why}), so none of its blocks is about it",
+                }
+                for kind, why in missing.items()
+            )
         # Hiding superseded and demoted blocks reads the provenance module, so it is an input to the answer whether
         # or not the query names it. Its root is reported with the others; its absence is reported as what it is.
         if needed and not guarded.include_superseded:

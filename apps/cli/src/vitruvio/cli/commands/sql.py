@@ -68,10 +68,15 @@ def sql(
 
     Only a single SELECT is accepted. Nothing that writes, and nothing that reads outside the brain, is run.
 
+    `about(id, 'text', min_score)` is true for a block whose similarity to the text is at least `min_score`, scored
+    by the brain's vector indices over every block; `similarity(id, 'text')` is that score. A query using either is
+    reported as approximate, with the model that scored it.
+
     Examples:
 
         vitruvio sql "SELECT subject, count(*) FROM semantic WHERE kind = 'fact' GROUP BY subject"
         vitruvio sql "SELECT tag, count(*) FROM episodic, UNNEST(tags) AS u(tag) GROUP BY tag"
+        vitruvio sql "SELECT count(*) FROM semantic WHERE about(id, 'ethics', 0.35)"
 
     Parameters
     ----------

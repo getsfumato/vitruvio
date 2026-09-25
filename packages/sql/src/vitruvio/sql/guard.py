@@ -5,7 +5,7 @@ query runs -- so this is the first of two walls, not the only one. It is the one
 DuckDB reads "Permission Error: file system operations are disabled"; a refusal from here names the construct and
 what to write instead, which is the difference between an agent that rephrases and one that reports a bug.
 
-Five things happen, in order:
+Six things happen, in order:
 
 1. **Parse.** One statement, in DuckDB's dialect. Two statements are refused rather than the first one run.
 2. **Refuse what is not a read.** The statement must be a query -- a ``SELECT``, a set operation, a ``WITH`` over
@@ -19,7 +19,10 @@ Five things happen, in order:
    default, every member when superseded blocks are asked for. The alias stays what the caller wrote, so
    ``semantic.label`` still resolves. A name is a CTE only where that CTE is in scope: a ``WITH semantic`` inside a
    subquery does not shadow the real table outside it.
-5. **Make the order total.** A query with no ``ORDER BY`` gets ``ORDER BY ALL``. Without it the same query over the
+5. **Resolve similarity.** ``about(id, 'text', min_score)`` and ``similarity(id, 'text')`` are checked -- literal
+   text, a threshold in ``(0, 1]`` -- and rewritten onto tables of precomputed scores, one per distinct text. See
+   :mod:`vitruvio.sql.similarity`.
+6. **Make the order total.** A query with no ``ORDER BY`` gets ``ORDER BY ALL``. Without it the same query over the
    same root could return its rows in two orders, and a signature over the query would then name two answers.
 """
 
@@ -30,6 +33,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from vitruvio.kernel import UsageError
+from vitruvio.sql.similarity import ABOUT, SCORE_BLOCK, SCORE_VALUE, SIMILARITY, similarity_table
 from vitruvio.sql.tables import BLOCKS_TABLE, TABLES
 
 if TYPE_CHECKING:
@@ -104,6 +108,9 @@ class GuardedQuery:
             accessible ones.
         signature (str): A digest of the canonical query and the visibility it ran under. Two runs with the same
             signature over the same roots return the same rows in the same order.
+        similarity (tuple[str, ...]): The distinct texts ``about`` and ``similarity`` name, in order of first use.
+            The ``n``-th is scored into :func:`~vitruvio.sql.similarity.similarity_table` ``(n)``.
+        thresholds (dict[str, tuple[float, ...]]): For each text, the ``about`` thresholds applied to it.
     """
 
     sql: str
@@ -113,6 +120,8 @@ class GuardedQuery:
     ordered: bool
     include_superseded: bool
     signature: str
+    similarity: tuple[str, ...] = ()
+    thresholds: dict[str, tuple[float, ...]] | None = None
 
 
 def _parse(sql: str) -> exp.Expr:
@@ -215,6 +224,70 @@ def _rewrite_tables(tree: exp.Expr, *, include_superseded: bool) -> tuple[str, .
     return tuple(sorted(used))
 
 
+def _literal_text(argument: exp.Expr, function: str) -> str:
+    from sqlglot import exp
+
+    if not isinstance(argument, exp.Literal) or not argument.is_string or not argument.this.strip():
+        raise UsageError(
+            f"{function}() takes the text to compare against as a string literal",
+            hint=f"{function}(id, 'the topic'{', 0.35' if function == ABOUT else ''})",
+        )
+    return str(argument.this)
+
+
+def _threshold(argument: exp.Expr) -> float:
+    from sqlglot import exp
+
+    value = None
+    if isinstance(argument, exp.Literal) and not argument.is_string:
+        try:
+            value = float(argument.this)
+        except ValueError:
+            value = None
+    if value is None or not 0.0 < value <= 1.0:
+        raise UsageError(
+            f"about() takes a min_score between 0 (exclusive) and 1, and got {argument.sql(dialect='duckdb')}",
+            # Not "read a search score": that is agreement between retrieval strategies, not a similarity, and a
+            # threshold chosen from one would mean nothing here.
+            hint="look at similarity(id, 'the topic') over a few blocks to choose one; about(id, 'the topic', 0.35)",
+        )
+    return value
+
+
+def _rewrite_similarity(tree: exp.Expr) -> tuple[tuple[str, ...], dict[str, tuple[float, ...]]]:
+    """Replace each ``about`` and ``similarity`` call with a read of the precomputed scores for its text."""
+    import sqlglot
+    from sqlglot import exp
+
+    texts: list[str] = []
+    thresholds: dict[str, list[float]] = {}
+    calls = [node for node in tree.find_all(exp.Anonymous) if node.name.lower() in (ABOUT, SIMILARITY)]
+    for call in calls:
+        name = call.name.lower()
+        arguments = call.expressions
+        expected = 3 if name == ABOUT else 2
+        if len(arguments) != expected:
+            shape = "about(id, 'text', min_score)" if name == ABOUT else "similarity(id, 'text')"
+            raise UsageError(f"{name}() takes {expected} arguments: {shape}", hint=shape)
+        identity, text_argument = arguments[0], arguments[1]
+        text = _literal_text(text_argument, name)
+        if text not in texts:
+            texts.append(text)
+        table = similarity_table(texts.index(text))
+        subject = identity.sql(dialect="duckdb")
+        # The score table's columns are named so that nothing a caller writes can bind to them: an unqualified `id`
+        # in the first argument has to reach the caller's row, and inside a subquery over a table with an `id`
+        # column it would silently bind to that table instead -- comparing every score row with itself.
+        if name == ABOUT:
+            minimum = _threshold(arguments[2])
+            thresholds.setdefault(text, []).append(minimum)
+            replacement = f"(({subject}) IN (SELECT {SCORE_BLOCK} FROM {table} WHERE {SCORE_VALUE} >= {minimum!r}))"
+        else:
+            replacement = f"(SELECT {SCORE_VALUE} FROM {table} WHERE {SCORE_BLOCK} = ({subject}))"
+        call.replace(sqlglot.parse_one(replacement, dialect="duckdb"))
+    return tuple(texts), {text: tuple(sorted(set(values))) for text, values in thresholds.items()}
+
+
 def guard(sql: str, *, include_superseded: bool = False) -> GuardedQuery:
     """
     Admit a query or refuse it, and rewrite what is admitted onto the engine's views.
@@ -243,6 +316,7 @@ def guard(sql: str, *, include_superseded: bool = False) -> GuardedQuery:
     canonical = tree.sql(dialect="duckdb")
     rewritten = tree.copy()
     tables = _rewrite_tables(rewritten, include_superseded=include_superseded)
+    similarity, thresholds = _rewrite_similarity(rewritten)
     ordered = rewritten.args.get("order") is not None
     if not ordered:
         rewritten = rewritten.order_by(exp.Column(this=exp.Var(this="ALL")), copy=False)
@@ -256,6 +330,8 @@ def guard(sql: str, *, include_superseded: bool = False) -> GuardedQuery:
         ordered=ordered,
         include_superseded=include_superseded,
         signature=f"sha256:{digest}",
+        similarity=similarity,
+        thresholds=thresholds,
     )
 
 

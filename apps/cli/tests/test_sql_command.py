@@ -111,3 +111,26 @@ class TestSqlCommand:
         code, out, _ = run(capsys, "--brain", str(brain), "sql", "SELECT count(*) FROM canonical", "--explain")
         assert code == ExitCode.OK
         assert "executed" in out
+
+
+class TestSimilarityCommand:
+    def test_about_comes_back_approximate_with_its_model(self, capsys: pytest.CaptureFixture[str], brain: Path) -> None:
+        code, payload = envelope(
+            capsys, "--brain", str(brain), "sql", "SELECT count(*) FROM canonical WHERE about(id, 'fourier', 0.05)"
+        )
+        assert code == ExitCode.OK, payload
+        assert payload["data"]["exact"] is False
+        assert payload["data"]["approximate"][0]["kind"] == "similarity"
+
+    def test_the_human_view_says_why_it_is_approximate(self, capsys: pytest.CaptureFixture[str], brain: Path) -> None:
+        code, out, _ = run(
+            capsys, "--brain", str(brain), "sql", "SELECT count(*) FROM canonical WHERE about(id, 'fourier', 0.05)"
+        )
+        assert code == ExitCode.OK
+        assert "approximate" in out
+        assert "similarity to 'fourier'" in out
+
+    def test_a_bad_threshold_is_a_usage_error(self, capsys: pytest.CaptureFixture[str], brain: Path) -> None:
+        code, payload = envelope(capsys, "--brain", str(brain), "sql", "SELECT about(id, 'x', 2) FROM canonical")
+        assert code == ExitCode.USAGE
+        assert "min_score" in payload["error"]["message"]
