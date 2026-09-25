@@ -4148,6 +4148,264 @@
       ]
     }
   },
+  "compound_sql": {
+    "optional": [
+      "approximate[]",
+      "approximate[].kind",
+      "approximate[].reason",
+      "degradations[]",
+      "degradations[].kind",
+      "degradations[].reason",
+      "hidden.algebra.canonical",
+      "hidden.analisis-ii.canonical",
+      "hidden.canonical",
+      "hidden.semantic",
+      "not_installed[]",
+      "verified_against.algebra.canonical",
+      "verified_against.algebra.semantic",
+      "verified_against.analisis-ii.canonical",
+      "verified_against.analisis-ii.semantic"
+    ],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "approximate": [
+        "array"
+      ],
+      "approximate[]": [
+        "object"
+      ],
+      "approximate[].kind": [
+        "str"
+      ],
+      "approximate[].reason": [
+        "str"
+      ],
+      "brains": [
+        "array"
+      ],
+      "brains[]": [
+        "str"
+      ],
+      "canonical_sql": [
+        "str"
+      ],
+      "columns": [
+        "array"
+      ],
+      "columns[]": [
+        "object"
+      ],
+      "columns[].name": [
+        "str"
+      ],
+      "columns[].type": [
+        "str"
+      ],
+      "degradations": [
+        "array"
+      ],
+      "degradations[]": [
+        "object"
+      ],
+      "degradations[].kind": [
+        "str"
+      ],
+      "degradations[].reason": [
+        "str"
+      ],
+      "exact": [
+        "bool"
+      ],
+      "executed_sql": [
+        "str"
+      ],
+      "hidden": [
+        "object"
+      ],
+      "hidden.algebra.canonical": [
+        "int"
+      ],
+      "hidden.analisis-ii.canonical": [
+        "int"
+      ],
+      "hidden.canonical": [
+        "int"
+      ],
+      "hidden.semantic": [
+        "int"
+      ],
+      "include_superseded": [
+        "bool"
+      ],
+      "limit": [
+        "int"
+      ],
+      "not_installed": [
+        "array"
+      ],
+      "not_installed[]": [
+        "str"
+      ],
+      "plan": [
+        "null"
+      ],
+      "project": [
+        "str"
+      ],
+      "row_count": [
+        "int"
+      ],
+      "rows": [
+        "array"
+      ],
+      "rows[]": [
+        "array"
+      ],
+      "rows[][]": [
+        "int",
+        "str"
+      ],
+      "signature": [
+        "str"
+      ],
+      "skipped": [
+        "array"
+      ],
+      "sql": [
+        "str"
+      ],
+      "tables": [
+        "array"
+      ],
+      "tables[]": [
+        "str"
+      ],
+      "truncated": [
+        "bool"
+      ],
+      "verified_against": [
+        "object"
+      ],
+      "verified_against.algebra.canonical": [
+        "str"
+      ],
+      "verified_against.algebra.provenance": [
+        "str"
+      ],
+      "verified_against.algebra.semantic": [
+        "str"
+      ],
+      "verified_against.analisis-ii.canonical": [
+        "str"
+      ],
+      "verified_against.analisis-ii.provenance": [
+        "str"
+      ],
+      "verified_against.analisis-ii.semantic": [
+        "str"
+      ],
+      "verified_rows": [
+        "null"
+      ]
+    }
+  },
+  "compound_sql_explain": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "approximate": [
+        "array"
+      ],
+      "brains": [
+        "array"
+      ],
+      "brains[]": [
+        "str"
+      ],
+      "canonical_sql": [
+        "str"
+      ],
+      "columns": [
+        "array"
+      ],
+      "degradations": [
+        "array"
+      ],
+      "exact": [
+        "bool"
+      ],
+      "executed_sql": [
+        "str"
+      ],
+      "hidden": [
+        "object"
+      ],
+      "hidden.semantic": [
+        "int"
+      ],
+      "include_superseded": [
+        "bool"
+      ],
+      "limit": [
+        "int"
+      ],
+      "not_installed": [
+        "array"
+      ],
+      "plan": [
+        "str"
+      ],
+      "project": [
+        "str"
+      ],
+      "row_count": [
+        "int"
+      ],
+      "rows": [
+        "array"
+      ],
+      "signature": [
+        "str"
+      ],
+      "skipped": [
+        "array"
+      ],
+      "sql": [
+        "str"
+      ],
+      "tables": [
+        "array"
+      ],
+      "tables[]": [
+        "str"
+      ],
+      "truncated": [
+        "bool"
+      ],
+      "verified_against": [
+        "object"
+      ],
+      "verified_against.algebra.provenance": [
+        "str"
+      ],
+      "verified_against.algebra.semantic": [
+        "str"
+      ],
+      "verified_against.analisis-ii.provenance": [
+        "str"
+      ],
+      "verified_against.analisis-ii.semantic": [
+        "str"
+      ],
+      "verified_rows": [
+        "null"
+      ]
+    }
+  },
   "content_range": {
     "optional": [],
     "paths": {
@@ -11458,6 +11716,7 @@
       "approximate[].text",
       "approximate[].unscored",
       "approximate[].unscored.provenance",
+      "brains",
       "degradations[]",
       "degradations[].kind",
       "degradations[].reason",
@@ -11504,6 +11763,9 @@
       ],
       "approximate[].unscored.provenance": [
         "str"
+      ],
+      "brains": [
+        "array"
       ],
       "canonical_sql": [
         "str"
@@ -11613,6 +11875,7 @@
   },
   "sql_explain": {
     "optional": [
+      "brains",
       "hidden.canonical",
       "hidden.semantic",
       "verified_against.canonical",
@@ -11624,6 +11887,9 @@
         "object"
       ],
       "approximate": [
+        "array"
+      ],
+      "brains": [
         "array"
       ],
       "canonical_sql": [

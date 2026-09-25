@@ -80,10 +80,17 @@ def result(payload: Mapping[str, Any]) -> list[RenderableType]:
     for index, (module, root) in enumerate(sorted(payload["verified_against"].items())):
         if index:
             over.append("  ")
-        over.append_text(kind(module))
+        # In a compound the key is `brain.module`: the brain as plain text, the module in its colour.
+        brain, _, memory = module.rpartition(".")
+        if brain:
+            over.append(f"{brain}.")
+        over.append_text(kind(memory))
         over.append(" ")
         over.append_text(digest(root))
-    facts: list[tuple[str, Any]] = [("rows", shown), ("over", over if over.plain else None)]
+    facts: list[tuple[str, Any]] = [("rows", shown)]
+    if payload.get("brains"):
+        facts.append(("brains", ", ".join(payload["brains"])))
+    facts.append(("over", over if over.plain else None))
     hidden = {table: n for table, n in payload["hidden"].items() if n}
     if hidden:
         facts.append(

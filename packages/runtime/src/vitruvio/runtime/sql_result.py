@@ -14,6 +14,8 @@ reads ``NotRequired`` as a string and files every optional key as required, sile
 
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 
+from vitruvio.runtime.compound_result import SkippedBrainResult
+
 if TYPE_CHECKING:
     from vitruvio.sql import SqlOutcome, TableSpec
 
@@ -78,6 +80,19 @@ class SqlResult(TypedDict):
     verified_rows: int | None
     degradations: list[SqlDegradationResult]
     plan: str | None
+    brains: list[str]
+
+
+class CompoundSqlResult(SqlResult):
+    """
+    One query over several brains of a project, answered in one database.
+
+    Everything :class:`SqlResult` says, with every key of ``verified_against``, ``hidden`` and ``not_installed``
+    spelled ``brain.module`` -- and ``brains`` naming who was consulted, ``skipped`` who was declared but could not be.
+    """
+
+    project: str | None
+    skipped: list[SkippedBrainResult]
 
 
 class SqlTableColumnResult(TypedDict):
@@ -127,6 +142,7 @@ def outcome(value: "SqlOutcome") -> SqlResult:
         "verified_rows": value.verified_rows,
         "degradations": [{"kind": item["kind"], "reason": item["reason"]} for item in value.degradations],
         "plan": value.plan,
+        "brains": list(value.brains),
     }
 
 
@@ -147,6 +163,7 @@ def schema(tables: "list[TableSpec]", projection: str) -> SqlSchemaResult:
 
 
 __all__ = [
+    "CompoundSqlResult",
     "SqlApproximationResult",
     "SqlColumnResult",
     "SqlDegradationResult",

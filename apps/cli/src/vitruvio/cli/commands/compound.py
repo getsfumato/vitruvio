@@ -237,3 +237,68 @@ def explain(
         parts.append(render.fields([("brain", member["brain"])]))
         parts.append(render.lines(render_tree(Explanation.model_validate(explanation))))
     return console.emit("compound.explain", result, view=render.stack(*parts))
+
+
+@app.command(name="sql")
+def sql(
+    query: str | None = None,
+    *,
+    brains: Annotated[list[str] | None, Parameter(name=["--brains"], negative=())] = None,
+    all_: Annotated[bool, Parameter(name=["--all"], negative=())] = False,
+    file: Annotated[str | None, Parameter(name=["--file", "-f"], allow_leading_hyphen=True)] = None,
+    explain: bool = False,
+    include_superseded: bool = False,
+    limit: int = 1000,
+    verify: bool = False,
+) -> ExitCode:
+    """Answer one read-only SQL query over several brains of this project at once.
+
+    Unlike `compound search`, the brains do not answer separately: every brain's tables are loaded into one database
+    and the query runs once over them. A bare table such as `semantic` is that table across every brain, with a
+    leading `brain` column, so `GROUP BY brain` compares them; `algebra.semantic` is one brain's, so brains can be
+    joined. A brain name with a dash is quoted: `"analisis-ii".semantic`. A block two brains hold is a row per brain;
+    `count(DISTINCT id)` counts it once. Every root is reported as `brain.module`.
+
+    Parameters
+    ----------
+    query
+        One SELECT over the brains' tables.
+    brains
+        Brain names this project declares. Repeatable, or one comma-separated value. At least two.
+    all_
+        Every brain the project declares whose layout exists on this machine. The others are reported as skipped.
+    file
+        Read the query from this file instead, or from stdin with `-`.
+    explain
+        Show the query as it will run, and the engine's plan, without running it.
+    include_superseded
+        Read superseded and demoted blocks too, in every brain.
+    limit
+        The most rows to print. A larger result is reported as truncated, never cut silently.
+    verify
+        When the result has an `id` column, prove each block into the root of the brain holding it.
+    """
+    from vitruvio.cli.commands.sql import report
+    from vitruvio.cli.commands.sql import text_of as read_query
+    from vitruvio.cli.render import sql as view
+
+    console = current().console
+    service = current().service(require_layout=False, require_brain=False)
+    text = read_query(query, file)
+    if explain:
+        explained = service.compound_sql_explain(
+            text, brains=_names(brains), all_brains=all_, include_superseded=include_superseded
+        )
+        _warn_about(console, explained["skipped"])
+        return console.emit("compound.sql", explained, view=view.explanation(explained))
+    result = service.compound_sql(
+        text,
+        brains=_names(brains),
+        all_brains=all_,
+        include_superseded=include_superseded,
+        limit=limit,
+        verify=verify,
+    )
+    _warn_about(console, result["skipped"])
+    report(console, result, limit)
+    return console.emit("compound.sql", result, view=view.result(result))

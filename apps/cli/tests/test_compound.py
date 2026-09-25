@@ -316,3 +316,87 @@ class TestTheFusedViewIsAsHonestAsTheGroupedOne:
             "all_verified": False,
         }
         assert "WARNING: not every match verified" in rendered(render.compound(cast(CompoundSearchResult, data)))
+
+
+class TestCompoundSql:
+    """One query over several brains, answered once in one database."""
+
+    def test_group_by_brain_compares_the_brains(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        code, payload = envelope(
+            capsys,
+            "compound",
+            "sql",
+            "SELECT brain, count(*) AS sources FROM canonical GROUP BY brain",
+            "--brains",
+            "algebra,analisis-ii",
+        )
+        assert code == ExitCode.OK, payload["error"]
+        assert payload["command"] == "compound.sql"
+        data = payload["data"]
+        assert data["rows"] == [["algebra", 2], ["analisis-ii", 1]]
+        assert data["brains"] == ["algebra", "analisis-ii"]
+        assert data["project"] == "facultad"
+        assert "algebra.canonical" in data["verified_against"]
+        assert "analisis-ii.canonical" in data["verified_against"]
+
+    def test_a_shared_document_is_one_identity_in_two_brains(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        code, payload = envelope(
+            capsys,
+            "compound",
+            "sql",
+            "SELECT count(*), count(DISTINCT id) FROM canonical",
+            "--brains",
+            "algebra",
+            "--brains",
+            "analisis-ii",
+        )
+        assert code == ExitCode.OK, payload
+        assert payload["data"]["rows"] == [[3, 2]]
+
+    def test_brains_can_be_joined_by_name(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        sql = 'SELECT count(*) FROM algebra.canonical a JOIN "analisis-ii".canonical b ON a.id = b.id'
+        code, payload = envelope(capsys, "compound", "sql", sql, "--brains", "algebra,analisis-ii")
+        assert code == ExitCode.OK, payload
+        assert payload["data"]["rows"] == [[1]]
+        assert payload["data"]["tables"] == ["algebra.canonical", "analisis-ii.canonical"]
+
+    def test_all_includes_an_empty_brain_and_reports_it(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        code, payload = envelope(
+            capsys, "compound", "sql", "SELECT brain, count(*) FROM semantic GROUP BY brain", "--all"
+        )
+        assert code == ExitCode.OK, payload
+        assert payload["data"]["brains"] == ["algebra", "analisis-ii", "fisica-i"]
+
+    def test_a_brain_outside_the_compound_is_a_usage_error(
+        self, capsys: pytest.CaptureFixture[str], project: Path
+    ) -> None:
+        code, payload = envelope(
+            capsys, "compound", "sql", 'SELECT * FROM "fisica-i".semantic', "--brains", "algebra,analisis-ii"
+        )
+        assert code == ExitCode.USAGE
+        assert "no brain this compound consults" in payload["error"]["message"]
+
+    def test_explain_shows_the_combined_plan(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        code, payload = envelope(
+            capsys, "compound", "sql", "SELECT count(*) FROM semantic", "--brains", "algebra,analisis-ii", "--explain"
+        )
+        assert code == ExitCode.OK, payload
+        assert payload["data"]["plan"]
+        assert payload["data"]["rows"] == []
+
+    def test_the_human_view_names_the_brains(self, capsys: pytest.CaptureFixture[str], project: Path) -> None:
+        code, out, _ = run(
+            capsys,
+            "compound",
+            "sql",
+            "SELECT brain, count(*) FROM canonical GROUP BY brain",
+            "--brains",
+            "algebra,analisis-ii",
+        )
+        assert code == ExitCode.OK
+        assert "algebra, analisis-ii" in out
+        assert "analisis-ii.canonical" in out or "analisis-ii." in out

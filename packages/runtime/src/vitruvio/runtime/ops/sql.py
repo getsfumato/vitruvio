@@ -138,13 +138,28 @@ class SqlOps:
         """The resolved configuration, read through the session that owns it."""
         return self.session.config
 
-    def _engine(self) -> Any:
-        """An engine over this brain's installed modules, caching tables beside its other derived state."""
+    def _sql_brain(self) -> Any:
+        """
+        This brain as the engine takes it: its installed modules, its table cache, and a scorer over its vectors.
+
+        Not an operation -- it returns engine inputs, not a result -- but the one method :class:`CompoundOps` reaches
+        into: a compound is built from one of these per member, each brain keeping its own cache and scorer, so
+        combining brains is a matter of handing several to one engine rather than teaching the engine what a session
+        is.
+
+        Returns:
+            vitruvio.sql.SqlBrain: The engine's view of this brain.
+        """
         package = _engine_package()
         brain = self.session.brain(Capability.BROWSE)
-        return package.SqlEngine(
-            brain.modules(), cache_dir=sql_cache_dir(self.config), scorer=_VectorScorer(self.session)
-        )
+        with translated():
+            modules = brain.modules()
+        return package.SqlBrain(modules, cache_dir=sql_cache_dir(self.config), scorer=_VectorScorer(self.session))
+
+    def _engine(self) -> Any:
+        """An engine over this brain alone."""
+        member = self._sql_brain()
+        return _engine_package().SqlEngine(member.modules, cache_dir=member.cache_dir, scorer=member.scorer)
 
     def sql(
         self,
