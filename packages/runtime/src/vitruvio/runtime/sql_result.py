@@ -51,6 +51,16 @@ class SqlApproximationResult(TypedDict):
     unscored: NotRequired[dict[str, str]]
 
 
+class SqlDatasetResult(TypedDict):
+    """A registered data file a query read: the reference it was named by, and the canonical block it resolved to."""
+
+    reference: str
+    id: str
+    name: str | None
+    media_type: str
+    size: int
+
+
 class SqlResult(TypedDict):
     """
     A query's answer, bound to the roots it was computed over.
@@ -81,6 +91,7 @@ class SqlResult(TypedDict):
     degradations: list[SqlDegradationResult]
     plan: str | None
     brains: list[str]
+    datasets: list[SqlDatasetResult]
 
 
 class CompoundSqlResult(SqlResult):
@@ -113,10 +124,12 @@ class SqlTableResult(TypedDict):
 
 
 class SqlSchemaResult(TypedDict):
-    """Every table a query may read, and the projection version that defines them."""
+    """Every table a query may read, the projection version that defines them, and which registered media types
+    read as a dataset -- ``data."<file>"`` -- rather than as text."""
 
     projection: str
     tables: list[SqlTableResult]
+    data_formats: dict[str, str]
 
 
 def outcome(value: "SqlOutcome") -> SqlResult:
@@ -143,13 +156,24 @@ def outcome(value: "SqlOutcome") -> SqlResult:
         "degradations": [{"kind": item["kind"], "reason": item["reason"]} for item in value.degradations],
         "plan": value.plan,
         "brains": list(value.brains),
+        "datasets": [
+            {
+                "reference": entry["reference"],
+                "id": entry["id"],
+                "name": entry["name"],
+                "media_type": entry["media_type"],
+                "size": entry["size"],
+            }
+            for entry in value.datasets
+        ],
     }
 
 
-def schema(tables: "list[TableSpec]", projection: str) -> SqlSchemaResult:
+def schema(tables: "list[TableSpec]", projection: str, formats: dict[str, str]) -> SqlSchemaResult:
     """The tables a query may read, as their declared result."""
     return {
         "projection": projection,
+        "data_formats": dict(sorted(formats.items())),
         "tables": [
             {
                 "name": spec.name,
@@ -166,6 +190,7 @@ __all__ = [
     "CompoundSqlResult",
     "SqlApproximationResult",
     "SqlColumnResult",
+    "SqlDatasetResult",
     "SqlDegradationResult",
     "SqlResult",
     "SqlSchemaResult",

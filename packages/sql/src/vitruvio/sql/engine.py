@@ -41,7 +41,8 @@ from typing import TYPE_CHECKING, Any
 from boltzmann.blocks.memory_type import MemoryType
 
 from vitruvio.kernel import UsageError
-from vitruvio.sql.guard import GuardedQuery, every_name, guard, visible_name
+from vitruvio.sql.datasets import DATASETS_TABLE, Dataset, catalog, resolve, unreadable
+from vitruvio.sql.guard import GuardedQuery, data_name, every_name, guard, visible_name
 from vitruvio.sql.result import SqlColumn, SqlOutcome, json_native
 from vitruvio.sql.similarity import SCORE_BLOCK, SCORE_VALUE, Scorer, Similarity, similarity_table
 from vitruvio.sql.tables import BLOCKS_TABLE, SQL_PROJECTION_ID, TABLES, TableSpec, project_block, table_for
@@ -250,6 +251,8 @@ class SqlEngine:
         self.memory_limit = memory_limit
         self._ledgers: dict[int, Ledger] = {}
         self._scored: dict[tuple[int, str], Similarity] = {}
+        self._catalogs: dict[int, list[Dataset]] = {}
+        self._read: list[tuple[str, int, Dataset]] = []
         self._similarity: dict[str, Similarity] = {}
         self._scoring: list[int] = []
         self._connection: duckdb.DuckDBPyConnection | None = None
@@ -266,7 +269,7 @@ class SqlEngine:
         a caller asking what it may write -- an agent composing a query, ``vitruvio sql --schema`` -- should not pay
         for projecting a module to learn a column name, nor need a brain at all.
         """
-        return [*TABLES.values(), BLOCKS_TABLE]
+        return [*TABLES.values(), BLOCKS_TABLE, DATASETS_TABLE]
 
     @property
     def brains(self) -> tuple[str, ...] | None:
@@ -302,7 +305,9 @@ class SqlEngine:
             raise UsageError("limit must be at least 1")
         guarded = guard(sql, include_superseded=include_superseded, brains=self.brains)
         with self._budgeted() as budget:
-            connection = self._open(guarded.references, guarded.similarity)
+            connection = self._open(
+                guarded.references, guarded.similarity, guarded.datasets, include_superseded=include_superseded
+            )
             cursor = self._run(connection, guarded.executed)
             columns = [SqlColumn(name=str(entry[0]), type=str(entry[1])) for entry in cursor.description or ()]
             fetched = cursor.fetchmany(limit + 1)
@@ -333,7 +338,9 @@ class SqlEngine:
         """
         guarded = guard(sql, include_superseded=include_superseded, brains=self.brains)
         with self._budgeted():
-            connection = self._open(guarded.references, guarded.similarity)
+            connection = self._open(
+                guarded.references, guarded.similarity, guarded.datasets, include_superseded=include_superseded
+            )
             cursor = self._run(connection, f"EXPLAIN {guarded.executed}")
             plan = "\n".join(str(row[-1]) for row in cursor.fetchall())
             return self._outcome(guarded, columns=[], rows=[], truncated=False, limit=0, plan=plan)
@@ -392,6 +399,9 @@ class SqlEngine:
                 if table == BLOCKS_TABLE.name:
                     modules = self._members[member][1].modules
                     needed[member].update({kind: table_for(kind) for kind in modules})
+                elif table == DATASETS_TABLE.name:
+                    # Built from the canonical module's payloads and provenance's origins, not from a module table.
+                    continue
                 else:
                     spec = TABLES[table]
                     assert spec.memory_type is not None
@@ -399,7 +409,12 @@ class SqlEngine:
         return needed
 
     def _open(
-        self, tables: Iterable[str | tuple[str | None, str]], similarity: Iterable[str] = ()
+        self,
+        tables: Iterable[str | tuple[str | None, str]],
+        similarity: Iterable[str] = (),
+        datasets: Iterable[tuple[str | None, str]] = (),
+        *,
+        include_superseded: bool = False,
     ) -> duckdb.DuckDBPyConnection:
         """A sealed in-memory database holding exactly the tables a query reads, and the views over them."""
         import duckdb
@@ -426,16 +441,27 @@ class SqlEngine:
             blocks = {
                 member for brain, table in references if table == BLOCKS_TABLE.name for member in self._targets(brain)
             }
+            listed = {
+                member for brain, table in references if table == DATASETS_TABLE.name for member in self._targets(brain)
+            }
+            datasets = tuple(datasets)
+            reads = {member for brain, _ in datasets for member in self._targets(brain)}
             for member, specs in needed.items():
                 for kind, spec in specs.items():
                     self._check()
                     self._load(connection, member, kind, spec)
                 self._check()
-                self._load_ledger(connection, member, specs)
+                self._load_ledger(connection, member, specs, force=member in listed | reads)
                 for spec in specs.values():
                     self._views(connection, member, spec)
                 if member in blocks:
                     self._blocks_view(connection, member, specs)
+                if member in listed:
+                    self._datasets_table(connection, member)
+            self._read = []
+            for position, (brain, reference) in enumerate(datasets):
+                self._check()
+                self._load_dataset(connection, position, self._targets(brain)[0], reference, include_superseded)
             for table in sorted({table for brain, table in references if brain is None}):
                 self._union(connection, table)
             # Only the brains a query reads may score it. `FROM a.semantic` is a question about brain a, and a block it
@@ -540,25 +566,103 @@ class SqlEngine:
                 with contextlib.suppress(OSError):
                     stale.unlink()
 
-    def _load_ledger(
-        self, connection: duckdb.DuckDBPyConnection, member: int, needed: Mapping[MemoryType, TableSpec]
-    ) -> None:
-        table = _ledger_table(member)
-        connection.execute(f"CREATE TABLE {table} (id VARCHAR PRIMARY KEY, superseded BOOLEAN, demoted BOOLEAN)")
-        if not needed:
-            return
-        brain = self._members[member][1]
-        ledger = self._ledgers.get(member, brain.ledger)
+    def _ledger(self, member: int) -> Ledger:
+        """One member's ledger, read once per request."""
+        ledger = self._ledgers.get(member, self._members[member][1].ledger)
         if ledger is None:
             from boltzmann.module.ledger import Ledger
 
-            ledger = Ledger.of(dict(brain.modules))
+            ledger = Ledger.of(dict(self._members[member][1].modules))
         self._ledgers[member] = ledger
+        return ledger
+
+    def _load_ledger(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        member: int,
+        needed: Mapping[MemoryType, TableSpec],
+        *,
+        force: bool = False,
+    ) -> None:
+        table = _ledger_table(member)
+        connection.execute(f"CREATE TABLE {table} (id VARCHAR PRIMARY KEY, superseded BOOLEAN, demoted BOOLEAN)")
+        if not needed and not force:
+            return
+        ledger = self._ledger(member)
         superseded = {str(identity) for identity in ledger.superseded_by}
         demoted = {str(identity) for identity in ledger.demoted}
         entries = [(identity, identity in superseded, identity in demoted) for identity in sorted(superseded | demoted)]
         if entries:
             connection.executemany(f"INSERT INTO {table} VALUES (?, ?, ?)", entries)
+
+    def _catalog(self, member: int) -> list[Dataset]:
+        """The registered data files one member holds, with the ledger's verdict on each."""
+        cached = self._catalogs.get(member)
+        if cached is None:
+            ledger = self._ledger(member)
+            cached = self._catalogs[member] = catalog(
+                self._members[member][1].modules,
+                {str(identity) for identity in ledger.superseded_by},
+                {str(identity) for identity in ledger.demoted},
+            )
+        return cached
+
+    def _datasets_table(self, connection: duckdb.DuckDBPyConnection, member: int) -> None:
+        """The ``datasets`` listing for one member: every readable-as-a-table canonical block, none of them read."""
+        target = _stored_table(DATASETS_TABLE.name, member)
+        connection.execute(f"CREATE TABLE {target} ({_column_list(DATASETS_TABLE)})")
+        stored = {column.name for column in DATASETS_TABLE.stored}
+        rows = [
+            {key: value for key, value in dataset.row().items() if key in stored} for dataset in self._catalog(member)
+        ]
+        _insert(connection, target, {column.name: column.type for column in DATASETS_TABLE.stored}, rows)
+        self._views(connection, member, DATASETS_TABLE)
+
+    def _load_dataset(
+        self,
+        connection: duckdb.DuckDBPyConnection,
+        position: int,
+        member: int,
+        reference: str,
+        include_superseded: bool,
+    ) -> None:
+        """Read one named dataset's verified bytes out of the store and load them as a table, before the seal."""
+        import duckdb
+        from boltzmann.identity.digest import BlockId
+
+        where = f" in {self._members[member][0]}" if self._compound else ""
+        modules = self._members[member][1].modules
+        dataset = resolve(
+            self._catalog(member),
+            reference,
+            include_superseded=include_superseded,
+            where=where,
+            unresolvable=unreadable(modules),
+        )
+        module = modules[MemoryType.CANONICAL]
+        block = module.get(BlockId.parse(dataset.id))
+        data = module.store.get_bytes(block.blob)  # type: ignore[attr-defined]
+        self._check()
+        readers = {
+            "csv": "read_csv({path}, auto_detect = true, header = true)",
+            "tsv": "read_csv({path}, auto_detect = true, header = true, delim = '\t')",
+            "parquet": "read_parquet({path})",
+        }
+        with tempfile.TemporaryDirectory(prefix="vitruvio-sql-") as scratch:
+            path = Path(scratch) / f"dataset.{dataset.format}"
+            path.write_bytes(data)
+            source = readers[dataset.format].format(path=_literal(str(path)))
+            try:
+                connection.execute(f"CREATE TABLE {data_name(position)} AS SELECT * FROM {source}")
+            except duckdb.InterruptException:
+                raise
+            except duckdb.Error as error:
+                first = str(error).strip().splitlines()[0] if str(error).strip() else type(error).__name__
+                raise UsageError(
+                    f"dataset {reference!r}{where} could not be read as {dataset.format}: {first}",
+                    hint=f"it was registered as {dataset.media_type}; a file of another format needs registering as that",
+                ) from None
+        self._read.append((reference, member, dataset))
 
     def _brain_column(self, member: int) -> str:
         """A compound's leading ``brain`` column, as a projection; nothing for a single brain."""
@@ -627,35 +731,72 @@ class SqlEngine:
     def _verify(
         self, columns: list[SqlColumn], rows: list[list[Any]]
     ) -> tuple[list[list[Any]], int | None, list[dict[str, str]]]:
-        """Check the inclusion proof of every block a result names in its ``id`` column, in whichever brain holds it."""
+        """
+        Check the inclusion proof of every block a result names in its ``id`` column, and of every dataset it read.
+
+        A value in an ``id`` column that is not a block identity at all -- a CSV's own ``id`` column, a number -- was
+        never a claim about the brain, so its row is kept and reported as unproven rather than dropped. Only a value
+        that *is* a block identity and fails its proof loses its row: that is a claim the brain does not back.
+        """
         from boltzmann.identity.digest import BlockId
 
+        degradations: list[dict[str, str]] = self._verify_datasets()
         position = next((index for index, column in enumerate(columns) if column.name == "id"), None)
         if position is None:
-            return (
-                rows,
-                None,
-                [{"kind": "verification_skipped", "reason": "the result has no id column, so no block to prove"}],
+            degradations.append(
+                {"kind": "verification_skipped", "reason": "the result has no id column, so no block to prove"}
             )
+            return rows, None, degradations
         modules = [module for _, brain in self._members for module in brain.modules.values()]
         kept: list[list[Any]] = []
-        degradations: list[dict[str, str]] = []
+        proven = unproven = 0
         for row in rows:
             self._check()
             value = row[position]
             try:
-                identity = BlockId.parse(value) if isinstance(value, str) else None
+                identity = BlockId.parse(value) if isinstance(value, str) and value.startswith("sha256:") else None
             except ValueError:
                 identity = None
+            if identity is None:
+                unproven += 1
+                kept.append(row)
+                continue
             module = next((module for module in modules if identity in module), None)
-            if identity is None or module is None:
+            if module is None:
                 degradations.append({"kind": "verification_failed", "reason": f"{value!r} is not a member here"})
                 continue
             if not module.inclusion_proof(identity).verify(module.root):
                 degradations.append({"kind": "verification_failed", "reason": f"{value} does not prove into its root"})
                 continue
+            proven += 1
             kept.append(row)
-        return kept, len(kept), degradations
+        if unproven:
+            degradations.append(
+                {
+                    "kind": "verification_skipped",
+                    "reason": f"{unproven} row(s) have an id that is not a block identity, such as a dataset's own "
+                    "column; they were kept, unproven",
+                }
+            )
+        return kept, proven, degradations
+
+    def _verify_datasets(self) -> list[dict[str, str]]:
+        """Prove each dataset the query read into its canonical module's root. A dataset's rows are not blocks, so
+        the block they came from is what there is to prove."""
+        from boltzmann.identity.digest import BlockId
+
+        failures = []
+        for reference, member, dataset in self._read:
+            self._check()
+            module = self._members[member][1].modules[MemoryType.CANONICAL]
+            if not module.inclusion_proof(BlockId.parse(dataset.id)).verify(module.root):
+                failures.append(
+                    {
+                        "kind": "verification_failed",
+                        "reason": f"dataset {reference!r} ({dataset.id}) does not prove into its root",
+                    }
+                )
+        return failures
 
     def _hidden(self, guarded: GuardedQuery) -> dict[str, int]:
         """
@@ -716,6 +857,43 @@ class SqlEngine:
             approximate.append({"kind": "visibility_unknown", "reason": reason})
             degradations.append({"kind": "visibility_unknown", "reason": reason})
 
+        # A dataset is read from the canonical module and named from provenance, so both are inputs wherever a query
+        # reads one or lists them.
+        catalogued = {
+            member
+            for brain, table in [*guarded.references, *guarded.datasets]
+            if table == DATASETS_TABLE.name or (brain, table) in guarded.datasets
+            for member in self._targets(brain)
+        }
+        for member in sorted(catalogued):
+            modules = self._members[member][1].modules
+            for kind in (MemoryType.CANONICAL, MemoryType.PROVENANCE):
+                if kind in modules:
+                    verified_against[self._key(member, kind.value)] = str(modules[kind].root)
+                else:
+                    not_installed.add(self._key(member, kind.value))
+            # The same visibility rule as the module tables above, which a query reading only datasets never reached:
+            # without provenance nothing can be told apart as superseded, and `datasets` would present every version.
+            if needed[member] or guarded.include_superseded or MemoryType.PROVENANCE in modules:
+                continue
+            where = f" of {self._members[member][0]}" if self._compound else ""
+            reason = (
+                f"the provenance module{where} is not installed, so superseded and demoted datasets could not be told "
+                "apart and none were hidden"
+            )
+            approximate.append({"kind": "visibility_unknown", "reason": reason})
+            degradations.append({"kind": "visibility_unknown", "reason": reason})
+        read = [
+            {
+                "reference": (f"{self._members[member][0]}." if self._compound else "") + f"data.{reference}",
+                "id": dataset.id,
+                "name": dataset.name,
+                "media_type": dataset.media_type,
+                "size": dataset.size,
+            }
+            for reference, member, dataset in self._read
+        ]
+
         scope = {self._key(member, kind.value) for member, specs in needed.items() for kind in specs}
         for text in guarded.similarity:
             scored = self._similarity[text]
@@ -746,7 +924,7 @@ class SqlEngine:
             row_count=len(rows),
             truncated=truncated,
             limit=limit,
-            tables=list(guarded.tables),
+            tables=[*guarded.tables, *(str(entry["reference"]) for entry in read)],
             verified_against=dict(sorted(verified_against.items())),
             not_installed=sorted(not_installed),
             hidden={} if guarded.include_superseded else self._hidden(guarded),
@@ -757,6 +935,7 @@ class SqlEngine:
             degradations=degradations,
             plan=plan,
             brains=list(self.brains or ()),
+            datasets=read,
         )
 
 

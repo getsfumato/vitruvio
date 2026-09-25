@@ -221,7 +221,7 @@ class SqlOps:
             SqlSchemaResult: The tables, their columns and types, and the projection version defining them.
         """
         package = _engine_package()
-        return sql_result.schema(package.SqlEngine.schema(), package.SQL_PROJECTION_ID)
+        return sql_result.schema(package.SqlEngine.schema(), package.SQL_PROJECTION_ID, package.FORMATS)
 
 
 __all__ = ["SqlOps", "purge_sql_cache", "sql_cache_dir"]

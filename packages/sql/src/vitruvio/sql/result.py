@@ -61,6 +61,8 @@ class SqlOutcome:
         plan (str | None): DuckDB's physical plan, when the query was explained rather than run.
         brains (list[str]): The brains a compound consulted, in order. Empty for one brain; when not, every key in
             ``verified_against``, ``hidden`` and ``not_installed`` is spelled ``brain.module``.
+        datasets (list[dict[str, Any]]): The registered data files the query read, each with the reference it was
+            named by and the block it resolved to -- a file name can be registered twice, and the id says which.
     """
 
     sql: str
@@ -83,6 +85,7 @@ class SqlOutcome:
     degradations: list[dict[str, str]] = field(default_factory=list)
     plan: str | None = None
     brains: list[str] = field(default_factory=list)
+    datasets: list[dict[str, Any]] = field(default_factory=list)
 
 
 def json_native(value: Any) -> Any:

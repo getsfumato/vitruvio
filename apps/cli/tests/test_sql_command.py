@@ -134,3 +134,47 @@ class TestSimilarityCommand:
         code, payload = envelope(capsys, "--brain", str(brain), "sql", "SELECT about(id, 'x', 2) FROM canonical")
         assert code == ExitCode.USAGE
         assert "min_score" in payload["error"]["message"]
+
+
+class TestDatasetsCommand:
+    """A CSV registered the ordinary way is a table the next query can read."""
+
+    @pytest.fixture
+    def sales(self, capsys: pytest.CaptureFixture[str], brain: Path, tmp_path: Path) -> Path:
+        path = tmp_path / "ventas.csv"
+        path.write_text("region,amount\nnorth,10\nsouth,5\nnorth,7\n", encoding="utf-8")
+        code, payload = envelope(capsys, "--brain", str(brain), "source", "register", str(path))
+        assert code == ExitCode.OK, payload
+        return path
+
+    def test_a_registered_csv_is_queryable_by_its_file_name(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, sales: Path
+    ) -> None:
+        code, payload = envelope(
+            capsys,
+            "--brain",
+            str(brain),
+            "sql",
+            'SELECT region, sum(amount) AS total FROM data."ventas.csv" GROUP BY region',
+        )
+        assert code == ExitCode.OK, payload["error"]
+        assert payload["data"]["rows"] == [["north", 17], ["south", 5]]
+        assert payload["data"]["datasets"][0]["name"] == "ventas.csv"
+
+    def test_datasets_lists_it(self, capsys: pytest.CaptureFixture[str], brain: Path, sales: Path) -> None:
+        code, payload = envelope(capsys, "--brain", str(brain), "sql", "SELECT name, format FROM datasets")
+        assert code == ExitCode.OK, payload["error"]
+        assert payload["data"]["rows"] == [["ventas.csv", "csv"]]
+
+    def test_the_schema_says_data_files_are_tables(self, capsys: pytest.CaptureFixture[str], brain: Path) -> None:
+        code, payload = envelope(capsys, "--brain", str(brain), "sql", "--schema")
+        assert code == ExitCode.OK
+        assert payload["data"]["data_formats"]["text/csv"] == "csv"
+        assert "datasets" in [table["name"] for table in payload["data"]["tables"]]
+
+    def test_the_human_view_names_the_dataset_read(
+        self, capsys: pytest.CaptureFixture[str], brain: Path, sales: Path
+    ) -> None:
+        code, out, _ = run(capsys, "--brain", str(brain), "sql", 'SELECT count(*) FROM data."ventas.csv"')
+        assert code == ExitCode.OK
+        assert "data.ventas.csv" in out
