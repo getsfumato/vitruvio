@@ -3560,7 +3560,7 @@ wheels = [
 
 [[package]]
 name = "vitruvio"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "apps/cli" }
 dependencies = [
     { name = "cyclopts" },
@@ -3624,7 +3624,7 @@ provides-extras = ["local", "vision", "api", "keyring", "bench", "sql", "all"]
 
 [[package]]
 name = "vitruvio-bench"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/bench" }
 dependencies = [
     { name = "pyboltzmann" },
@@ -3643,7 +3643,7 @@ requires-dist = [
 
 [[package]]
 name = "vitruvio-embeddings"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/embeddings" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -3682,7 +3682,7 @@ provides-extras = ["local-text", "vision", "api"]
 
 [[package]]
 name = "vitruvio-indices"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/indices" }
 dependencies = [
     { name = "msgspec" },
@@ -3712,7 +3712,7 @@ requires-dist = [
 
 [[package]]
 name = "vitruvio-ingest"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/ingest" }
 dependencies = [
     { name = "pyboltzmann" },
@@ -3738,7 +3738,7 @@ provides-extras = ["vision", "api"]
 
 [[package]]
 name = "vitruvio-kernel"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/kernel" }
 dependencies = [
     { name = "filelock" },
@@ -3759,7 +3759,7 @@ requires-dist = [
 
 [[package]]
 name = "vitruvio-planner"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/planner" }
 dependencies = [
     { name = "pyboltzmann" },
@@ -3778,7 +3778,7 @@ requires-dist = [
 
 [[package]]
 name = "vitruvio-runtime"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/runtime" }
 dependencies = [
     { name = "pyboltzmann", extra = ["authenticity", "oci"] },
@@ -3814,7 +3814,7 @@ provides-extras = ["keyring", "sql"]
 
 [[package]]
 name = "vitruvio-sql"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/sql" }
 dependencies = [
     { name = "duckdb" },
@@ -3833,7 +3833,7 @@ requires-dist = [
 
 [[package]]
 name = "vitruvio-stats"
-version = "0.26.0"
+version = "0.26.1"
 source = { editable = "packages/stats" }
 dependencies = [
     { name = "pyboltzmann" },
