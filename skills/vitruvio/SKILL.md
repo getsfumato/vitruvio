@@ -230,6 +230,7 @@ retrying is pointless, **7** means your input was wrong and is fixable.
 - `vitruvio-onboarding` — a person's first brain: standalone or in a project, governed or ungoverned, created only after both are decided, then confirmed.
 - `vitruvio-cli` — the command surface: which group owns a task, and which flag decides the outcome.
 - `vitruvio-query` — searching, and how to read an evidence bundle without over-claiming.
+- `vitruvio-sql` — exact counts, groups and joins over a brain, registered datasets, and SQL across project brains.
 - `vitruvio-compound` — one question across several brains of one project: choosing the project and the brains with the user, and reading what two brains agree on.
 - `vitruvio-ingest` — the loop where you propose knowledge and the protocol validates it, plus pulling from declared sources. The highest-value one.
 - `vitruvio-retention` — removing things, and why there are five different ways.

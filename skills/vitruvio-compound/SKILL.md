@@ -108,6 +108,8 @@ vitruvio compound sql 'SELECT count(*) FROM algebra.semantic a JOIN "analisis-ii
 - A bare table spans the brains, with a `brain` column. `algebra.semantic` is one brain's table.
 - A block held by two brains counts twice unless you write `count(DISTINCT id)`. Say which of the two you report.
 - Roots come back as `brain.module`. Cite them with the count.
+- `vitruvio-sql` covers the single-brain SQL contract, registered datasets and how to interpret exact versus
+  approximate results.
 
 ## When it refuses
 
