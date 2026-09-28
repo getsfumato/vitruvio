@@ -114,50 +114,10 @@ Its creator verification fields are historical signature evidence, not a relevan
 
 ## Counting is SQL, not search
 
-"How many", "grouped by", "which ones satisfy" and "which procedures use X" are not relevance questions, and a
-bundle cannot answer them: it is cut at `--limit`, so a count taken from it is a count of the top-k. Ask them with
-`vitruvio sql`, which reads every accessible member of the module and answers exactly.
-
-```bash
-vitruvio sql --schema --json                                            # every table and column
-vitruvio sql "SELECT subject, count(*) FROM semantic WHERE kind = 'fact' GROUP BY subject" --json
-vitruvio sql "SELECT tag, count(*) FROM episodic, UNNEST(tags) AS u(tag)
-              WHERE list_contains(participants, 'ana') AND occurred_at >= '2025-03-01' GROUP BY tag" --json
-vitruvio sql "SELECT p.label FROM procedural p, UNNEST(p.steps) AS s(step), UNNEST(step.uses) AS u(used)
-              JOIN semantic c ON c.id = used WHERE c.label = 'Fourier series'" --json
-```
-
-A registered CSV, TSV or Parquet file is a table too, so data and the knowledge derived from it can be queried
-together:
-
-```bash
-vitruvio sql "SELECT name, format FROM datasets" --json
-vitruvio sql 'SELECT region, sum(amount) FROM data."ventas.csv" GROUP BY region' --json
-```
-
-Report which file was read from `datasets[]`, with its id: two registrations can share a name.
-
-Read the result the way you read a bundle:
-
-- **`verified_against`** names the root of each module the query read. Quote it with any count you report.
-- **`hidden`** counts the superseded or demoted members that were left out. `--include-superseded` shows them.
-- **`not_installed`** means a table was empty because its module is not in this brain. A zero from it is not a
-  zero from the knowledge.
-- **`truncated`** means rows were left out because of `--limit`. The rows you have are not all of them.
-- **Values are what the blocks say.** `subject = 'physics'` does not match `Physics`. Use `lower(subject)` or
-  `ILIKE` when the case is not yours to know.
-
-SQL answers structure exactly. Meaning goes through `about(id, 'topic', min_score)`, which is true for every block
-whose similarity reaches the threshold, over the whole module:
-
-```bash
-vitruvio sql "SELECT label, similarity(id, 'ethics') AS s FROM semantic ORDER BY s DESC LIMIT 20" --json  # look first
-vitruvio sql "SELECT count(*) FROM semantic WHERE about(id, 'ethics', 0.35)" --json
-```
-
-Choose the threshold from `similarity()`, never from a search score, which measures something else. Any answer that
-uses either function has `exact: false`. Report it as "about N, at similarity ≥ 0.35 under model M", and name every
-module listed under `approximate[].unscored`: those modules were not searched, they did not come back empty.
+"How many", "grouped by", "which ones satisfy" and "which procedures use X" need a complete structured query.
+A search bundle is ranked and cut at `--limit`, so it cannot support a complete count. Use `vitruvio-sql` for SQL over
+the brain, registered CSV/TSV/Parquet data, and queries across project brains. That skill explains the result
+contract and how to report approximate vector-scored queries honestly.
 
 ## A small brain legitimately scans
 

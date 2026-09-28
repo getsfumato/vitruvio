@@ -15,6 +15,7 @@ vitruvio skills install --into DIR --skill vitruvio-cli --force
 | `vitruvio-onboarding` | the first brain: standalone or in a project, governed or ungoverned, and confirming it works before anything else |
 | `vitruvio-cli` | the command surface: every group, every command, the flag that decides the outcome |
 | `vitruvio-query` | searching, and reading a bundle without over-claiming |
+| `vitruvio-sql` | exact counts and joins over brain knowledge, registered data and several project brains |
 | `vitruvio-compound` | composing several brains of one project into one query, and reading the cross-brain evidence |
 | `vitruvio-ingest` | the propose → validate → commit loop, and pulling from declared sources |
 | `vitruvio-retention` | the five removal mechanisms, and which one you actually want |
