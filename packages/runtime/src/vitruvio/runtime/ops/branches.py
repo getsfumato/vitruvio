@@ -147,7 +147,14 @@ class BranchOps:
                 "this registry client cannot list tags, so it cannot discover published branches",
                 hint="upgrade pyboltzmann, or name the branch: `vitruvio branch switch NAME` tracks it by its tag",
             )
-        tags = await self.remote._request(prepared.client.list_tags(prepared.effective))
+        try:
+            tags = await self.remote._request(prepared.client.list_tags(prepared.effective))
+        except VitruvioError as error:
+            if error.code != "REFERENCE_NOT_FOUND":
+                raise
+            # Nothing published under this reference yet -- the ordinary state before a first push, which `dist tags`
+            # already reports as no tags rather than as an error.
+            tags = []
         # Decoded against this project's tag for main, not the SDK's `latest` default: a project that publishes main
         # to `stable` has `stable` as its default branch's tag, and `latest` there is just a tag.
         published = {
@@ -175,10 +182,11 @@ class BranchOps:
         Returns:
             dict[str, Any]: The branch, its tag, and whether it is now current.
         """
-        from vitruvio.runtime.branches import tag_for_branch
+        from vitruvio.runtime.branches import align_default_branch, tag_for_branch
 
         with self.session.write(install=True) as brain, translated():
             info = brain.create_branch(name, at=start, checkout=switch)
+            align_default_branch(brain, self.config)
             current = brain.current_branch()
         return {
             "name": info.name,
@@ -258,7 +266,7 @@ class BranchOps:
         from boltzmann.branches import validate_branch_name
         from boltzmann.exceptions import BranchNotFoundError
 
-        from vitruvio.runtime.branches import tag_for_branch
+        from vitruvio.runtime.branches import align_default_branch, tag_for_branch
 
         brain = self.session.brain(Capability.INSPECT)
         with translated():
@@ -273,6 +281,7 @@ class BranchOps:
         if create:
             with self.session.write(install=True) as writer, translated():
                 writer.create_branch(name, checkout=True)
+                align_default_branch(writer, self.config)
                 snapshot = writer.snapshot()
             return {"branch": name, "outcome": "created", "snapshot": str(snapshot.digest), "pull": None}
 
@@ -283,15 +292,29 @@ class BranchOps:
 
         from vitruvio.runtime.ops.install import InstallOps
 
-        pulled = await InstallOps(self.session).pull_async(
-            reference,
-            tag=tag_for_branch(self.config, name),
-            username=username,
-            token=token,
-            anonymous=anonymous,
-            insecure=insecure,
-            local=local,
-        )
+        tag = tag_for_branch(self.config, name)
+        try:
+            pulled = await InstallOps(self.session).pull_async(
+                reference,
+                tag=tag,
+                username=username,
+                token=token,
+                anonymous=anonymous,
+                insecure=insecure,
+                local=local,
+            )
+        except VitruvioError as error:
+            if error.code != "REFERENCE_NOT_FOUND":
+                raise
+            # The branch that was asked for is what is missing, whether or not the repository exists. Reported as
+            # such, so a caller handling `BRANCH_NOT_FOUND` recognises it, rather than with the first-push hint the
+            # registry's own absence carries.
+            raise translate(
+                BranchNotFoundError(
+                    f"no branch named {name!r} here, and the registry has no {tag!r} to track it from; "
+                    "pass --create to start one at the current head"
+                )
+            ) from error
         return {
             "branch": self.branch_current(),
             "outcome": "tracked",
@@ -356,11 +379,19 @@ class BranchOps:
         brain = self.session.brain(Capability.INSPECT)
         with translated():
             current = brain.current_branch()
-            known = {info.name for info in brain.branches()}
-        if name == current or name not in known:
+            heads = {info.name: info.snapshot for info in brain.branches()}
+        if name == current or name not in heads:
             # Let the SDK say which, in its words, through the same mapping every other refusal takes.
             with self.session.write(install=True) as writer, translated():
                 writer.join(name)
+
+        with translated():
+            contained = heads[name] in brain.reachable_history()
+        if contained:
+            # Asked before anything else, because it is the answer under every `fast_forward`: `--no-ff` asks for a
+            # reconciliation where a fast-forward was possible, and there is nothing to reconcile with a history this
+            # one already holds.
+            return {"branch": name, "into": current, "outcome": "up-to-date", "snapshot": str(brain.snapshot().digest)}
 
         if fast_forward != "never":
             # The cheap path first, on the view that rebuilds nothing: a fast-forward is a pointer move.

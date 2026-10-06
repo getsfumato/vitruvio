@@ -303,3 +303,94 @@ class TestMerge:
         with pytest.raises(VitruvioError) as unknown:
             ana.branch_merge("nowhere")
         assert unknown.value.code == "BRANCH_NOT_FOUND"
+
+
+def with_registry_tag(service: BrainService, tag: str) -> BrainService:
+    """The same brain under a project that publishes main to ``tag``."""
+    project = service.config.project
+    registry = project.registry.model_copy(update={"tag": tag})
+    return BrainService(
+        service.config.model_copy(update={"project": project.model_copy(update={"registry": registry})})
+    )
+
+
+class TestReviewRegressions:
+    """Each one reproduced against the branch before it was fixed (review of #93)."""
+
+    def test_main_keeps_the_project_tag_when_a_branch_comes_before_the_first_push(
+        self, tmp_path: Path, registry: Path
+    ) -> None:
+        """The SDK records `latest` for main when nothing says otherwise. Read back as main's tag, it made a pull of
+        `stable` install into whichever branch was current, instead of moving to main."""
+        stable = with_registry_tag(make(tmp_path, "solo"), "stable")
+        add_fact(stable, "Fourier")
+        stable.branch_create("x")
+        assert stable.push(REFERENCE, local=registry)["tag"] == "stable"
+        stable.branch_switch("x")
+
+        stable.pull(REFERENCE, tag="stable", local=registry)
+        assert stable.branch_current() == "main"
+
+    def test_switch_create_also_keeps_the_project_tag(self, tmp_path: Path, registry: Path) -> None:
+        stable = with_registry_tag(make(tmp_path, "solo"), "stable")
+        add_fact(stable, "Fourier")
+        stable.branch_switch("x", create=True)
+        stable.branch_switch("main")
+        stable.push(REFERENCE, local=registry)
+        stable.branch_switch("x")
+
+        stable.pull(REFERENCE, tag="stable", local=registry)
+        assert stable.branch_current() == "main"
+
+    def test_the_default_tag_follows_a_checkout_the_sdk_would_finish(self, ana: BrainService) -> None:
+        """A checkout interrupted after the head moved is completed by the SDK on its next read; the default tag must
+        not be chosen from the stale `current` before that, or a push publishes the branch over main's tag."""
+        from vitruvio.runtime.assembly import Capability
+
+        ana.branch_create("x", switch=True)
+        add_fact(ana, "Nyquist")
+        ana.branch_switch("main")
+        brain = ana.brain(Capability.WRITE)
+        table = brain._read_refs()
+        assert table is not None
+        brain._write_refs(table.model_copy(update={"switching": "x"}))
+        brain._write_head(table.branches["x"].snapshot, origin=None)
+
+        assert current_branch_tag(ana.config).branch == "x"
+        assert current_branch_tag(ana.config).tag == "br.x"
+
+    def test_an_interrupted_checkout_that_never_moved_keeps_the_branch(self, ana: BrainService) -> None:
+        from vitruvio.runtime.assembly import Capability
+
+        ana.branch_create("x")
+        brain = ana.brain(Capability.WRITE)
+        table = brain._read_refs()
+        assert table is not None
+        add_fact(ana, "Nyquist")  # Main moves on, so x's head is not the head pointer.
+        table = brain._read_refs()
+        assert table is not None
+        brain._write_refs(table.model_copy(update={"switching": "x"}))
+
+        assert current_branch_tag(ana.config).branch == "main"
+
+    def test_an_unpublished_repository_lists_no_remote_branches(self, tmp_path: Path, registry: Path) -> None:
+        solo = make(tmp_path, "solo")
+        add_fact(solo, "Fourier")
+        listed = solo.branch_list(remote=True, reference=REFERENCE, local=registry)
+        assert listed["remote"] == []
+        assert [row["name"] for row in listed["branches"]] == ["main"]
+
+    def test_a_branch_missing_from_a_published_repository_is_branch_not_found(
+        self, ana: BrainService, registry: Path
+    ) -> None:
+        with pytest.raises(VitruvioError) as caught:
+            ana.branch_switch("absent", reference=REFERENCE, local=registry)
+        assert caught.value.code == "BRANCH_NOT_FOUND"
+        assert caught.value.exit_code is ExitCode.NOT_FOUND
+        assert "br.absent" in caught.value.message
+
+    def test_no_ff_on_a_contained_branch_is_still_up_to_date(self, ana: BrainService) -> None:
+        ana.branch_create("x")
+        add_fact(ana, "Nyquist")
+        merged = ana.branch_merge("x", fast_forward="never")
+        assert merged["outcome"] == "up-to-date"
