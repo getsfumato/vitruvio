@@ -24,7 +24,7 @@
   `branch merge` fast-forwards or reconciles with the declared strategy.
 - Report a push that another publish replaced right after it landed as `PUSH_RACED` (exit 8).
 - `dist tags` marks each tag as `default`, `branch` or `release`.
-- Adopt pyboltzmann 0.10.0.
+- Adopt pyboltzmann 0.10.1.
 
 ### Documentation
 

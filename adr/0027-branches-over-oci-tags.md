@@ -69,6 +69,6 @@ From vitruvio:
   race, and only a client that re-reads. Branches make it rare rather than impossible.
 - **Deleting a branch from the registry is not offered.** OCI deletes by manifest digest, and a branch's manifest may
   be the one `latest` names.
-- Importing `asyncio` at module scope in `boltzmann.brain`, which arrived with the post-publish check in 0.10.0, costs
-  every CLI start ~17ms and fails `test_import_cost`. It is fixed upstream in the SDK's next patch release, which this
-  pin then moves to.
+- The post-publish check arrived in 0.10.0 with a module-scope `asyncio` import in `boltzmann.brain`, which cost every
+  CLI start ~17ms and failed `test_import_cost`. pyboltzmann 0.10.1 imports it where the publish waits, and that is
+  the version pinned.
