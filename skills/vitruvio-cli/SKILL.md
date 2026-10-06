@@ -6,7 +6,7 @@ allowed-tools: Bash(vitruvio:*), Read
 
 # The vitruvio command surface
 
-Eighteen groups, one hundred and fifteen commands. This skill is the map: which group owns a task, which command inside it, and
+Nineteen groups, one hundred and twenty-one commands. This skill is the map: which group owns a task, which command inside it, and
 the one flag per command that changes the answer rather than the formatting.
 
 It deliberately does **not** teach judgement. How to read a search result without over-claiming is `vitruvio-query`;
@@ -226,11 +226,27 @@ skill that walks a user through choosing them.
 | command | for |
 |---|---|
 | `dist pack` | build the artifact locally. **Read the warnings** |
-| `dist push [REF]` | publish. `--tag`, `--all`, `--module`, `--local`, never `--force` |
+| `dist push [REF]` | publish, to the current branch's tag unless `--tag` says otherwise. `--all`, `--module`, `--local`, never `--force` |
 | `dist plan-pull [REF]` | what a pull would transfer **and what it would discard**; `--ignore-vector-indices` plans without derived vector layers |
 | `dist pull [REF]` | install. Adopts the published composition; read `discarded`; ancestor heads require explicit `--allow-rollback` |
 | `dist fetch [REF]` | bring another history **without adopting it**, and reconcile it when the plan is clean. The answer to exit 8 |
-| `dist tags [REF]` | what is published |
+| `dist tags [REF]` | what is published, each tag marked `default`, `branch` or `release` |
+
+### `branch` — a line of work per tag
+| command | for |
+|---|---|
+| `branch list` | local branches, the current one first, and which hold unpublished work. `--remote` adds what the registry publishes |
+| `branch current` | the branch this brain is on. `main` for one that never created a branch |
+| `branch create NAME` | start one at the current head, or `--from BRANCH\|SNAPSHOT`. `--switch` moves onto it |
+| `branch switch NAME` | move to it. `-c` creates it; one that exists only on the registry is pulled from `br.<name>` (`--no-track` refuses) |
+| `branch merge NAME` | fast-forward when the current branch has not moved, otherwise a reconciliation: `--strategy`, or the declared one |
+| `branch delete NAME` | drop the local ref. Refuses unpushed work without `--force`; the registry tag stays |
+
+**A branch is a tag.** `main` publishes to `[registry].tag`, any other branch to `br.<name>` (`ana/x` becomes
+`br.ana.x`), and `dist push`/`pull`/`fetch` default to the current branch's tag. So a team that keeps hitting exit 8
+on one tag should each `branch switch -c NAME`: nobody refuses anybody's push, and the joining is one `branch merge`.
+An explicit `--tag` never renames the branch. Exit 8 with code `PUSH_RACED` means somebody published to the same tag
+in the moment between your check and your write; nothing was lost locally, and the answer is the one for divergence.
 
 ### `reconcile` — join a history somebody else advanced
 | command | for |
@@ -347,7 +363,7 @@ reports an exact recovery command if the commit succeeds but signing fails. `?` 
 
 `0` ok · `1` a bug in vitruvio · `2` you asked wrong · `3` config or no brain · `4` not found · `5` **protocol
 violation, never retry** · `6` **a policy refused, never retry** · `7` candidates rejected, repair and retry · `8`
-not a fast-forward, pull then push · `9` registry, retryable · `10` needs a human · `11` a source, retryable.
+not a fast-forward (`DIVERGED`) or a lost push race (`PUSH_RACED`): fetch, reconcile, push · `9` registry, retryable · `10` needs a human · `11` a source, retryable.
 
 Full reasoning in `../vitruvio/references/exit-codes.md`, which ships with the `vitruvio` skill — this one links
 into it rather than repeating it, so install both.
@@ -361,6 +377,8 @@ Do not offer these; they are not implemented, and a plausible-looking command th
 - **No history-rewriting rollback command.** `dist pull --allow-rollback` may deliberately adopt a served ancestor;
   the snapshot it replaces stays in `brain history`, but nothing rewrites or deletes history. Use `dist fetch` plus
   `reconcile` whenever the point is to keep both sides' work.
+- **No deleting a branch from the registry.** `branch delete` removes the local ref only. OCI deletes manifests by
+  digest, and a branch's manifest can be the same one `latest` names.
 - **No `answer` field**, on any command. The brain returns evidence and the prose is yours.
 
 ## Every command and every flag

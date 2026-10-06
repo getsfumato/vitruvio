@@ -14,6 +14,9 @@ vitruvio dist tags docker.io/you/brain
 A published brain is an OCI Artifact: a small manifest, one layer per module, and a config blob that is the snapshot
 document. Because the modules are separate blobs, a consumer can install one and later update only what changed.
 
+Without `--tag`, every `dist` command uses the current branch's tag: `[registry].tag` on `main`, `br.<name>` on any
+other. Several people publishing one brain should each work on a [branch](/reconciliation/branches) of their own.
+
 ## `pack` first, and read the warnings
 
 The warning that matters: *"the vector index will not be published"*. A brain published without its vector layer cannot

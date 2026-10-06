@@ -18,6 +18,7 @@ below moves no pointer and discards nothing.
 
 ```bash
 vitruvio brain state --json            # where this brain came from, and what it is now
+vitruvio branch list --json            # which branch it is on; push, pull and fetch default to that branch's tag
 vitruvio dist tags --json              # what the registry holds under the configured reference
 vitruvio dist plan-pull --tag <TAG> --json
 ```
@@ -147,6 +148,8 @@ reconciliation that removes their blocks is not "clean" in any report you write.
 | symptom | what it is | do |
 |---|---|---|
 | a commit or ingest exits **12**, `RECONCILE_OPEN` | a reconciliation is already open on this brain | `reconcile status`; `continue` or `abort` |
+| push exits **8**, `PUSH_RACED` | your push landed and someone else's replaced it a moment later | the diverged row: `dist fetch`, reconcile, push |
+| `plan-pull` reports a tag you did not expect | you are on a branch, and the default tag is the branch's `br.<name>` | `branch current`; pass `--tag`, or `branch switch` |
 | push exits **9** | the registry was unreachable or refused the request | retry; check `registry whoami`, `registry check` |
 | push exits **4**, `REFERENCE_NOT_FOUND` | nothing published under that reference and tag yet | it is a first push; push |
 | push exits **6**, `PUBLISH_FORBIDDEN` | the brain declares `publish = false` — it is somebody else's upstream | do not publish; `pull` is how this brain updates |
@@ -154,6 +157,13 @@ reconciliation that removes their blocks is not "clean" in any report you write.
 | `brain verify` fails | corruption, not a sync problem | `inspect resolvability`; stop |
 | `origin.partial: true` in `brain state` | a selective install — modules deliberately not taken | nothing; those modules are missing, not stale |
 | search finds nothing after a pull or reconciliation | the vector index is stale after any write | `index build`; not a divergence |
+
+## When it keeps happening
+
+Diverging once is two people who happened to write at the same time. Diverging every day is a team sharing one tag,
+and reconciling faster does not fix that. Suggest branches: each person runs `vitruvio branch switch -c NAME` and
+publishes to `br.<name>`, which nobody else writes to, and one of them `branch merge`s into `main` when a line of
+work is ready (`vitruvio-dist`). Suggest it; do not create branches on the user's behalf.
 
 ## In a project with several brains
 

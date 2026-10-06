@@ -18,13 +18,23 @@
 - Read registered CSV, TSV and Parquet files as tables in `vitruvio sql`: `data."ventas.csv"` by file name or id,
   `datasets` to list them, bytes verified from the store. `.parquet` files now register as
   `application/vnd.apache.parquet`.
+- Add `vitruvio branch` (`list`, `current`, `create`, `switch`, `merge`, `delete`): a line of work per tag, so a team
+  stops queueing on `latest`. `main` publishes to `[registry].tag`, every other branch to `br.<name>`, and `dist
+  push`/`pull`/`fetch` default to the current branch's tag. `branch switch` pulls a teammate's branch from its tag;
+  `branch merge` fast-forwards or reconciles with the declared strategy.
+- Report a push that another publish replaced right after it landed as `PUSH_RACED` (exit 8).
+- `dist tags` marks each tag as `default`, `branch` or `release`.
+- Adopt pyboltzmann 0.10.0.
 
 ### Documentation
 
 - Add catalog, authenticity and legacy-migration guides plus the pyboltzmann 0.9 integration ADR.
 - Add ADR-0026 on SQL over derived tables.
+- Add a branches guide and ADR-0027 on branches over OCI tags.
 
 ### Breaking changes
+
+- `dist pull` exits 12 while a reconciliation is open, like every other write, instead of moving the head beneath it.
 
 - New writes require canonical actor identifiers: a lowercase address such as `alex@example.org` or a namespaced
   name such as `openai/codex`.

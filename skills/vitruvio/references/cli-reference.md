@@ -358,6 +358,34 @@ Install a published brain.
 
 List the tags a repository holds.
 
+## `vitruvio branch`
+
+Work on a branch of your own, publish it to its own tag, and merge it when it is ready.
+
+### `vitruvio branch list` `--remote` `--reference` `--anonymous` `--insecure` `--local`
+
+List the branches, the current one first.
+
+### `vitruvio branch current`
+
+Print the branch this brain is on. `main` for a brain that never created one.
+
+### `vitruvio branch create` `name` `--from` `--switch`
+
+Start a branch, at the current head unless told otherwise.
+
+### `vitruvio branch switch` `name` `--create` `--no-track` `--reference` `--anonymous` `--insecure` `--local`
+
+Make another branch current.
+
+### `vitruvio branch delete` `name` `--force`
+
+Delete a local branch. Its `br.` tag on the registry is left alone.
+
+### `vitruvio branch merge` `name` `--strategy` `--reason` `--ff-only` `--no-ff`
+
+Merge another branch into the current one.
+
 ## `vitruvio reconcile`
 
 Join another history into this one: merge, rebase or squash, and decide what did not apply.
