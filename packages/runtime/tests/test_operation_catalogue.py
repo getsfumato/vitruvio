@@ -247,7 +247,7 @@ class TestTheCatalogueIsComplete:
             if domain.class_name in {"PublishOps", "InstallOps"}
         ]
         assert distribution == ["pack", "registry_check", "push", "push_all", "tags", "plan_pull", "pull", "fetch"]
-        assert len([name for _, name in facade_operations() if name.endswith("_async")]) == 5
+        assert len([name for _, name in facade_operations() if name.endswith("_async")]) == 7
 
     def test_nothing_host_local_is_offered_to_a_caller_elsewhere(self) -> None:
         """What is left after #56: writing to a destination here, and reading or creating a layout here."""

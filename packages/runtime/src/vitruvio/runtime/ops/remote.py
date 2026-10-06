@@ -118,10 +118,24 @@ class RemoteOps:
         return PreparedRemote(
             reference=target,
             effective=effective,
-            tag=tag or self.config.project.registry.tag,
+            tag=tag or self._default_tag(),
             client=client,
             warnings=warnings,
         )
+
+    def _default_tag(self) -> str:
+        """
+        The tag a distribution operation uses when the command names none: the current branch's.
+
+        ``[registry].tag`` on ``main``, which is every brain that never created a branch, and ``br.<name>`` on any
+        other. An explicit ``--tag`` always wins, and never renames the branch.
+
+        Returns:
+            str: The tag.
+        """
+        from vitruvio.runtime.branches import current_branch_tag
+
+        return current_branch_tag(self.config).tag
 
     async def _request(self, operation: Awaitable[ResultT]) -> ResultT:
         """Await one registry operation through the shared exception-translation boundary."""

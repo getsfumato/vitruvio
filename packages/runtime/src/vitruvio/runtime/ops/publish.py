@@ -56,7 +56,7 @@ class PublishOps:
         with self.session.write() as brain:
             vouched = vouch_travelling(brain, chosen)
             with translated():
-                manifest = brain.pack(tag=tag or self.config.project.registry.tag, modules=chosen)
+                manifest = brain.pack(tag=tag or self.remote._default_tag(), modules=chosen)
         return {**wire.manifest(manifest), "vouched": vouched}
 
     def registry_check(
@@ -195,10 +195,13 @@ class PublishOps:
                     modules=chosen,
                 )
             )
+        from vitruvio.runtime.branches import current_branch_tag
+
         return {
             "reference": remote.reference,
             "effective": remote.effective,
             "tag": remote.tag,
+            "branch": current_branch_tag(self.config).branch,
             "digest": str(digest),
             "vouched": vouched,
             "warnings": remote.warnings,
@@ -383,9 +386,21 @@ class PublishOps:
         except Exception as error:
             raise translate(error) from error
 
+        from boltzmann.branches import branch_for_tag
+
+        # Which tags are branches, read the way every client reads them (paper Section 7.5): `[registry].tag` is the
+        # default branch's, a `br.` tag that decodes to a name is that branch's, and anything else is a release.
+        default = self.config.project.registry.tag
+        entries = []
+        for name in found:
+            branch = branch_for_tag(name, default)
+            kind = "default" if name == default else "branch" if branch is not None else "release"
+            entries.append({"tag": name, "kind": kind, "branch": branch})
+
         return {
             "reference": remote.reference,
             "tags": found,
+            "entries": entries,
             "warnings": remote.warnings,
             "published": bool(found),
         }

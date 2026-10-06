@@ -4,14 +4,16 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from vitruvio.ingest.evidence import Evidence
+from vitruvio.kernel import ReconcileStrategy
 from vitruvio.runtime.browse_result import BlocksResult
 from vitruvio.runtime.compound_result import CompoundExplainResult, CompoundSearchResult
 from vitruvio.runtime.lifecycle_result import StateResult
 from vitruvio.runtime.ops.authenticity import AuthenticityOps
 from vitruvio.runtime.ops.benchmarking import BenchmarkOps
+from vitruvio.runtime.ops.branches import BranchOps
 from vitruvio.runtime.ops.browsing import BrowsingOps
 from vitruvio.runtime.ops.catalog import CatalogOps
 from vitruvio.runtime.ops.compound import CompoundOps
@@ -1028,6 +1030,146 @@ class GeneratedFacade:
             insecure=insecure,
             local=local,
         )
+
+    @cached_property
+    def branch_ops(self) -> BranchOps:
+        """The BranchOps operations."""
+        return BranchOps(self.session)
+
+    def branch_current(self) -> str:
+        """The branch this brain is on.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_current`."""
+        return self.branch_ops.branch_current()
+
+    def branch_list(
+        self,
+        *,
+        remote: bool = False,
+        reference: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """List the branches from synchronous code.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_list`."""
+        return self.branch_ops.branch_list(
+            remote=remote,
+            reference=reference,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    async def branch_list_async(
+        self,
+        *,
+        remote: bool = False,
+        reference: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Every branch this brain holds and, when asked, every branch the registry publishes.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_list_async`."""
+        return await self.branch_ops.branch_list_async(
+            remote=remote,
+            reference=reference,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    def branch_create(self, name: str, *, start: str | None = None, switch: bool = False) -> dict[str, Any]:
+        """Start a branch, at the current head unless told otherwise.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_create`."""
+        return self.branch_ops.branch_create(name, start=start, switch=switch)
+
+    def branch_switch(
+        self,
+        name: str,
+        *,
+        create: bool = False,
+        track: bool = True,
+        reference: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Switch branches from synchronous code.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_switch`."""
+        return self.branch_ops.branch_switch(
+            name,
+            create=create,
+            track=track,
+            reference=reference,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    async def branch_switch_async(
+        self,
+        name: str,
+        *,
+        create: bool = False,
+        track: bool = True,
+        reference: str | None = None,
+        username: str | None = None,
+        token: str | None = None,
+        anonymous: bool = False,
+        insecure: bool | None = None,
+        local: Path | None = None,
+    ) -> dict[str, Any]:
+        """Make another branch current.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_switch_async`."""
+        return await self.branch_ops.branch_switch_async(
+            name,
+            create=create,
+            track=track,
+            reference=reference,
+            username=username,
+            token=token,
+            anonymous=anonymous,
+            insecure=insecure,
+            local=local,
+        )
+
+    def branch_delete(self, name: str, *, force: bool = False) -> dict[str, Any]:
+        """Delete a local branch. Its snapshots stay until a prune finds nothing else naming them.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_delete`."""
+        return self.branch_ops.branch_delete(name, force=force)
+
+    def branch_merge(
+        self,
+        name: str,
+        *,
+        strategy: ReconcileStrategy | str | None = None,
+        reason: str | None = None,
+        fast_forward: Literal["auto", "only", "never"] = "auto",
+    ) -> dict[str, Any]:
+        """Join another branch into the current one.
+
+        See :meth:`vitruvio.runtime.ops.branches.BranchOps.branch_merge`."""
+        return self.branch_ops.branch_merge(name, strategy=strategy, reason=reason, fast_forward=fast_forward)
 
     @cached_property
     def reconcile_ops(self) -> ReconcileOps:

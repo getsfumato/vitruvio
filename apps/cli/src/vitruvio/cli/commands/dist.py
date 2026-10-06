@@ -65,7 +65,7 @@ def pack(
     Parameters
     ----------
     tag
-        The tag to file it under.
+        The tag to file it under. Defaults to the current branch's.
     module
         Publish only these modules. Repeatable.
     """
@@ -124,7 +124,8 @@ def push(
         `<host>/<namespace>/<repo>`. Defaults to the configured one. `docker.io` is resolved to
         `registry-1.docker.io`, which is where the API lives.
     tag
-        The tag to publish under.
+        The tag to publish under. Defaults to the current branch's: `[registry].tag` on `main`, `br.<name>` on any
+        other. An explicit tag, such as a release, never renames the branch.
     module
         Publish only these modules. Repeatable. Narrowing an existing artifact's module set is refused.
     force
@@ -302,7 +303,7 @@ def fetch(
     reference
         The repository.
     tag
-        Which tag.
+        Which tag. Defaults to the current branch's: `[registry].tag` on `main`, `br.<name>` on any other.
     module
         Retrieve only these modules. Repeatable.
     reconcile
@@ -390,7 +391,7 @@ def plan_pull(
     reference
         The repository.
     tag
-        Which tag.
+        Which tag. Defaults to the current branch's: `[registry].tag` on `main`, `br.<name>` on any other.
     module
         Install only these modules. Repeatable.
     ignore_vector_indices
@@ -464,7 +465,7 @@ def pull(
     reference
         The repository.
     tag
-        Which tag.
+        Which tag. Defaults to the current branch's: `[registry].tag` on `main`, `br.<name>` on any other.
     module
         Install only these modules. Repeatable.
     ignore_vector_indices
@@ -544,5 +545,9 @@ def tags(
     console = current().console
     result = current().service().tags(reference, anonymous=anonymous, insecure=insecure, local=local)
     _warn(result)
-    view = render.lines(result["tags"]) if result["tags"] else render.empty("(no tags)")
-    return console.emit("dist.tags", result, view=view)
+    if not result["tags"]:
+        return console.emit("dist.tags", result, view=render.empty("(no tags)"))
+    table = render.table("tag", "kind", "branch")
+    for entry in result["entries"]:
+        table.add_row(entry["tag"], entry["kind"], entry["branch"] or Text("-", style="muted"))
+    return console.emit("dist.tags", result, view=table)

@@ -509,6 +509,7 @@ class TestErrorMapping:
     def test_every_mapped_family_round_trips_through_translate(self) -> None:
         """Table-driven over the whole mapping: whatever `report_for` says about an SDK error it must also say
         about the translated one -- code, exit status, HTTP status, retryability and hint."""
+        from boltzmann.exceptions import LostPublishError
         from pydantic import ValidationError as PydanticValidationError
 
         from vitruvio.runtime.mapping import _TABLE
@@ -517,6 +518,8 @@ class TestErrorMapping:
             error: BaseException
             if kind is PydanticValidationError:
                 error = PydanticValidationError.from_exception_data("x", [])
+            elif kind is LostPublishError:
+                error = LostPublishError("x", published="sha256:a", observed="sha256:b")
             else:
                 error = kind("x")
             direct = report_for(error)
