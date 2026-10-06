@@ -7,20 +7,86 @@ get wrong: the status a caller branches on and the keys it reads -- above all th
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
-from test_reconcile_commands import add_evidence, derive, envelope, make
 
+from vitruvio.cli.main import main
+from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ExitCode, resolve
 from vitruvio.runtime import BrainService
+
+PROJECT = """
+[brain]
+path = "./brain"
+
+[actor]
+id = "shared@example.com"
+
+[policy]
+profile = "permissive"
+""" + "\n".join(
+    f'[[index]]\nmemory_type = "{module}"\nkind = "{kind}"'
+    for module in ("canonical", "semantic", "provenance")
+    for kind in ("hash_map", "btree", "bitmap")
+)
+"""Structural indices only, as in `test_reconcile_commands.py`, which says why: a vector index opens a database that
+the cycle collector can finalize unclosed, and `filterwarnings = error` turns that into a failure elsewhere."""
+
+
+# Repeated from `test_reconcile_commands.py` rather than imported, for the reason that file gives: two suites sharing a
+# fixture by import would have to move together, and a test module is not something mypy can resolve.
+def envelope(capsys: pytest.CaptureFixture[str], *args: str) -> tuple[int, dict[str, Any]]:
+    """Invoke the CLI in JSON mode and parse the single object it printed."""
+    code = main(["--json", *args])
+    parsed: dict[str, Any] = json.loads(capsys.readouterr().out)
+    return code, parsed
+
+
+def make(tmp_path: Path, name: str) -> Path:
+    """A brain with its own configuration file, and the config path the CLI should be pointed at."""
+    root = tmp_path / name
+    root.mkdir(parents=True, exist_ok=True)
+    config_file = root / "vitruvio.toml"
+    config_file.write_text(PROJECT, encoding="utf-8")
+    BrainService(resolve(brain=root / "brain", config=config_file, require_layout=False)).init()
+    return config_file
+
+
+def add_evidence(service: BrainService, text: str, name: str) -> str:
+    """Register a canonical block from a directory every brain in the test shares."""
+    incoming = Path(service.config.brain).parents[1] / "incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    path = incoming / name
+    path.write_text(text, encoding="utf-8")
+    return str(service.register(Evidence.from_path(path, media_type="text/markdown"))["block_id"])
+
+
+def derive(service: BrainService, source: str, label: str) -> str:
+    """Commit one semantic block derived from a canonical one."""
+    from boltzmann.blocks.memory_type import MemoryType
+    from boltzmann.identity.digest import BlockId
+    from boltzmann.ingest.proposer import Candidate, CandidateSet
+
+    from vitruvio.runtime.assembly import Capability
+
+    brain = service.brain(Capability.WRITE)
+    evidence = BlockId.parse(source)
+    task = brain.define_task(evidence, allowed=[MemoryType.SEMANTIC])
+    payload = {"kind": "concept", "label": label, "subject": "senales", "statement": f"{label} explicado."}
+    candidates = CandidateSet(
+        task_id=task.task_id,
+        candidates=[Candidate(memory_type=MemoryType.SEMANTIC, evidence=[evidence], locator="p1", payload=payload)],
+    )
+    return str(brain.commit(brain.validate(candidates, task)).committed[0])
 
 
 @pytest.fixture
 def brain(tmp_path: Path) -> tuple[Path, BrainService]:
     """One brain with one fact on main. Returns its config and a service over it."""
-    config = make(tmp_path, "ana", reconcile=None)
+    config = make(tmp_path, "ana")
     service = BrainService(resolve(brain=tmp_path / "ana" / "brain", config=config))
     shared = add_evidence(service, "# Fourier\n\nSenos y cosenos.\n", "fourier.md")
     derive(service, shared, "Serie de Fourier")

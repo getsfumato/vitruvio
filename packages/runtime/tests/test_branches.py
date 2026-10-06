@@ -14,13 +14,72 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from test_reconcile import add_evidence, derive, make, members
 
-from vitruvio.kernel import ExitCode, VitruvioError
+from vitruvio.ingest.evidence import Evidence
+from vitruvio.kernel import ExitCode, VitruvioError, resolve
 from vitruvio.runtime import BrainService
+from vitruvio.runtime.assembly import Capability
 from vitruvio.runtime.branches import current_branch_tag
 
 REFERENCE = "demo/brain"
+
+PROJECT = """
+[brain]
+path = "./brain"
+{reconcile}
+
+[actor]
+id = "{actor}"
+
+[policy]
+profile = "permissive"
+"""
+
+
+# The three helpers below are the ones `test_reconcile.py` defines, repeated rather than imported: a test module is
+# not a package mypy can resolve, and two suites sharing a fixture by import would have to move together.
+def make(tmp_path: Path, name: str, *, reconcile: str | None = None) -> BrainService:
+    """A brain of its own, with its own configuration file, optionally declaring a strategy."""
+    root = tmp_path / name
+    root.mkdir(parents=True, exist_ok=True)
+    config_file = root / "vitruvio.toml"
+    config_file.write_text(
+        PROJECT.format(actor=f"{name}@example.com", reconcile=f'reconcile = "{reconcile}"' if reconcile else ""),
+        encoding="utf-8",
+    )
+    BrainService(resolve(brain=root / "brain", config=config_file, require_layout=False)).init()
+    return BrainService(resolve(brain=root / "brain", config=config_file))
+
+
+def add_evidence(service: BrainService, text: str, name: str) -> str:
+    """Register a canonical block from a directory every brain in the test shares, and return its identity."""
+    incoming = Path(service.config.brain).parents[1] / "incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    path = incoming / name
+    path.write_text(text, encoding="utf-8")
+    return str(service.register(Evidence.from_path(path, media_type="text/markdown"))["block_id"])
+
+
+def derive(service: BrainService, source: str, label: str) -> str:
+    """Commit one semantic block derived from a canonical one, and return its identity."""
+    from boltzmann.blocks.memory_type import MemoryType
+    from boltzmann.identity.digest import BlockId
+    from boltzmann.ingest.proposer import Candidate, CandidateSet
+
+    brain = service.brain(Capability.WRITE)
+    evidence = BlockId.parse(source)
+    task = brain.define_task(evidence, allowed=[MemoryType.SEMANTIC])
+    payload = {"kind": "concept", "label": label, "subject": "senales", "statement": f"{label} explicado."}
+    candidates = CandidateSet(
+        task_id=task.task_id,
+        candidates=[Candidate(memory_type=MemoryType.SEMANTIC, evidence=[evidence], locator="p1", payload=payload)],
+    )
+    return str(brain.commit(brain.validate(candidates, task)).committed[0])
+
+
+def members(service: BrainService, module: str = "semantic") -> set[str]:
+    """One module's composition, as identities."""
+    return set(service.inspection_ops.module(module, limit=10_000)["block_ids"])
 
 
 @pytest.fixture
