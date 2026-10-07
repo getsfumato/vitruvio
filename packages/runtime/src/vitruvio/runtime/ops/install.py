@@ -202,7 +202,12 @@ class InstallOps:
             local=local,
         )
 
+        from vitruvio.runtime.branches import align_default_branch
+
         with self.session.write(install=True) as brain:
+            # Before the SDK routes the tag: it reads main's tag from the ref table, and a table that says `latest`
+            # where the project publishes main elsewhere would send a pull of main into another branch.
+            align_default_branch(brain, self.config)
             before = composition_members(brain, brain.snapshot())
             ignored: list[str] = []
             policy = self.config.project.authenticity.build()

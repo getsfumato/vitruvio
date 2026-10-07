@@ -61,7 +61,7 @@
       },
       {
         "group": "Reconciliation",
-        "pages": ["reconciliation/behind-ahead-diverged", "reconciliation/joining-two-histories"]
+        "pages": ["reconciliation/behind-ahead-diverged", "reconciliation/joining-two-histories", "reconciliation/branches"]
       },
       {
         "group": "Authenticity",

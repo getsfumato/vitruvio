@@ -218,17 +218,18 @@ def test_the_counts_in_the_skill_are_the_real_ones() -> None:
             verbs about a brain. `compound` moved both: a group of its own with two commands, because asking several
             brains one question is retrieval over a project rather than a flag on `query`. `sql` moved only the command count,
         like `update`: one verb, whose flags select between running, explaining and listing the schema. `compound sql` moved
-    only the command count too: the same query over several brains belongs beside `compound search`."""
+    only the command count too: the same query over several brains belongs beside `compound search`. `branch` moved
+    both: six commands and a group of their own, because a line of work per tag is history, beside `reconcile`."""
     text = CLI_SKILL.read_text(encoding="utf-8")
     commands = known_commands()
     leaves = [command for command in commands if not any(other.startswith(f"{command} ") for other in commands)]
     groups = {command.split()[0] for command in commands if " " in command}
 
-    words = {18: "Eighteen", 115: "one hundred and fifteen"}
-    assert words[18] in text or str(len(groups)) in text, f"there are {len(groups)} groups"
-    assert words[115] in text, f"the skill does not state the command count; there are {len(leaves)}"
-    assert len(groups) == 18, f"the skill says eighteen groups; there are now {len(groups)}"
-    assert len(leaves) == 115, f"the skill says one hundred and fifteen commands; there are now {len(leaves)}"
+    words = {19: "Nineteen", 121: "one hundred and twenty-one"}
+    assert words[19] in text or str(len(groups)) in text, f"there are {len(groups)} groups"
+    assert words[121] in text, f"the skill does not state the command count; there are {len(leaves)}"
+    assert len(groups) == 19, f"the skill says nineteen groups; there are now {len(groups)}"
+    assert len(leaves) == 121, f"the skill says one hundred and twenty-one commands; there are now {len(leaves)}"
 
 
 EVIDENCE_BUNDLE = ROOT / "skills" / "vitruvio" / "references" / "evidence-bundle.md"

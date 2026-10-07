@@ -22,7 +22,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "pyboltzmann==0.9.1",
+    "pyboltzmann==0.10.1",
     "vitruvio-kernel",
 ]
 

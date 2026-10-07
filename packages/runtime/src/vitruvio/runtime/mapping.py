@@ -23,11 +23,16 @@ from boltzmann.exceptions import (
     BlockNotFoundError,
     BlockTombstonedError,
     BoltzmannError,
+    BranchError,
+    BranchExistsError,
+    BranchNotFoundError,
     CatalogError,
     CommitError,
     DistributionError,
     DivergenceError,
     InclusionProofError,
+    InvalidBranchNameError,
+    LostPublishError,
     MembershipError,
     MemoryTypeError,
     NoCommonAncestorError,
@@ -41,6 +46,7 @@ from boltzmann.exceptions import (
     RetentionPolicyError,
     RollbackError,
     SnapshotError,
+    UnmergedBranchError,
     ValidationError,
 )
 from pydantic import ValidationError as PydanticValidationError
@@ -174,6 +180,23 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
         ),
     ),
     (
+        # Before `DistributionError`, which it subclasses. Exit 8 with divergence because the remedy is the same --
+        # fetch, reconcile, push again -- but its own code, because nothing was refused: the push landed and was then
+        # replaced, which a caller that only knew `DIVERGED` would misread as "my push never happened".
+        LostPublishError,
+        Report(
+            "PUSH_RACED",
+            ExitCode.DIVERGED,
+            409,
+            retryable=False,
+            hint=(
+                "someone published to the same tag right after you and replaced your push; your snapshot is still "
+                "local. `vitruvio dist fetch` brings theirs and reconciles it, then `vitruvio dist push` again -- or "
+                "work on a branch of your own (`vitruvio branch switch -c NAME`) so you stop sharing the tag"
+            ),
+        ),
+    ),
+    (
         # Before `DistributionError`, which it subclasses -- and the reason it needs its own row at all. Falling
         # through to the base reported a diverged push as `REGISTRY_FAILED`, exit 9, *retryable*: an agent told to
         # retry a transport hiccup, against a refusal that will be identical every time. It is the one distribution
@@ -285,6 +308,60 @@ _TABLE: tuple[tuple[type[BaseException], Report], ...] = (
             409,
             retryable=False,
             hint="`vitruvio reconcile status` reports where it stands, and `abort` abandons it without writing",
+        ),
+    ),
+    # The branch rows precede `ProtocolError`, which `BranchError` subclasses, and the specific ones precede the base.
+    (
+        BranchNotFoundError,
+        Report(
+            "BRANCH_NOT_FOUND",
+            ExitCode.NOT_FOUND,
+            404,
+            retryable=False,
+            hint="`vitruvio branch list` names the local branches, and `--remote` the ones the registry publishes",
+        ),
+    ),
+    (
+        BranchExistsError,
+        Report(
+            "BRANCH_EXISTS",
+            ExitCode.USAGE,
+            409,
+            retryable=False,
+            hint="`vitruvio branch switch NAME` moves to the existing one; choose another name for a new branch",
+        ),
+    ),
+    (
+        InvalidBranchNameError,
+        Report(
+            "BRANCH_NAME_INVALID",
+            ExitCode.USAGE,
+            400,
+            retryable=False,
+            hint="a branch name is segments of letters, digits, '_' and '-' separated by '/', such as ana/fix-typo",
+        ),
+    ),
+    (
+        UnmergedBranchError,
+        Report(
+            "BRANCH_UNMERGED",
+            ExitCode.USAGE,
+            409,
+            retryable=False,
+            hint=(
+                "that branch is the only name for its work and was never pushed; `vitruvio branch merge NAME` joins "
+                "it, `vitruvio dist push` publishes it, and `--force` deletes it anyway"
+            ),
+        ),
+    ),
+    (
+        BranchError,
+        Report(
+            "BRANCH_REFUSED",
+            ExitCode.USAGE,
+            409,
+            retryable=False,
+            hint="`vitruvio branch list` shows which branch is current and where each one is",
         ),
     ),
     (ProtocolError, Report("PROTOCOL_ERROR", ExitCode.PROTOCOL, 500, retryable=False)),

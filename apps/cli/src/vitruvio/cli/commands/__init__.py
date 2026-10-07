@@ -13,6 +13,7 @@ from vitruvio.cli.commands import (
     auth,
     bench,
     brain,
+    branch,
     browse,
     catalog,
     completion,
@@ -49,6 +50,7 @@ GROUPS = (
     auth,
     retain,
     dist,
+    branch,
     reconcile,
     registry,
     inspect,
@@ -65,6 +67,9 @@ something, read it, publish it, look at how it is put together, and configure th
 
 ``update`` comes last because it is about the tool rather than about a brain -- the only group here that
 never opens one.
+
+``branch`` sits between ``dist`` and ``reconcile`` because it is the way out of the loop they describe: a team on
+one tag keeps having pushes refused, and working on a branch of one's own is what stops it.
 
 ``reconcile`` follows ``dist`` because that is the order somebody meets it: you publish, the push is refused
 because somebody else published first, and reconciling is what you do about it.

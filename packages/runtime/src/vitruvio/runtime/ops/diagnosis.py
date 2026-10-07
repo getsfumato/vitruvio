@@ -562,8 +562,10 @@ class DiagnosisOps:
         request, so it is a ``skip`` row unless ``registry`` is set.
         """
         rows: list[dict[str, Any]] = []
+        from vitruvio.runtime.branches import current_branch_tag
+
         reference = self.config.repository()
-        tag = self.config.project.registry.tag
+        tag = current_branch_tag(self.config).tag
         if reference is None:
             rows.append(row("registry.reference", WARN, "no registry is configured; publishing needs a reference"))
             rows.append(row("registry.reachable", SKIP, "not probed: there is no reference to probe"))

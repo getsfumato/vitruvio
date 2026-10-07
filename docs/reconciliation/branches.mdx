@@ -1,0 +1,103 @@
+---
+title: "Branches: a tag per line of work"
+description: "When several people publish one brain, a shared tag makes every push after the first exit 8. A branch publishes to a tag of its own, so nobody refuses anybody, and the joining is one deliberate merge."
+---
+
+The divergence check makes a shared tag safe. It does not make it workable. When three people publish one brain to
+`latest`, the first push lands and the next two exit 8, and each of those two now has to fetch and reconcile before
+it can publish anything. The next day it happens again. Reconciling faster does not fix that: the tag is the
+bottleneck.
+
+A **branch** gives each line of work a tag of its own. Writers on different branches never refuse each other, and
+the work comes together when somebody decides it should, with one `branch merge`.
+
+## The model
+
+| Branch | Publishes to |
+| --- | --- |
+| `main`, the branch every brain starts on | `[registry].tag`, normally `latest` |
+| `ana/nyquist` | `br.ana.nyquist` |
+| `beto/laplace` | `br.beto.laplace` |
+
+- A branch name is segments of letters, digits, `_` and `-`, separated by `/`. The tag is `br.` followed by the
+  name with each `/` replaced by `.`. There are no dots in a name, so any client listing the repository can read a
+  `br.` tag back as a branch. The convention is fixed by the Boltzmann protocol, not by vitruvio, so another
+  runtime sees the same branches.
+- **`dist push`, `dist pull` and `dist fetch` default to the current branch's tag.** An explicit `--tag` overrides
+  the default for that one command and never renames the branch, which is how a release is published from a
+  branch: `vitruvio dist push --tag v1.0`.
+- A brain that never creates a branch is on `main` and behaves exactly as it did before branches existed.
+
+## Working on a branch
+
+```bash
+vitruvio branch switch -c ana/nyquist       # a new branch at the current head, now current
+vitruvio ingest ...                          # commit as usual
+vitruvio dist push                           # -> <reference>:br.ana.nyquist
+```
+
+`branch list` shows every local branch, the current one first, and marks the ones that hold **unpublished** work:
+a head that is not the one last pushed or pulled. `branch list --remote` adds what the registry publishes, read off
+its `br.` tags.
+
+### Picking up a teammate's branch
+
+```bash
+vitruvio branch list --remote
+vitruvio branch switch beto/laplace          # pulled from br.beto.laplace into a new local branch
+```
+
+When the branch exists only on the registry, `switch` pulls its tag and installs it as a new local branch. The
+branch you were on is recorded first, so nothing unpublished on it is lost. Pass `--no-track` to refuse instead.
+
+### Switching
+
+`branch switch NAME` moves the head to another branch's head. It commits nothing, so nothing is re-embedded. The
+vector index is bound to a Merkle root and is never read against the wrong branch. If semantic search comes back
+thin after a switch, `vitruvio index build` refreshes it from the embedding cache.
+
+Switching is refused while a reconciliation is open (exit 12), because the open reconciliation is stated against
+the head you would be leaving. Finish or abort it first.
+
+## Merging
+
+```bash
+vitruvio branch switch main
+vitruvio branch merge ana/nyquist
+vitruvio dist push                           # -> <reference>:latest
+```
+
+Three things can happen, and `data.outcome` says which:
+
+| `outcome` | what happened |
+| --- | --- |
+| `up-to-date` | `main` already contains the branch. Nothing was written |
+| `fast-forward` | `main` had not moved since the branch was made, so the head moved to the branch's and no snapshot was written |
+| `reconciled` | the two diverged, so this was a [reconciliation](/reconciliation/joining-two-histories) |
+
+A reconciliation needs a strategy: `--strategy merge|rebase|squash`, or the `reconcile` the brain declares. With
+neither, the merge is refused (exit 2) rather than guessed. The three land the same blocks and differ only in
+whose name stays on the work, and that is not vitruvio's decision to make. A reconciliation that stops to ask
+exits 12, exactly as `reconcile merge` does, and `reconcile status`, `resolve`, `continue` and `abort` finish it.
+
+`--ff-only` refuses anything but a fast-forward. `--no-ff` records a reconciliation even when a fast-forward was
+possible, so the branch stays visible in the history as a second parent.
+
+## Deleting
+
+`branch delete NAME` removes the local ref. It refuses the current branch. It also refuses, without `--force`, a
+branch whose head no other branch contains and that was never pushed: the ref is then the only name for that work,
+and a prune afterwards would reclaim it.
+
+The registry's `br.<name>` tag is left alone. OCI deletes manifests by digest, and a branch's manifest can be the
+very manifest `latest` names, so deleting it could take `main` with it.
+
+## Exit 8 with code `PUSH_RACED`
+
+The divergence check and the write are two requests, and a registry has no conditional write on a tag. So two
+people can both pass the check, and the second write replaces the first. After every push, vitruvio re-reads the
+tag. If it now names somebody else's snapshot, the push exits 8 with code `PUSH_RACED` instead of reporting
+success. Nothing was lost locally, and the answer is the one for divergence: `dist fetch`, reconcile, push.
+
+The registry cannot prevent the race, and only the push that lost can see it. Branches make it rare, because
+nobody else writes to your `br.` tag.

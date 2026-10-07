@@ -8,6 +8,9 @@ situations, and three of them have a one-command answer that is safe. The fourth
 this page exists to prevent is treating all four as the fourth — or, worse, treating the fourth as one of the
 first three and losing a week of somebody's work.
 
+If you are here every day because several people publish to one tag, the fix is not on this page:
+[give each of them a branch](/reconciliation/branches).
+
 **Establish which situation you are in before running anything that writes.** Every command in the first section
 moves no pointer and discards nothing.
 
@@ -15,6 +18,7 @@ moves no pointer and discards nothing.
 
 ```bash
 vitruvio brain state --json            # where this brain came from, and what it is now
+vitruvio branch current                # push, pull and fetch default to this branch's tag
 vitruvio dist tags --json              # what the registry holds under the configured reference
 vitruvio dist plan-pull --tag v1 --json
 ```

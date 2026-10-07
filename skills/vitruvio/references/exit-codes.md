@@ -13,7 +13,7 @@ differently — which is the only question an automated caller actually has.
 | 5 | PROTOCOL | verification, membership or integrity failure | **no** |
 | 6 | POLICY | refused by a policy the brain declares: retention, or `publish = false` | **no** |
 | 7 | VALIDATION | candidates rejected | repair and retry |
-| 8 | DIVERGED | the histories diverged | `dist fetch`, reconcile, push |
+| 8 | DIVERGED | the histories diverged, or your push was replaced right after it landed (`PUSH_RACED`) | `dist fetch`, reconcile, push |
 | 9 | REGISTRY | registry unreachable or refused | yes |
 | 10 | REVIEW | the cascade needs human review | ask a person |
 | 11 | SOURCE | a declared source was unreachable or refused | yes |
@@ -38,6 +38,12 @@ whose host is down will work later, and a source whose declaration is wrong will
 **8 vs 12.** Both are about a history that is not a straight line. 8 comes from a *push*: the remote moved and
 publishing would drop what somebody else did. 12 comes from a *reconciliation*: it is already under way and is
 asking which blocks enter. 8 says start the process, 12 says finish it.
+
+**`DIVERGED` vs `PUSH_RACED`, both 8.** `DIVERGED` is a push refused before it wrote anything. `PUSH_RACED` is a push
+that landed and was then replaced: the registry has no conditional write on a tag, so another publisher's push in
+the moment between your check and your write wins, and vitruvio re-reads the tag afterwards to find out. The remedy
+is the same, and so is the exit code; nothing was lost locally. Hitting either often means several people share one
+tag, and `branch switch -c NAME` gives each of them their own (`vitruvio-dist`).
 
 **10 and 12 are not errors.** Both are the protocol asking for a human, and they ask different questions. 10 means
 a cascade exceeded the policy's review threshold and someone must approve that removal. 12 means verdicts are

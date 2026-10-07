@@ -78,6 +78,26 @@ vitruvio dist pack --tag v1 --json                 # build it locally, push noth
 vitruvio dist push <REF> --tag v1 --json
 ```
 
+### Several people, one brain: give each of them a branch
+
+If exit 8 keeps coming back, several people are publishing to one tag, and every push after the first is refused
+until its writer reconciles. A branch publishes to a tag of its own, so nobody refuses anybody:
+
+```bash
+vitruvio branch switch -c ana/nyquist --json         # start a branch at the current head and move onto it
+vitruvio dist push --json                            # -> <REF>:br.ana.nyquist, never refused by someone on main
+vitruvio branch list --remote --json                 # what everyone has published, read off the br. tags
+vitruvio branch switch beto/laplace --json           # a teammate's branch, pulled from br.beto.laplace
+vitruvio branch switch main --json && vitruvio branch merge ana/nyquist --json
+vitruvio dist push --json                            # -> <REF>:<[registry].tag>
+```
+
+`main` publishes to `[registry].tag`, every other branch to `br.<name>`, and `dist push`, `pull` and `fetch` default
+to the current branch's tag. An explicit `--tag v1.0` publishes a release from a branch without renaming it.
+`branch merge` fast-forwards when `main` has not moved and is otherwise a reconciliation: the same rules as
+`reconcile`, the same exit 12, and the same refusal to pick a strategy for the user (`vitruvio-reconcile`).
+`branch delete` drops the local ref only; the registry tag stays.
+
 ### A project publishes several brains at once
 
 When the repository holds a *project* — several named brains under one `vitruvio.toml` — you usually pass no
@@ -135,7 +155,8 @@ Two refusals come from the protocol and both are correct:
 
 - **Exit 8 — not a fast-forward.** Someone pushed since this brain was pulled, and the histories diverged. The
   answer is `dist fetch`, not `pull` — see below. **Never `--force`**: it discards their version, and there is
-  no undo.
+  no undo. Code `PUSH_RACED` is the same exit for a push that landed and was replaced a moment later by someone
+  else's; your snapshot is still local, and the answer is the same.
 - **Narrowing refused.** Publishing fewer modules than the last version would make a consumer's selective update
   silently lose one.
 

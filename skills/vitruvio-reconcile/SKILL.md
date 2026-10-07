@@ -67,6 +67,18 @@ reconcile = "merge"        # merge | rebase | squash
 **Absent by design.** Do not add it to unblock yourself — it is a statement about attribution and it is the
 user's to make. Ask, then write what they say.
 
+### Merging a branch is the same flow, already fetched
+
+`vitruvio branch merge NAME` joins a local branch into the current one. The other history is held here already, so
+there is no fetch step. When the current branch has not moved since the branch was made, it is a fast-forward and
+writes no snapshot. Otherwise it is exactly this reconciliation, with exactly these rules:
+
+- it uses `--strategy`, or the brain's declared `reconcile`, and with neither it refuses (exit 2). Ask the user;
+- it stops to ask the same way, with exit 12, and `reconcile status` / `resolve` / `continue` / `abort` finish it.
+
+`--ff-only` refuses anything that is not a fast-forward. `--no-ff` records a reconciliation even when a fast-forward
+was possible. Switching branches is refused while a reconciliation is open, for the same reason a commit is.
+
 ## When it stops to ask
 
 Exit **12** and `halted: true` mean the operation is asking a question, not failing. Nothing was written and no
@@ -131,7 +143,8 @@ detail is what failed, not the abandoning.
 
 ## An open reconciliation blocks writes
 
-While one is open the SDK refuses every ordinary write — commit, ingest, register, drop. A commit coming back
+While one is open the SDK refuses every ordinary write — commit, ingest, register, drop — and anything that would
+move the head it is stated against: `dist pull`, `branch switch`, `branch merge`. A commit coming back
 with exit 12 and `RECONCILE_OPEN` is this, not corruption. `reconcile status` shows what is open; `continue`
 concludes it and `abort` abandons it, writing nothing either way.
 

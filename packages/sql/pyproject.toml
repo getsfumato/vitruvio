@@ -22,7 +22,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "pyboltzmann==0.9.1",
+    "pyboltzmann==0.10.1",
     "vitruvio-kernel",
     # The guard. Pure Python and dependency-free: it parses the query, refuses anything that is not a read, and
     # rewrites table names onto the brain's derived tables before the engine sees a character of it.

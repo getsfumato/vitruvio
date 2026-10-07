@@ -346,6 +346,19 @@ OPERATION_CATALOGUE: tuple[OperationDomain, ...] = (
         ),
     ),
     OperationDomain(
+        "vitruvio.runtime.ops.branches",
+        "BranchOps",
+        "branch_ops",
+        (
+            Operation("branch_current", result=ResultKind.SCALAR),
+            Operation("branch_list", capability=_INSPECT, network=True, async_name="branch_list_async"),
+            Operation("branch_create", capability=_WRITE, mutates=True),
+            Operation("branch_switch", capability=_WRITE, mutates=True, network=True, async_name="branch_switch_async"),
+            Operation("branch_delete", capability=_WRITE, mutates=True),
+            Operation("branch_merge", capability=_WRITE, mutates=True),
+        ),
+    ),
+    OperationDomain(
         "vitruvio.runtime.ops.reconcile",
         "ReconcileOps",
         "reconcile_ops",

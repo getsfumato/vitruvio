@@ -1352,6 +1352,928 @@
       ]
     }
   },
+  "branch_create": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "current": [
+        "bool"
+      ],
+      "name": [
+        "str"
+      ],
+      "snapshot": [
+        "str"
+      ],
+      "tag": [
+        "str"
+      ]
+    }
+  },
+  "branch_delete": {
+    "optional": [],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "deleted": [
+        "str"
+      ],
+      "snapshot": [
+        "str"
+      ]
+    }
+  },
+  "branch_list": {
+    "optional": [
+      "reference",
+      "remote[]",
+      "remote[].local",
+      "remote[].name",
+      "remote[].tag"
+    ],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "branches": [
+        "array"
+      ],
+      "branches[]": [
+        "object"
+      ],
+      "branches[].current": [
+        "bool"
+      ],
+      "branches[].name": [
+        "str"
+      ],
+      "branches[].published": [
+        "null",
+        "str"
+      ],
+      "branches[].snapshot": [
+        "str"
+      ],
+      "branches[].tag": [
+        "str"
+      ],
+      "branches[].unpublished": [
+        "bool"
+      ],
+      "current": [
+        "str"
+      ],
+      "reference": [
+        "str"
+      ],
+      "remote": [
+        "array",
+        "null"
+      ],
+      "remote[]": [
+        "object"
+      ],
+      "remote[].local": [
+        "bool"
+      ],
+      "remote[].name": [
+        "str"
+      ],
+      "remote[].tag": [
+        "str"
+      ],
+      "warnings": [
+        "array"
+      ]
+    }
+  },
+  "branch_merge": {
+    "optional": [
+      "reconciliation",
+      "reconciliation.admitted",
+      "reconciliation.admitted.canonical",
+      "reconciliation.admitted.canonical[]",
+      "reconciliation.admitted.provenance",
+      "reconciliation.admitted.provenance[]",
+      "reconciliation.admitted.semantic",
+      "reconciliation.admitted.semantic[]",
+      "reconciliation.attribution",
+      "reconciliation.attribution.keeps_their_snapshots",
+      "reconciliation.attribution.mints_new_identities",
+      "reconciliation.attribution.parents",
+      "reconciliation.attribution.snapshots_written",
+      "reconciliation.attribution.strategy",
+      "reconciliation.attribution.their_signatures_survive",
+      "reconciliation.excluded",
+      "reconciliation.halted",
+      "reconciliation.is_resolved",
+      "reconciliation.open",
+      "reconciliation.parents",
+      "reconciliation.parents[]",
+      "reconciliation.plan",
+      "reconciliation.plan.ancestor",
+      "reconciliation.plan.attribution",
+      "reconciliation.plan.attribution.merge",
+      "reconciliation.plan.attribution.merge.keeps_their_snapshots",
+      "reconciliation.plan.attribution.merge.mints_new_identities",
+      "reconciliation.plan.attribution.merge.parents",
+      "reconciliation.plan.attribution.merge.snapshots_written",
+      "reconciliation.plan.attribution.merge.strategy",
+      "reconciliation.plan.attribution.merge.their_signatures_survive",
+      "reconciliation.plan.attribution.rebase",
+      "reconciliation.plan.attribution.rebase.keeps_their_snapshots",
+      "reconciliation.plan.attribution.rebase.mints_new_identities",
+      "reconciliation.plan.attribution.rebase.parents",
+      "reconciliation.plan.attribution.rebase.snapshots_written",
+      "reconciliation.plan.attribution.rebase.strategy",
+      "reconciliation.plan.attribution.rebase.their_signatures_survive",
+      "reconciliation.plan.attribution.squash",
+      "reconciliation.plan.attribution.squash.keeps_their_snapshots",
+      "reconciliation.plan.attribution.squash.mints_new_identities",
+      "reconciliation.plan.attribution.squash.parents",
+      "reconciliation.plan.attribution.squash.snapshots_written",
+      "reconciliation.plan.attribution.squash.strategy",
+      "reconciliation.plan.attribution.squash.their_signatures_survive",
+      "reconciliation.plan.authorship",
+      "reconciliation.plan.carried",
+      "reconciliation.plan.cascaded",
+      "reconciliation.plan.cascaded.semantic",
+      "reconciliation.plan.cascaded.semantic[]",
+      "reconciliation.plan.collapsed",
+      "reconciliation.plan.excluded",
+      "reconciliation.plan.excluded.canonical",
+      "reconciliation.plan.excluded.canonical[]",
+      "reconciliation.plan.incoming",
+      "reconciliation.plan.incoming.verdicts",
+      "reconciliation.plan.incoming.verdicts[]",
+      "reconciliation.plan.incoming.verdicts[].block",
+      "reconciliation.plan.incoming.verdicts[].conflicts_with",
+      "reconciliation.plan.incoming.verdicts[].issues",
+      "reconciliation.plan.incoming.verdicts[].issues[]",
+      "reconciliation.plan.incoming.verdicts[].issues[].code",
+      "reconciliation.plan.incoming.verdicts[].issues[].detail",
+      "reconciliation.plan.incoming.verdicts[].issues[].field",
+      "reconciliation.plan.incoming.verdicts[].memory_type",
+      "reconciliation.plan.incoming.verdicts[].missing_evidence",
+      "reconciliation.plan.incoming.verdicts[].missing_evidence.{}",
+      "reconciliation.plan.incoming.verdicts[].status",
+      "reconciliation.plan.is_blocked",
+      "reconciliation.plan.is_clean",
+      "reconciliation.plan.is_noop",
+      "reconciliation.plan.modules",
+      "reconciliation.plan.modules.canonical",
+      "reconciliation.plan.modules.canonical.added_by_them",
+      "reconciliation.plan.modules.canonical.added_by_them[]",
+      "reconciliation.plan.modules.canonical.added_by_us",
+      "reconciliation.plan.modules.canonical.added_by_us[]",
+      "reconciliation.plan.modules.canonical.adopted",
+      "reconciliation.plan.modules.canonical.block_ids",
+      "reconciliation.plan.modules.canonical.block_ids[]",
+      "reconciliation.plan.modules.canonical.incoming",
+      "reconciliation.plan.modules.canonical.incoming[]",
+      "reconciliation.plan.modules.canonical.memory_type",
+      "reconciliation.plan.modules.canonical.removed",
+      "reconciliation.plan.modules.canonical.removed[]",
+      "reconciliation.plan.modules.canonical.root",
+      "reconciliation.plan.modules.provenance",
+      "reconciliation.plan.modules.provenance.added_by_them",
+      "reconciliation.plan.modules.provenance.added_by_them[]",
+      "reconciliation.plan.modules.provenance.added_by_us",
+      "reconciliation.plan.modules.provenance.added_by_us[]",
+      "reconciliation.plan.modules.provenance.adopted",
+      "reconciliation.plan.modules.provenance.block_ids",
+      "reconciliation.plan.modules.provenance.block_ids[]",
+      "reconciliation.plan.modules.provenance.incoming",
+      "reconciliation.plan.modules.provenance.incoming[]",
+      "reconciliation.plan.modules.provenance.memory_type",
+      "reconciliation.plan.modules.provenance.removed",
+      "reconciliation.plan.modules.provenance.root",
+      "reconciliation.plan.modules.semantic",
+      "reconciliation.plan.modules.semantic.added_by_them",
+      "reconciliation.plan.modules.semantic.added_by_them[]",
+      "reconciliation.plan.modules.semantic.added_by_us",
+      "reconciliation.plan.modules.semantic.added_by_us[]",
+      "reconciliation.plan.modules.semantic.adopted",
+      "reconciliation.plan.modules.semantic.block_ids",
+      "reconciliation.plan.modules.semantic.block_ids[]",
+      "reconciliation.plan.modules.semantic.incoming",
+      "reconciliation.plan.modules.semantic.incoming[]",
+      "reconciliation.plan.modules.semantic.memory_type",
+      "reconciliation.plan.modules.semantic.removed",
+      "reconciliation.plan.modules.semantic.root",
+      "reconciliation.plan.replayable",
+      "reconciliation.plan.theirs",
+      "reconciliation.plan.untransferred",
+      "reconciliation.plan.withdrawn",
+      "reconciliation.removals_accepted",
+      "reconciliation.resolved",
+      "reconciliation.roots",
+      "reconciliation.roots.canonical",
+      "reconciliation.roots.provenance",
+      "reconciliation.roots.semantic",
+      "reconciliation.snapshot",
+      "reconciliation.snapshots",
+      "reconciliation.snapshots[]",
+      "reconciliation.state",
+      "reconciliation.state.accepted_removals",
+      "reconciliation.state.actor",
+      "reconciliation.state.actor.id",
+      "reconciliation.state.actor.kind",
+      "reconciliation.state.actor.name",
+      "reconciliation.state.ancestor",
+      "reconciliation.state.boltzmann",
+      "reconciliation.state.head",
+      "reconciliation.state.reason",
+      "reconciliation.state.resolutions",
+      "reconciliation.state.strategy",
+      "reconciliation.state.theirs",
+      "reconciliation.strategy",
+      "reconciliation.unresolved",
+      "reconciliation.unresolved[]",
+      "reconciliation.withdrawn"
+    ],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "branch": [
+        "str"
+      ],
+      "into": [
+        "str"
+      ],
+      "outcome": [
+        "str"
+      ],
+      "reconciliation": [
+        "object"
+      ],
+      "reconciliation.admitted": [
+        "object"
+      ],
+      "reconciliation.admitted.canonical": [
+        "array"
+      ],
+      "reconciliation.admitted.canonical[]": [
+        "str"
+      ],
+      "reconciliation.admitted.provenance": [
+        "array"
+      ],
+      "reconciliation.admitted.provenance[]": [
+        "str"
+      ],
+      "reconciliation.admitted.semantic": [
+        "array"
+      ],
+      "reconciliation.admitted.semantic[]": [
+        "str"
+      ],
+      "reconciliation.attribution": [
+        "object"
+      ],
+      "reconciliation.attribution.keeps_their_snapshots": [
+        "bool"
+      ],
+      "reconciliation.attribution.mints_new_identities": [
+        "bool"
+      ],
+      "reconciliation.attribution.parents": [
+        "int"
+      ],
+      "reconciliation.attribution.snapshots_written": [
+        "int"
+      ],
+      "reconciliation.attribution.strategy": [
+        "str"
+      ],
+      "reconciliation.attribution.their_signatures_survive": [
+        "bool"
+      ],
+      "reconciliation.excluded": [
+        "object"
+      ],
+      "reconciliation.halted": [
+        "bool"
+      ],
+      "reconciliation.is_resolved": [
+        "bool"
+      ],
+      "reconciliation.open": [
+        "bool"
+      ],
+      "reconciliation.parents": [
+        "array"
+      ],
+      "reconciliation.parents[]": [
+        "str"
+      ],
+      "reconciliation.plan": [
+        "object"
+      ],
+      "reconciliation.plan.ancestor": [
+        "str"
+      ],
+      "reconciliation.plan.attribution": [
+        "object"
+      ],
+      "reconciliation.plan.attribution.merge": [
+        "object"
+      ],
+      "reconciliation.plan.attribution.merge.keeps_their_snapshots": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.merge.mints_new_identities": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.merge.parents": [
+        "int"
+      ],
+      "reconciliation.plan.attribution.merge.snapshots_written": [
+        "int"
+      ],
+      "reconciliation.plan.attribution.merge.strategy": [
+        "str"
+      ],
+      "reconciliation.plan.attribution.merge.their_signatures_survive": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.rebase": [
+        "object"
+      ],
+      "reconciliation.plan.attribution.rebase.keeps_their_snapshots": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.rebase.mints_new_identities": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.rebase.parents": [
+        "int"
+      ],
+      "reconciliation.plan.attribution.rebase.snapshots_written": [
+        "int"
+      ],
+      "reconciliation.plan.attribution.rebase.strategy": [
+        "str"
+      ],
+      "reconciliation.plan.attribution.rebase.their_signatures_survive": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.squash": [
+        "object"
+      ],
+      "reconciliation.plan.attribution.squash.keeps_their_snapshots": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.squash.mints_new_identities": [
+        "bool"
+      ],
+      "reconciliation.plan.attribution.squash.parents": [
+        "int"
+      ],
+      "reconciliation.plan.attribution.squash.snapshots_written": [
+        "int"
+      ],
+      "reconciliation.plan.attribution.squash.strategy": [
+        "str"
+      ],
+      "reconciliation.plan.attribution.squash.their_signatures_survive": [
+        "bool"
+      ],
+      "reconciliation.plan.authorship": [
+        "null"
+      ],
+      "reconciliation.plan.carried": [
+        "object"
+      ],
+      "reconciliation.plan.cascaded": [
+        "object"
+      ],
+      "reconciliation.plan.cascaded.semantic": [
+        "array"
+      ],
+      "reconciliation.plan.cascaded.semantic[]": [
+        "str"
+      ],
+      "reconciliation.plan.collapsed": [
+        "int"
+      ],
+      "reconciliation.plan.excluded": [
+        "object"
+      ],
+      "reconciliation.plan.excluded.canonical": [
+        "array"
+      ],
+      "reconciliation.plan.excluded.canonical[]": [
+        "str"
+      ],
+      "reconciliation.plan.incoming": [
+        "object"
+      ],
+      "reconciliation.plan.incoming.verdicts": [
+        "array"
+      ],
+      "reconciliation.plan.incoming.verdicts[]": [
+        "object"
+      ],
+      "reconciliation.plan.incoming.verdicts[].block": [
+        "str"
+      ],
+      "reconciliation.plan.incoming.verdicts[].conflicts_with": [
+        "array"
+      ],
+      "reconciliation.plan.incoming.verdicts[].issues": [
+        "array"
+      ],
+      "reconciliation.plan.incoming.verdicts[].issues[]": [
+        "object"
+      ],
+      "reconciliation.plan.incoming.verdicts[].issues[].code": [
+        "str"
+      ],
+      "reconciliation.plan.incoming.verdicts[].issues[].detail": [
+        "str"
+      ],
+      "reconciliation.plan.incoming.verdicts[].issues[].field": [
+        "str"
+      ],
+      "reconciliation.plan.incoming.verdicts[].memory_type": [
+        "str"
+      ],
+      "reconciliation.plan.incoming.verdicts[].missing_evidence": [
+        "object"
+      ],
+      "reconciliation.plan.incoming.verdicts[].missing_evidence.{}": [
+        "str"
+      ],
+      "reconciliation.plan.incoming.verdicts[].status": [
+        "str"
+      ],
+      "reconciliation.plan.is_blocked": [
+        "bool"
+      ],
+      "reconciliation.plan.is_clean": [
+        "bool"
+      ],
+      "reconciliation.plan.is_noop": [
+        "bool"
+      ],
+      "reconciliation.plan.modules": [
+        "object"
+      ],
+      "reconciliation.plan.modules.canonical": [
+        "object"
+      ],
+      "reconciliation.plan.modules.canonical.added_by_them": [
+        "array"
+      ],
+      "reconciliation.plan.modules.canonical.added_by_them[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.canonical.added_by_us": [
+        "array"
+      ],
+      "reconciliation.plan.modules.canonical.added_by_us[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.canonical.adopted": [
+        "bool"
+      ],
+      "reconciliation.plan.modules.canonical.block_ids": [
+        "array"
+      ],
+      "reconciliation.plan.modules.canonical.block_ids[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.canonical.incoming": [
+        "array"
+      ],
+      "reconciliation.plan.modules.canonical.incoming[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.canonical.memory_type": [
+        "str"
+      ],
+      "reconciliation.plan.modules.canonical.removed": [
+        "array"
+      ],
+      "reconciliation.plan.modules.canonical.removed[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.canonical.root": [
+        "str"
+      ],
+      "reconciliation.plan.modules.provenance": [
+        "object"
+      ],
+      "reconciliation.plan.modules.provenance.added_by_them": [
+        "array"
+      ],
+      "reconciliation.plan.modules.provenance.added_by_them[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.provenance.added_by_us": [
+        "array"
+      ],
+      "reconciliation.plan.modules.provenance.added_by_us[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.provenance.adopted": [
+        "bool"
+      ],
+      "reconciliation.plan.modules.provenance.block_ids": [
+        "array"
+      ],
+      "reconciliation.plan.modules.provenance.block_ids[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.provenance.incoming": [
+        "array"
+      ],
+      "reconciliation.plan.modules.provenance.incoming[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.provenance.memory_type": [
+        "str"
+      ],
+      "reconciliation.plan.modules.provenance.removed": [
+        "array"
+      ],
+      "reconciliation.plan.modules.provenance.root": [
+        "str"
+      ],
+      "reconciliation.plan.modules.semantic": [
+        "object"
+      ],
+      "reconciliation.plan.modules.semantic.added_by_them": [
+        "array"
+      ],
+      "reconciliation.plan.modules.semantic.added_by_them[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.semantic.added_by_us": [
+        "array"
+      ],
+      "reconciliation.plan.modules.semantic.added_by_us[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.semantic.adopted": [
+        "bool"
+      ],
+      "reconciliation.plan.modules.semantic.block_ids": [
+        "array"
+      ],
+      "reconciliation.plan.modules.semantic.block_ids[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.semantic.incoming": [
+        "array"
+      ],
+      "reconciliation.plan.modules.semantic.incoming[]": [
+        "str"
+      ],
+      "reconciliation.plan.modules.semantic.memory_type": [
+        "str"
+      ],
+      "reconciliation.plan.modules.semantic.removed": [
+        "array"
+      ],
+      "reconciliation.plan.modules.semantic.root": [
+        "str"
+      ],
+      "reconciliation.plan.replayable": [
+        "int"
+      ],
+      "reconciliation.plan.theirs": [
+        "str"
+      ],
+      "reconciliation.plan.untransferred": [
+        "array"
+      ],
+      "reconciliation.plan.withdrawn": [
+        "object"
+      ],
+      "reconciliation.removals_accepted": [
+        "bool"
+      ],
+      "reconciliation.resolved": [
+        "array"
+      ],
+      "reconciliation.roots": [
+        "object"
+      ],
+      "reconciliation.roots.canonical": [
+        "str"
+      ],
+      "reconciliation.roots.provenance": [
+        "str"
+      ],
+      "reconciliation.roots.semantic": [
+        "str"
+      ],
+      "reconciliation.snapshot": [
+        "str"
+      ],
+      "reconciliation.snapshots": [
+        "array"
+      ],
+      "reconciliation.snapshots[]": [
+        "str"
+      ],
+      "reconciliation.state": [
+        "object"
+      ],
+      "reconciliation.state.accepted_removals": [
+        "null"
+      ],
+      "reconciliation.state.actor": [
+        "object"
+      ],
+      "reconciliation.state.actor.id": [
+        "str"
+      ],
+      "reconciliation.state.actor.kind": [
+        "str"
+      ],
+      "reconciliation.state.actor.name": [
+        "null"
+      ],
+      "reconciliation.state.ancestor": [
+        "str"
+      ],
+      "reconciliation.state.boltzmann": [
+        "int"
+      ],
+      "reconciliation.state.head": [
+        "str"
+      ],
+      "reconciliation.state.reason": [
+        "str"
+      ],
+      "reconciliation.state.resolutions": [
+        "object"
+      ],
+      "reconciliation.state.strategy": [
+        "str"
+      ],
+      "reconciliation.state.theirs": [
+        "str"
+      ],
+      "reconciliation.strategy": [
+        "str"
+      ],
+      "reconciliation.unresolved": [
+        "array"
+      ],
+      "reconciliation.unresolved[]": [
+        "str"
+      ],
+      "reconciliation.withdrawn": [
+        "object"
+      ],
+      "snapshot": [
+        "null",
+        "str"
+      ]
+    }
+  },
+  "branch_switch": {
+    "optional": [
+      "pull.authenticity",
+      "pull.discarded",
+      "pull.discarded_blocks",
+      "pull.ignored_vector_indices",
+      "pull.impact",
+      "pull.impact.basis",
+      "pull.impact.block_ids",
+      "pull.impact.blocks",
+      "pull.impact.certainty",
+      "pull.impact.unreadable",
+      "pull.partial",
+      "pull.reference",
+      "pull.snapshot",
+      "pull.snapshot.block_count",
+      "pull.snapshot.boltzmann",
+      "pull.snapshot.created_at",
+      "pull.snapshot.digest",
+      "pull.snapshot.installed",
+      "pull.snapshot.installed[]",
+      "pull.snapshot.labels",
+      "pull.snapshot.modules",
+      "pull.snapshot.modules.canonical",
+      "pull.snapshot.modules.canonical.block_count",
+      "pull.snapshot.modules.canonical.composition",
+      "pull.snapshot.modules.canonical.embedding_model",
+      "pull.snapshot.modules.canonical.index_digest",
+      "pull.snapshot.modules.canonical.layout",
+      "pull.snapshot.modules.canonical.memory_type",
+      "pull.snapshot.modules.canonical.root",
+      "pull.snapshot.modules.canonical.tombstones",
+      "pull.snapshot.modules.provenance",
+      "pull.snapshot.modules.provenance.block_count",
+      "pull.snapshot.modules.provenance.composition",
+      "pull.snapshot.modules.provenance.embedding_model",
+      "pull.snapshot.modules.provenance.index_digest",
+      "pull.snapshot.modules.provenance.layout",
+      "pull.snapshot.modules.provenance.memory_type",
+      "pull.snapshot.modules.provenance.root",
+      "pull.snapshot.modules.provenance.tombstones",
+      "pull.snapshot.modules.semantic",
+      "pull.snapshot.modules.semantic.block_count",
+      "pull.snapshot.modules.semantic.composition",
+      "pull.snapshot.modules.semantic.embedding_model",
+      "pull.snapshot.modules.semantic.index_digest",
+      "pull.snapshot.modules.semantic.layout",
+      "pull.snapshot.modules.semantic.memory_type",
+      "pull.snapshot.modules.semantic.root",
+      "pull.snapshot.modules.semantic.tombstones",
+      "pull.snapshot.parents",
+      "pull.snapshot.parents[]",
+      "pull.snapshot.trust_root",
+      "pull.tag",
+      "pull.warnings"
+    ],
+    "paths": {
+      ".": [
+        "object"
+      ],
+      "branch": [
+        "str"
+      ],
+      "outcome": [
+        "str"
+      ],
+      "pull": [
+        "null",
+        "object"
+      ],
+      "pull.authenticity": [
+        "str"
+      ],
+      "pull.discarded": [
+        "int"
+      ],
+      "pull.discarded_blocks": [
+        "array"
+      ],
+      "pull.ignored_vector_indices": [
+        "array"
+      ],
+      "pull.impact": [
+        "object"
+      ],
+      "pull.impact.basis": [
+        "str"
+      ],
+      "pull.impact.block_ids": [
+        "array"
+      ],
+      "pull.impact.blocks": [
+        "int"
+      ],
+      "pull.impact.certainty": [
+        "str"
+      ],
+      "pull.impact.unreadable": [
+        "array"
+      ],
+      "pull.partial": [
+        "bool"
+      ],
+      "pull.reference": [
+        "str"
+      ],
+      "pull.snapshot": [
+        "object"
+      ],
+      "pull.snapshot.block_count": [
+        "int"
+      ],
+      "pull.snapshot.boltzmann": [
+        "int"
+      ],
+      "pull.snapshot.created_at": [
+        "str"
+      ],
+      "pull.snapshot.digest": [
+        "str"
+      ],
+      "pull.snapshot.installed": [
+        "array"
+      ],
+      "pull.snapshot.installed[]": [
+        "str"
+      ],
+      "pull.snapshot.labels": [
+        "null"
+      ],
+      "pull.snapshot.modules": [
+        "object"
+      ],
+      "pull.snapshot.modules.canonical": [
+        "object"
+      ],
+      "pull.snapshot.modules.canonical.block_count": [
+        "int"
+      ],
+      "pull.snapshot.modules.canonical.composition": [
+        "str"
+      ],
+      "pull.snapshot.modules.canonical.embedding_model": [
+        "str"
+      ],
+      "pull.snapshot.modules.canonical.index_digest": [
+        "str"
+      ],
+      "pull.snapshot.modules.canonical.layout": [
+        "str"
+      ],
+      "pull.snapshot.modules.canonical.memory_type": [
+        "str"
+      ],
+      "pull.snapshot.modules.canonical.root": [
+        "str"
+      ],
+      "pull.snapshot.modules.canonical.tombstones": [
+        "null"
+      ],
+      "pull.snapshot.modules.provenance": [
+        "object"
+      ],
+      "pull.snapshot.modules.provenance.block_count": [
+        "int"
+      ],
+      "pull.snapshot.modules.provenance.composition": [
+        "str"
+      ],
+      "pull.snapshot.modules.provenance.embedding_model": [
+        "null"
+      ],
+      "pull.snapshot.modules.provenance.index_digest": [
+        "null"
+      ],
+      "pull.snapshot.modules.provenance.layout": [
+        "str"
+      ],
+      "pull.snapshot.modules.provenance.memory_type": [
+        "str"
+      ],
+      "pull.snapshot.modules.provenance.root": [
+        "str"
+      ],
+      "pull.snapshot.modules.provenance.tombstones": [
+        "null"
+      ],
+      "pull.snapshot.modules.semantic": [
+        "object"
+      ],
+      "pull.snapshot.modules.semantic.block_count": [
+        "int"
+      ],
+      "pull.snapshot.modules.semantic.composition": [
+        "str"
+      ],
+      "pull.snapshot.modules.semantic.embedding_model": [
+        "str"
+      ],
+      "pull.snapshot.modules.semantic.index_digest": [
+        "str"
+      ],
+      "pull.snapshot.modules.semantic.layout": [
+        "str"
+      ],
+      "pull.snapshot.modules.semantic.memory_type": [
+        "str"
+      ],
+      "pull.snapshot.modules.semantic.root": [
+        "str"
+      ],
+      "pull.snapshot.modules.semantic.tombstones": [
+        "null"
+      ],
+      "pull.snapshot.parents": [
+        "array"
+      ],
+      "pull.snapshot.parents[]": [
+        "str"
+      ],
+      "pull.snapshot.trust_root": [
+        "null"
+      ],
+      "pull.tag": [
+        "str"
+      ],
+      "pull.warnings": [
+        "array"
+      ],
+      "snapshot": [
+        "str"
+      ]
+    }
+  },
   "catalog_apply": {
     "optional": [
       "repaired[]",
@@ -9378,6 +10300,9 @@
       ".": [
         "object"
       ],
+      "branch": [
+        "str"
+      ],
       "digest": [
         "str"
       ],
@@ -9406,6 +10331,7 @@
   },
   "push_all": {
     "optional": [
+      "brains[].branch",
       "brains[].code",
       "brains[].digest",
       "brains[].effective",
@@ -9429,6 +10355,9 @@
         "object"
       ],
       "brains[].brain": [
+        "str"
+      ],
+      "brains[].branch": [
         "str"
       ],
       "brains[].code": [
@@ -12914,11 +13843,31 @@
   },
   "tags": {
     "optional": [
+      "entries[]",
+      "entries[].branch",
+      "entries[].kind",
+      "entries[].tag",
       "tags[]"
     ],
     "paths": {
       ".": [
         "object"
+      ],
+      "entries": [
+        "array"
+      ],
+      "entries[]": [
+        "object"
+      ],
+      "entries[].branch": [
+        "null",
+        "str"
+      ],
+      "entries[].kind": [
+        "str"
+      ],
+      "entries[].tag": [
+        "str"
       ],
       "published": [
         "bool"
