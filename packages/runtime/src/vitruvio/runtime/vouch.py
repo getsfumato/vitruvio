@@ -29,9 +29,11 @@ so. Small, backward-compatible, and it would delete this module.
 
 ## What this does in the meantime
 
-Verifies the binding itself -- the index's ``bound_root`` must equal the module's current root -- and then calls
-``Brain._build`` for that one index, which is the SDK's own vouching path. Rebuilding is cheap because every vector
-comes back from the embedding cache: no model call, no network.
+Calls ``Brain._build`` for that one index, which is the SDK's own vouching path, feeding it the module about to be
+published, and then binds it to that module's root -- which is what ``index build`` does. The binding the index
+arrived with is not trusted: the SDK's commit path dumps without binding, so a layer restored from a signed snapshot
+can name no root or a superseded one. Rebuilding is cheap because every vector comes back from the embedding cache:
+no model call, no network. What is still refused is an index that comes out of that build holding nothing.
 
 Pinned to an SDK version, and covered by ``packages/runtime/tests/test_vouch.py``, which fails loudly if either
 private moves. That guard is the point, and it is not optional: :func:`supported` degrades to a *reported* warning,
@@ -99,24 +101,25 @@ def vouch_travelling(brain: Brain, memory_types: Iterable[MemoryType] | None = N
         module = brain.module(memory_type)
         vouched: set[MemoryType] = getattr(brain, VOUCHED_ATTRIBUTE)
 
+        root = str(module.root)
         for index in indices:
-            # The SDK's write path builds a non-rebuildable index on every commit but never records *which* composition
-            # it built from -- `bind` is vitruvio's, and `build` has no root to bind to. So an index with vectors and no
-            # binding was just built from this module by that path, and binding it is recording a fact rather than
-            # asserting one. Refusing instead would leave every post-commit publish without its vector index.
-            if getattr(index, "population", 0) and getattr(index, "bound_root", None) is None:
+            # The SDK's own vouching path, fed this module's composition: exactly what `index build` does, and free in
+            # practice because every vector returns from the embedding cache. It runs *before* the binding is judged
+            # because the binding an index arrives with is not evidence about its contents. The SDK's commit path
+            # builds and dumps without binding, so a vector index restored from the layer a signed snapshot names can
+            # carry no root, or -- in snapshots signed before `build` learned to forget a superseded one -- the
+            # previous root. Refusing such an index as stale advised an `index build` that the next open undid,
+            # because the open restores that same layer again.
+            brain._build(module, [index])
+            # Built from this module just now, so binding it records a fact rather than asserting one.
+            if getattr(index, "population", 0) and getattr(index, "bound_root", None) != root:
                 binder = getattr(index, "bind", None)
                 if callable(binder):
-                    binder(str(module.root))
+                    binder(root)
 
-            refusal = _refusal(index, str(module.root))
-            if refusal is None:
-                # The SDK's own vouching path. Free in practice: every vector returns from the embedding cache, so this
-                # is bookkeeping rather than re-embedding.
-                brain._build(module, [index])
-                # `_build` vouches for *any* non-rebuildable index it feeds, whatever the index turned out to hold. So
-                # the result is re-checked: whether an index comes out empty is only knowable after building it.
-                refusal = _refusal(index, str(module.root))
+            # `_build` vouches for *any* non-rebuildable index it feeds, whatever the index turned out to hold. So the
+            # result is checked afterwards: whether an index comes out empty is only knowable after building it.
+            refusal = _refusal(index, root)
 
             if refusal is None:
                 outcome[memory_type.value] = "vouched"

@@ -6649,10 +6649,12 @@
         "str"
       ],
       "degradations[].recall_after": [
-        "float"
+        "float",
+        "null"
       ],
       "degradations[].recall_before": [
-        "float"
+        "float",
+        "null"
       ],
       "estimation_error": [
         "object"
@@ -8992,7 +8994,9 @@
     }
   },
   "pack": {
-    "optional": [],
+    "optional": [
+      "vouched.semantic"
+    ],
     "paths": {
       ".": [
         "object"
@@ -9085,6 +9089,9 @@
         "object"
       ],
       "vouched.canonical": [
+        "str"
+      ],
+      "vouched.semantic": [
         "str"
       ]
     }

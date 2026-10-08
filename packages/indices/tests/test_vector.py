@@ -539,6 +539,36 @@ class TestTravel:
         query = VectorQuery(text=semantic_blocks[0].statement)
         assert [entry[0] for entry in second.lookup(query, 3)] == [entry[0] for entry in first.lookup(query, 3)]
 
+    def test_a_build_that_changes_membership_forgets_the_old_binding(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        """The SDK's commit path builds and then dumps without binding, so a kept root would be a false header.
+
+        The dump lands in the signed snapshot, and a reopened brain restores it: a header naming the previous
+        composition then makes `dist push` refuse an index that is in fact current.
+        """
+        index = an_index()
+        index.build(semantic_blocks[:-1], content)
+        index.bind("sha256:" + "ab" * 32)
+
+        index.build(semantic_blocks, content)
+
+        assert index.bound_root is None
+        restored = an_index()
+        restored.load(index.dump())
+        assert restored.bound_root is None
+
+    def test_a_build_that_changes_nothing_keeps_its_binding(
+        self, semantic_blocks: list[SemanticBlock], content: MemoryContent
+    ) -> None:
+        index = an_index()
+        index.build(semantic_blocks, content)
+        index.bind("sha256:" + "ab" * 32)
+
+        index.build(semantic_blocks, content)
+
+        assert index.bound_root == "sha256:" + "ab" * 32
+
     def test_dump_is_exactly_the_bytes_on_disk(
         self, tmp_path: Path, semantic_blocks: list[SemanticBlock], content: MemoryContent
     ) -> None:

@@ -118,3 +118,85 @@ class TestVouchingAVectorIndex:
         assert "no vector index to publish" in outcome["canonical"]
         assert MemoryType.CANONICAL not in vouched, "a refused module must be discarded, not merely reported"
         assert MemoryType.SEMANTIC in vouched, "and refusing one module must not cost another its vector index"
+
+    def test_a_commit_after_a_publish_still_publishes_its_vector_index(
+        self, populated: BrainService, tmp_path: Path
+    ) -> None:
+        """The sequence a real brain runs: publish, ingest, publish, reopen, publish.
+
+        Packing writes a manifest for the head into the layout, and from then on every open restores the vector index
+        from the layer the signed snapshot names. That layer is dumped on the commit path, which never binds, so it
+        used to carry the previous module root in its header -- and every later publish refused a current index as
+        stale, advising an `index build` that the next open undid.
+        """
+        populated.pack()
+        commit_one_semantic_block(populated, "Transformada de Laplace", "Lleva una funcion del tiempo a la frecuencia.")
+        populated.pack()
+
+        reopened = BrainService(resolve(brain=tmp_path / "brain", actor_id="tester@example.com"))
+        assert reopened.pack()["vouched"]["semantic"] == "vouched"
+
+    def test_a_restored_index_with_a_stale_header_is_rebound_rather_than_refused(self, populated: BrainService) -> None:
+        """Snapshots signed before the fix carry such headers, and a signed snapshot cannot be rewritten.
+
+        Vouching rebuilds the index from the module it is about to publish for, which is what `index build` does,
+        so the binding it then records is a fact rather than an assertion.
+        """
+        from boltzmann.blocks.memory_type import MemoryType
+
+        from vitruvio.indices import VectorIndex
+
+        brain = populated.brain(Capability.WRITE)
+        (index,) = [entry for entry in brain.indices[MemoryType.SEMANTIC] if isinstance(entry, VectorIndex)]
+        index.bind("sha256:" + "ab" * 32)
+
+        outcome = vouch_travelling(brain, [MemoryType.SEMANTIC])
+
+        assert outcome["semantic"] == "vouched"
+        assert index.bound_root == str(brain.module(MemoryType.SEMANTIC).root)
+
+
+class TestQueryingAfterAPublish:
+    def test_a_reopened_brain_still_consults_its_vector_index(self, populated: BrainService, tmp_path: Path) -> None:
+        """The same sequence, read rather than published.
+
+        Once a manifest for the head is in the layout, an open restores the layer the signed snapshot pins. When that
+        layer's header named the previous root, the planner excluded a current vector index as stale -- on the brain
+        that had just committed it, and on every consumer that pulled it.
+        """
+        populated.pack()
+        commit_one_semantic_block(populated, "Transformada de Laplace", "Lleva una funcion del tiempo a la frecuencia.")
+        populated.pack()
+
+        reopened = BrainService(resolve(brain=tmp_path / "brain", actor_id="tester@example.com"))
+        plan = reopened.explain("transformada de laplace")
+
+        assert "semantic.vector was built against another composition" not in [
+            degradation["detail"] for degradation in plan["degradations"]
+        ]
+
+
+def commit_one_semantic_block(service: BrainService, label: str, statement: str) -> None:
+    """Commit one more semantic block citing the brain's only canonical source."""
+    from boltzmann.blocks.memory_type import MemoryType
+    from boltzmann.ingest.proposer import Candidate, CandidateSet
+
+    brain = service.brain(Capability.WRITE)
+    (source,) = brain.module(MemoryType.CANONICAL).block_ids
+    task = brain.define_task(source, allowed=[MemoryType.SEMANTIC])
+    brain.commit(
+        brain.validate(
+            CandidateSet(
+                task_id=task.task_id,
+                candidates=[
+                    Candidate(
+                        memory_type=MemoryType.SEMANTIC,
+                        evidence=[source],
+                        locator="p1",
+                        payload={"kind": "concept", "label": label, "subject": "senales", "statement": statement},
+                    )
+                ],
+            ),
+            task,
+        )
+    )

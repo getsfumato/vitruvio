@@ -26,6 +26,14 @@
 - `dist tags` marks each tag as `default`, `branch` or `release`.
 - Adopt pyboltzmann 0.10.1.
 
+### Bug Fixes
+
+- Keep the vector index in retrieval after a commit. The layer a commit pins in the snapshot recorded the module's
+  previous root, so once a brain had been published every open restored it as stale and the planner dropped vector
+  search -- locally and for every consumer that pulled it. A build now forgets a superseded binding, a query rebinds
+  the layer the signed snapshot pins for its module, and `dist push` no longer reports a published vector index as
+  omitted.
+
 ### Documentation
 
 - Add catalog, authenticity and legacy-migration guides plus the pyboltzmann 0.9 integration ADR.
