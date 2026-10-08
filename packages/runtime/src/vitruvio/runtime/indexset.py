@@ -169,17 +169,20 @@ def prepare_query_indices(brain: Brain, config: ResolvedConfig) -> None:
         for vector in brain.indices.get(memory_type, ()):
             if not isinstance(vector, VectorIndex):
                 continue
-            if not vector.population:
+            # Stale as well as empty: the SDK restores the layer the snapshot pins on open, and a layer dumped on the
+            # commit path before `build` learned to forget a superseded binding names the previous root. The planner
+            # then excludes a current vector index as stale, on the consumer and on the brain that committed it alike.
+            if not vector.population or _bound_elsewhere(vector, module):
                 canonical = indices_home(config) / f"{memory_type.value}.vector.vidx"
                 if canonical.is_file():
                     _restore_query_vectors(vector, canonical.read_bytes(), module)
                 if (
-                    not vector.population
+                    (not vector.population or _bound_elsewhere(vector, module))
                     and reference.index_digest
                     and brain.store.is_resolvable(reference.index_digest)
                 ):
                     data = brain.store.get_bytes(reference.index_digest)
-                    _restore_query_vectors(vector, data, module, published_model=reference.embedding_model)
+                    _restore_query_vectors(vector, data, module, published_model=reference.embedding_model, pinned=True)
             fallback = vector.embedder.tag.is_fallback and (
                 not config.project.text_embedder.is_fallback
                 or (reference.embedding_model is not None and reference.embedding_model != vector.expected_model_tag)
@@ -190,23 +193,49 @@ def prepare_query_indices(brain: Brain, config: ResolvedConfig) -> None:
                 vector.bind(str(module.root))
 
 
+def _bound_elsewhere(vector: VectorIndex, module: Module) -> bool:
+    """Whether the index names a composition other than the module's. An unknown binding names none."""
+    return vector.bound_root is not None and vector.bound_root != str(module.root)
+
+
 def _restore_query_vectors(
-    vector: VectorIndex, data: bytes, module: Module, *, published_model: str | None = None
+    vector: VectorIndex,
+    data: bytes,
+    module: Module,
+    *,
+    published_model: str | None = None,
+    pinned: bool = False,
 ) -> None:
-    """A renamed legacy tag needs passage evidence; an unchanged tag retains its existing compatibility contract."""
+    """
+    Load a vector layer for a query, if it describes this module.
+
+    A renamed legacy tag needs passage evidence; an unchanged tag retains its existing compatibility contract.
+
+    Args:
+        vector (VectorIndex): The index to load into.
+        data (bytes): The layer.
+        module (Module): The module the query reads.
+        published_model (str | None): The model tag the snapshot records, which the header must carry.
+        pinned (bool): Whether ``data`` is the payload the signed snapshot names for this module reference. The
+            signature then says which composition the layer describes, and its header's root -- written on a commit
+            path that never binds -- is not consulted. A sidecar is not pinned: its header is all there is.
+    """
     from vitruvio.indices import format as envelope
     from vitruvio.indices.vector import IndexModelMismatchError
 
+    root = str(module.root)
     try:
         header, _ = envelope.decode(data)
         if published_model is not None and header.model_tag != published_model:
             return
-        if header.merkle_root is not None and header.merkle_root != str(module.root):
+        if not pinned and header.merkle_root is not None and header.merkle_root != root:
             return
         try:
             vector.load(data)
         except IndexModelMismatchError:
             blocks = [module.get(identity) for identity in module.block_ids if module.store.is_resolvable(identity)]
             vector.restore_legacy(data, blocks, module.store)
+        if pinned and vector.population:
+            vector.bind(root, persist=False)
     except envelope.IndexFormatError:
         return

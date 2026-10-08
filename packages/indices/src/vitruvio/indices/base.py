@@ -268,6 +268,10 @@ class VitruvioIndex(AbstractIndex):
         # is skipping the *expensive* per-block work, which subclasses do by consulting the delta.
         self._reset()
         self._refused_tag = None
+        # What was bound described the old membership. The SDK's commit path dumps straight after this build and never
+        # binds, so keeping the root would write the previous composition into the header the signed snapshot pins --
+        # and every reopen would restore an index that claims to be stale when it is current. Unknown is the truth.
+        self._bound_root = None
         self._table = OrdinalTable(incoming)
         self._on_build_start(delta)
 
@@ -285,7 +289,7 @@ class VitruvioIndex(AbstractIndex):
     def _on_build_end(self, delta: BuildDelta) -> None:
         """Hook for a subclass that finalises after the pass, e.g. computing an average."""
 
-    def bind(self, root: str | None) -> None:
+    def bind(self, root: str | None, *, persist: bool = True) -> None:
         """
         Record which module root this index describes.
 
@@ -294,9 +298,10 @@ class VitruvioIndex(AbstractIndex):
 
         Args:
             root (str | None): The module's Merkle root.
+            persist (bool): Whether to rewrite the sidecar. A read path binds in memory only: it must not write.
         """
         self._bound_root = root
-        if self.home is not None and self.population:
+        if persist and self.home is not None and self.population:
             self.flush()
 
     @abstractmethod
