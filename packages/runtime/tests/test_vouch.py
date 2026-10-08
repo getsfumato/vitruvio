@@ -143,10 +143,11 @@ class TestVouchingAVectorIndex:
         so the binding it then records is a fact rather than an assertion.
         """
         from boltzmann.blocks.memory_type import MemoryType
-        from boltzmann.indices.base import IndexKind
+
+        from vitruvio.indices import VectorIndex
 
         brain = populated.brain(Capability.WRITE)
-        (index,) = [entry for entry in brain.indices[MemoryType.SEMANTIC] if entry.kind is IndexKind.VECTOR]
+        (index,) = [entry for entry in brain.indices[MemoryType.SEMANTIC] if isinstance(entry, VectorIndex)]
         index.bind("sha256:" + "ab" * 32)
 
         outcome = vouch_travelling(brain, [MemoryType.SEMANTIC])
