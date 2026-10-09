@@ -1,6 +1,6 @@
 # Architecture
 
-One uv workspace, nine libraries and one app, sharing the PEP 420 namespace `vitruvio`. Dependencies point
+One uv workspace, nine libraries and two apps, sharing the PEP 420 namespace `vitruvio`. Dependencies point
 downhill only, enforced by `import-linter` in CI rather than by convention.
 
 ```
@@ -14,6 +14,7 @@ packages/sql         SQL over tables derived from the blocks: guard and sealed e
 packages/runtime     the service layer every interface shares
 packages/bench       synthetic corpora and the recall/latency harness  [unpublished]
 apps/cli             the CLI, and the TUI it opens                        [dist: vitruvio]
+apps/http            independently deployed query and ingest HTTP APIs    [dist: vitruvio-http]
 ```
 
 ## The two contracts that carry weight
@@ -24,11 +25,13 @@ configuration lived beside the runtime then importing it would drag in `usearch`
 
 **An app may import `vitruvio.runtime` and `vitruvio.kernel`, and may never import `boltzmann`.** If an app needs an
 SDK type, the service layer is missing a method, and adding it there is what makes the same capability available to
-all three interfaces instead of one. That is what will keep the future MCP server and HTTP API thin rather than a
-third and fourth implementation of the same behaviour.
+all interfaces instead of one. The HTTP services use it now; the same boundary will keep a future MCP server thin.
 
 The one exception that nearly existed — `--actor-kind`, whose values are an SDK enum — was removed by having the CLI
 take a string and the kernel coerce it. An exception list in `.importlinter` is a boundary that has started leaking.
+
+The [HTTP services](apps/http/README.md) receive an OCI repository, tag and portable configuration per request.
+Query keeps a disposable cache of verified layouts; ingest workers use disposable layouts and Redis for job state.
 
 ## Inside the service layer
 
