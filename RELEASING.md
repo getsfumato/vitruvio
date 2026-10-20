@@ -147,6 +147,12 @@ the case below.
 **The tag exists but the workflow did not finish.** Delete the draft release, delete the tag locally and on
 the remote, and re-run. Do not move a tag that a published release already points at.
 
+**`smoke` failed on `install macos-latest` alone, with `403` from `api.github.com`.** That is the runner, not
+the installer: the anonymous limit on the API is per source address, and the macOS runners share theirs. The
+wait step and `install.sh` both send `GITHUB_TOKEN` now, which is what closed it; if it reappears, re-run the
+job before reading anything into it. Every release from v0.30.0 to v0.31.0 went red this way and installed fine
+on the re-run.
+
 **`smoke` failed after the release went out.** The release is live and `install.sh` is broken for the case
 that runner covers. The installer is a file in the repo and an asset on the release, so fixing it and merging
 does not need a new version — but the asset on that release stays broken until one is cut, and

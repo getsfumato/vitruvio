@@ -393,13 +393,20 @@ jobs:
       - name: wait for releases/latest to catch up
         env:
           TAG: ${{ needs.plan.outputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
           # install.sh below is run with no VITRUVIO_VERSION on purpose, so that resolution through the
           # API is part of what is tested. That endpoint is cached, so it can lag the `gh release edit`
           # by a few seconds; polling here keeps a real installer bug distinguishable from that lag.
+          #
+          # Authenticated, because the anonymous limit on this API is per source address and the macOS
+          # runners share theirs: from v0.30.0 to v0.31.0 every release run went red here with a 403 that
+          # a re-run minutes later did not reproduce. A token is what makes the answer about the release
+          # rather than about the runner's neighbours.
           for _ in $(seq 1 20); do
-            got=$(curl -fsSL "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+            got=$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" \
+                  "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
                   | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
             [ "$got" = "$TAG" ] && exit 0
             echo "latest is ${got:-<none>}, waiting for $TAG"
@@ -411,6 +418,9 @@ jobs:
       - name: install and run
         env:
           VITRUVIO_BIN_DIR: ${{ runner.temp }}/bin
+          # The installer resolves the version through the same API as the step above, and would be
+          # refused the same way. Optional in the script; set here for the same reason.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
           sh ./install.sh

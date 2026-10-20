@@ -8,6 +8,9 @@
 #   VITRUVIO_EXTRAS    comma-separated extras, e.g. "local,api" (default: none)
 #   VITRUVIO_BIN_DIR   install directory (default: ~/.local/bin)
 #   VITRUVIO_NO_MODIFY_PATH=1   skip the PATH hint
+#   GITHUB_TOKEN       optional; sent to the GitHub API when resolving the latest release. The anonymous
+#                      limit on that API is per source address, and a CI runner shares its address with
+#                      many others, so an unauthenticated lookup there can be refused with 403.
 #
 # vitruvio is nine pure-Python distributions rather than one binary, so this does not download an
 # executable: it downloads the release's wheel bundle and hands it to `uv tool install`, which builds an
@@ -63,10 +66,19 @@ fetch() {
 }
 
 fetch_stdout() {
+  # fetch_stdout <url> [bearer-token]
   if need curl; then
-    curl -fsSL --retry 3 --connect-timeout 20 "$1"
+    if [ -n "${2:-}" ]; then
+      curl -fsSL --retry 3 --connect-timeout 20 -H "Authorization: Bearer $2" "$1"
+    else
+      curl -fsSL --retry 3 --connect-timeout 20 "$1"
+    fi
   elif need wget; then
-    wget -qO- "$1"
+    if [ -n "${2:-}" ]; then
+      wget -qO- --header="Authorization: Bearer $2" "$1"
+    else
+      wget -qO- "$1"
+    fi
   else
     die "need curl or wget"
   fi
@@ -76,9 +88,18 @@ latest_version() {
   # `releases/latest` never resolves to a draft or a prerelease, which is what makes an unfinished
   # release invisible here: the release workflow uploads and verifies its assets while the release is
   # still a draft, so a version this returns always has a bundle attached.
-  fetch_stdout "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
-    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' \
-    | head -n 1
+  #
+  # The only call this script makes to the API, and the only one that is rate-limited by source address;
+  # the bundle itself downloads from the release's assets, which are not. A token is therefore an
+  # optional courtesy for CI, never a requirement for a person -- and never a way to fail one: a shell
+  # that exports an expired GITHUB_TOKEN for some other tool gets the anonymous lookup it always got.
+  api="https://api.github.com/repos/$REPO/releases/latest"
+  pattern='s/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p'
+  found=$(fetch_stdout "$api" "${GITHUB_TOKEN:-}" 2>/dev/null | sed -n "$pattern" | head -n 1)
+  if [ -z "$found" ] && [ -n "${GITHUB_TOKEN:-}" ]; then
+    found=$(fetch_stdout "$api" 2>/dev/null | sed -n "$pattern" | head -n 1)
+  fi
+  printf '%s\n' "$found"
 }
 
 verify() {
