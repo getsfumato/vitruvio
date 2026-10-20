@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from vitruvio.http.brain import install, local_registry, make_service, resolve_manifest
+from vitruvio.http.brain import install, local_registry, make_service, resolve_remote
 from vitruvio.http.documents import max_document_bytes, read_document
 from vitruvio.http.models import CandidateItem, DocumentItem, IngestionRequest
 from vitruvio.kernel import ConfigError, VitruvioError
@@ -80,8 +81,8 @@ async def process_job(
 
     with tempfile.TemporaryDirectory(prefix="vitruvio-ingest-") as work:
         service = make_service(Path(work), request.brain, request.config, assisted_by=request.assisted_by)
-        digest = await resolve_manifest(service, request.brain)
-        installed = await install(service, request.brain, digest)
+        remote = await asyncio.to_thread(resolve_remote, service, request.brain)
+        installed = await asyncio.to_thread(install, service, request.brain, remote.digest)
         governed = bool(installed.authenticity.get("trust_root"))
         if governed and not request.sign_with:
             raise ConfigError("a governed brain requires sign_with fingerprints before ingestion")
@@ -126,10 +127,12 @@ async def process_job(
         output_tag = f"ingest-{job_id}"
         packed = service.pack(tag=output_tag)
         # Persist this exact artifact identity before pushing. A reclaimed job can recognize a push that
-        # succeeded immediately before its worker died, without proposing a second time.
+        # succeeded immediately before its worker died, without proposing a second time. The callback is also the
+        # gate: it is refused when this attempt no longer owns the job, and then nothing is published.
         result["output"] = {"repository": request.brain.repository, "tag": output_tag, "digest": packed["digest"]}
         prepared(result, packed["digest"])
-        published = await service.push_async(
+        published = await asyncio.to_thread(
+            service.push,
             request.brain.repository,
             tag=output_tag,
             local=local_registry(),
