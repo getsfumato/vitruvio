@@ -290,6 +290,91 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  images:
+    name: publish vitruvio-${{ matrix.target }} image
+    needs: [plan, release]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [query, ingest]
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/vitruvio-${{ matrix.target }}
+    steps:
+      # The HTTP services are not installed by install.sh -- nothing in the CLI depends on vitruvio-http, so
+      # its wheel rides in the bundle unused -- and they are deployed as containers. The image is what a
+      # deployment pins, so it is cut with the release, from the release's own tree, under the release's number.
+      - uses: actions/checkout@v4
+        with:
+          # The tag, not the commit that triggered this run. The tag names the tree whose pyprojects carry
+          # VERSION and whose uv.lock was relocked for it; the triggering commit's lock still records the
+          # previous version, and the Dockerfile's `uv sync --frozen` would refuse it.
+          ref: ${{ needs.plan.outputs.tag }}
+      - name: the tree being built is the released version
+        run: |
+          set -eu
+          grep -q "^version = \"${VERSION}\"$" apps/http/pyproject.toml || {
+            echo "::error::apps/http/pyproject.toml at ${{ needs.plan.outputs.tag }} is not version ${VERSION}"
+            exit 1
+          }
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # The version and `latest`, like the release itself. A deployment pins the version; `latest` is
+          # for a developer's `docker run`.
+          tags: |
+            type=raw,value=${{ needs.plan.outputs.version }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=vitruvio-${{ matrix.target }}
+            org.opencontainers.image.version=${{ needs.plan.outputs.version }}
+            org.opencontainers.image.description=Vitruvio ${{ matrix.target }} service over OCI-backed brains
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/http/Dockerfile
+          target: ${{ matrix.target }}
+          # arm64 as well as amd64: the servers are amd64 and the laptops that run `docker run` to try a
+          # service are not. Both are pure wheel installs, so the emulated build downloads rather than compiles.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Without this buildx attaches a provenance attestation that the registry UI lists as an
+          # `unknown/unknown` platform beside the two real ones, which reads as a broken build.
+          provenance: false
+          cache-from: type=gha,scope=vitruvio-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=vitruvio-${{ matrix.target }}
+      - name: the published image reports the released version
+        run: |
+          set -eu
+          # Pulled back from the registry rather than read from the build: this is the artifact a deployment
+          # gets, and the number inside it has to be the one on the tag.
+          got=$(docker run --rm --pull always "${IMAGE}:${VERSION}" \
+                python -c 'import vitruvio.kernel; print(vitruvio.kernel.__version__)')
+          echo "image reports: $got"
+          [ "$got" = "$VERSION" ] || { echo "::error::${IMAGE}:${VERSION} reports $got"; exit 1; }
+          {
+            echo "### Published ${IMAGE}:${VERSION}"
+            echo
+            echo '```'
+            echo "docker pull ${IMAGE}:${VERSION}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   smoke:
     name: install ${{ matrix.os }}
     needs: [plan, release]

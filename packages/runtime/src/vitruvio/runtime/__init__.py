@@ -11,6 +11,7 @@ SDK type, the seam is in the wrong place. That rule is enforced by import-linter
 from __future__ import annotations
 
 from vitruvio.runtime.assembly import Capability, build_indices, open_brain
+from vitruvio.runtime.evidence import evidence_from_bytes
 from vitruvio.runtime.mapping import FALLBACK, Report, known_codes, report_for, translate
 from vitruvio.runtime.service import BrainService
 from vitruvio.runtime.vouch import vouch_travelling
@@ -21,6 +22,7 @@ __all__ = [
     "Capability",
     "Report",
     "build_indices",
+    "evidence_from_bytes",
     "known_codes",
     "open_brain",
     "report_for",

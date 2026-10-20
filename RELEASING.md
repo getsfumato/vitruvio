@@ -6,13 +6,14 @@ what you observe.
 
 ## What runs
 
-One workflow, [`.github/workflows/release.yml`](.github/workflows/release.yml), in four jobs.
+One workflow, [`.github/workflows/release.yml`](.github/workflows/release.yml), in five jobs.
 
 | Job | What it decides |
 |---|---|
 | `plan` | whether the commits since the last tag call for a release, and which version |
 | `gate` | that the commit deserves a tag: lint, types, layering, skills reference, fast tests |
-| `release` | bumps the nine versions, relocks, writes the changelog, tags, builds, publishes |
+| `release` | bumps every member's version, relocks, writes the changelog, tags, builds, publishes |
+| `images` | builds the two HTTP service images from the tag and publishes them under the same version |
 | `smoke` | that `install.sh` installs the release it just published, on three runners |
 
 `smoke` runs on ubuntu-latest, **ubuntu-22.04** and macos-latest, and the middle one is not padding: its
@@ -63,6 +64,35 @@ uv resolve within it, while third-party dependencies still come from PyPI.
 The release is created as a **draft**. `releases/latest` — which is what `install.sh` resolves — never
 resolves to a draft, so the assets are uploaded, counted, and installed from before the release becomes
 visible to anyone's installer. A build that cannot be installed stays a draft.
+
+## The HTTP services ship as images, not through the bundle
+
+`vitruvio-http` is a workspace member, so its wheel and sdist are in the bundle like every other — but nothing
+in the CLI depends on it, so `install.sh` and `vitruvio update` never install it. A user upgrading the CLI gets
+the eight distributions the CLI needs and not the service. The service is deployed as a container, and the
+container is what a deployment pins.
+
+The `images` job therefore builds the two targets of `apps/http/Dockerfile` and publishes them to the GitHub
+container registry, for `linux/amd64` and `linux/arm64`:
+
+```
+ghcr.io/getsfumato/vitruvio-query:<version>    also :latest
+ghcr.io/getsfumato/vitruvio-ingest:<version>   also :latest  (API and worker: same image, different command)
+```
+
+Three details carry weight. The build checks out the **tag**, not the commit that started the run: the tag
+names the tree whose manifests carry the new version and whose `uv.lock` was relocked for it, and the
+Dockerfile's `uv sync --frozen` would refuse the lock of the triggering commit. The job asserts
+`apps/http/pyproject.toml` at that tag carries the version before building, and after pushing it pulls the
+image back and asserts the version *inside* it — the same check `install.sh` makes on the bundle, for the same
+reason: a number on the tag that the artifact does not agree with is the failure nobody notices. And the job
+runs after `release` has published, so an image never exists for a version that stayed a draft.
+
+The first publish of a package on ghcr.io creates it **private**, linked to this repository. Making it public
+is a one-time change in the package's settings; the workflow does not do it.
+
+`images` failing after the release went out leaves the release intact and the image missing. Re-run the job:
+it checks out the tag, so it rebuilds exactly what should have been built.
 
 ## The nine versions are not pinned to each other
 

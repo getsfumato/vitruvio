@@ -23,6 +23,7 @@ root_packages =
     vitruvio.runtime
     vitruvio.bench
     vitruvio.cli
+    vitruvio.http
 include_external_packages = True
 
 [importlinter:contract:layers]
@@ -30,6 +31,7 @@ name = Dependencies point downhill only
 type = layers
 layers =
     vitruvio.cli
+    vitruvio.http
     vitruvio.runtime
     vitruvio.planner : vitruvio.ingest : vitruvio.sql
     vitruvio.indices
@@ -45,6 +47,7 @@ name = Apps go through the service layer, never through the SDK
 type = forbidden
 source_modules =
     vitruvio.cli
+    vitruvio.http
 forbidden_modules =
     boltzmann
 ; Direct imports only. The kernel and the runtime import the SDK by design, and every app import reaches
@@ -69,3 +72,4 @@ forbidden_modules =
     vitruvio.sql
     vitruvio.runtime
     vitruvio.cli
+    vitruvio.http

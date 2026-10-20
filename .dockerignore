@@ -1,0 +1,17 @@
+.git
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.import_linter_cache
+__pycache__
+*.pyc
+*.egg-info
+build
+dist
+bundle
+tmp
+brain
+*.brain
+.env
+.env.*

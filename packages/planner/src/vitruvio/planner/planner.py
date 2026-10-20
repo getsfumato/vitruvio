@@ -23,6 +23,7 @@ The shape of the thing, in order:
 from __future__ import annotations
 
 import hashlib
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -114,7 +115,11 @@ class CostBasedPlanner:
         self.statistics: dict[str, ModuleStats] = dict(statistics or {})
         self._objective = Objective(weight=config.objective_lambda, miss_cost=float(config.miss_cost_us))
         self._ledger: tuple[str, Ledger] | None = None
-        self._last: Explanation | None = None
+        # Per thread, not per planner. One brain can serve several searches at once -- an HTTP service runs each in
+        # a worker thread over one cached brain -- and a caller reads the explanation right after its own `plan`.
+        # A single shared slot let another thread's search replace it in between, so a canonical query could report
+        # the plan of a semantic one.
+        self._last = threading.local()
 
     # --- The protocol's one method --------------------------------------------
 
@@ -129,7 +134,7 @@ class CostBasedPlanner:
         Returns:
             EvidenceBundle: Verified blocks with provenance and a score. Never prose.
         """
-        bundle, self._last = self._run(query, modules, analyze=False)
+        bundle, self._last.explanation = self._run(query, modules, analyze=False)
         return bundle
 
     def explain(self, query: Query, modules: dict[MemoryType, Module]) -> Explanation:
@@ -161,8 +166,9 @@ class CostBasedPlanner:
 
     @property
     def last_explanation(self) -> Explanation | None:
-        """The most recent plan's explanation, for a caller that ran ``plan`` and then wants the detail."""
-        return self._last
+        """The explanation of the most recent ``plan`` *on this thread*, for a caller that then wants the detail."""
+        explanation: Explanation | None = getattr(self._last, "explanation", None)
+        return explanation
 
     # --- Capability probing ---------------------------------------------------
 

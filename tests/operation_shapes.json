@@ -475,13 +475,19 @@
     }
   },
   "auth_attribution": {
-    "optional": [],
+    "optional": [
+      "asserted[]",
+      "verified[]"
+    ],
     "paths": {
       ".": [
         "object"
       ],
       "asserted": [
         "array"
+      ],
+      "asserted[]": [
+        "str"
       ],
       "complete": [
         "bool"
@@ -8995,6 +9001,7 @@
   },
   "pack": {
     "optional": [
+      "annotations.ai.gaussia.boltzmann.trust-root",
       "vouched.semantic"
     ],
     "paths": {
@@ -9011,6 +9018,9 @@
         "str"
       ],
       "annotations.ai.gaussia.boltzmann.source-snapshot": [
+        "str"
+      ],
+      "annotations.ai.gaussia.boltzmann.trust-root": [
         "str"
       ],
       "artifact_type": [
@@ -9936,6 +9946,19 @@
       "snapshot.modules.semantic.root",
       "snapshot.modules.semantic.tombstones",
       "snapshot.parents[]",
+      "snapshot.trust_root.boltzmann",
+      "snapshot.trust_root.govern_quorum",
+      "snapshot.trust_root.keys",
+      "snapshot.trust_root.keys[]",
+      "snapshot.trust_root.keys[].compromised_from",
+      "snapshot.trust_root.keys[].key",
+      "snapshot.trust_root.keys[].retired_from",
+      "snapshot.trust_root.keys[].scopes",
+      "snapshot.trust_root.keys[].scopes[]",
+      "snapshot.trust_root.keys[].since",
+      "snapshot.trust_root.keys[].subject",
+      "snapshot.trust_root.namespace",
+      "snapshot.trust_root.revision",
       "warnings[]"
     ],
     "paths": {
@@ -10009,7 +10032,8 @@
         "str"
       ],
       "snapshot.labels": [
-        "null"
+        "null",
+        "object"
       ],
       "snapshot.modules": [
         "object"
@@ -10106,7 +10130,47 @@
         "str"
       ],
       "snapshot.trust_root": [
+        "null",
+        "object"
+      ],
+      "snapshot.trust_root.boltzmann": [
+        "int"
+      ],
+      "snapshot.trust_root.govern_quorum": [
+        "int"
+      ],
+      "snapshot.trust_root.keys": [
+        "array"
+      ],
+      "snapshot.trust_root.keys[]": [
+        "object"
+      ],
+      "snapshot.trust_root.keys[].compromised_from": [
         "null"
+      ],
+      "snapshot.trust_root.keys[].key": [
+        "str"
+      ],
+      "snapshot.trust_root.keys[].retired_from": [
+        "null"
+      ],
+      "snapshot.trust_root.keys[].scopes": [
+        "array"
+      ],
+      "snapshot.trust_root.keys[].scopes[]": [
+        "str"
+      ],
+      "snapshot.trust_root.keys[].since": [
+        "int"
+      ],
+      "snapshot.trust_root.keys[].subject": [
+        "str"
+      ],
+      "snapshot.trust_root.namespace": [
+        "str"
+      ],
+      "snapshot.trust_root.revision": [
+        "int"
       ],
       "tag": [
         "str"
@@ -12119,7 +12183,8 @@
         "object"
       ],
       "authorship.key": [
-        "null"
+        "null",
+        "str"
       ],
       "authorship.pinned": [
         "bool"
@@ -12131,10 +12196,12 @@
         "str"
       ],
       "authorship.subject": [
-        "null"
+        "null",
+        "str"
       ],
       "authorship.trust_root": [
-        "null"
+        "null",
+        "str"
       ],
       "diagnostics": [
         "object"
@@ -13064,6 +13131,19 @@
       "snapshot.modules.semantic.tombstones",
       "snapshot.modules.semantic.tombstones[]",
       "snapshot.parents[]",
+      "snapshot.trust_root.boltzmann",
+      "snapshot.trust_root.govern_quorum",
+      "snapshot.trust_root.keys",
+      "snapshot.trust_root.keys[]",
+      "snapshot.trust_root.keys[].compromised_from",
+      "snapshot.trust_root.keys[].key",
+      "snapshot.trust_root.keys[].retired_from",
+      "snapshot.trust_root.keys[].scopes",
+      "snapshot.trust_root.keys[].scopes[]",
+      "snapshot.trust_root.keys[].since",
+      "snapshot.trust_root.keys[].subject",
+      "snapshot.trust_root.namespace",
+      "snapshot.trust_root.revision",
       "state.boltzmann",
       "state.origin",
       "state.origin.partial",
@@ -13254,7 +13334,47 @@
         "str"
       ],
       "snapshot.trust_root": [
+        "null",
+        "object"
+      ],
+      "snapshot.trust_root.boltzmann": [
+        "int"
+      ],
+      "snapshot.trust_root.govern_quorum": [
+        "int"
+      ],
+      "snapshot.trust_root.keys": [
+        "array"
+      ],
+      "snapshot.trust_root.keys[]": [
+        "object"
+      ],
+      "snapshot.trust_root.keys[].compromised_from": [
         "null"
+      ],
+      "snapshot.trust_root.keys[].key": [
+        "str"
+      ],
+      "snapshot.trust_root.keys[].retired_from": [
+        "null"
+      ],
+      "snapshot.trust_root.keys[].scopes": [
+        "array"
+      ],
+      "snapshot.trust_root.keys[].scopes[]": [
+        "str"
+      ],
+      "snapshot.trust_root.keys[].since": [
+        "int"
+      ],
+      "snapshot.trust_root.keys[].subject": [
+        "str"
+      ],
+      "snapshot.trust_root.namespace": [
+        "str"
+      ],
+      "snapshot.trust_root.revision": [
+        "int"
       ],
       "state": [
         "object"
