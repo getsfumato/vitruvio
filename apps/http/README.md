@@ -35,10 +35,20 @@ for both. The services therefore only present credentials to destinations the op
   `config.embedding.<kind>.base_url`, compared exactly after trimming a trailing slash. A request that names no
   `base_url` uses the provider's own endpoint, which needs no listing. Any other endpoint is refused the same way.
 
-Build the independently deployable images with `docker build -f apps/http/Dockerfile --target query .` and
-`docker build -f apps/http/Dockerfile --target ingest .`. Run the ingest worker from the ingest image with
-`vitruvio-ingest-worker` as its command. The services intentionally have no HTTP authentication; deploy them
-behind a private network or gateway.
+Every release publishes both services as images, under the release's version and `latest`, for `linux/amd64`
+and `linux/arm64`:
+
+```sh
+docker run --rm -p 8080:8080 -e VITRUVIO_HTTP_ALLOWED_REGISTRIES=ghcr.io ghcr.io/getsfumato/vitruvio-query:0.31.0
+docker run --rm -p 8081:8080 -e VITRUVIO_HTTP_REDIS_URL=redis://redis:6379/0 ghcr.io/getsfumato/vitruvio-ingest:0.31.0
+docker run --rm -e VITRUVIO_HTTP_REDIS_URL=redis://redis:6379/0 ghcr.io/getsfumato/vitruvio-ingest:0.31.0 vitruvio-ingest-worker
+```
+
+The ingest API and its worker are one image with two commands. The image carries the same `vitruvio-http`
+version as the release it was cut with; the CLI's installer never installs that distribution, because the CLI
+does not depend on it. To build locally instead, `docker build -f apps/http/Dockerfile --target query .` or
+`--target ingest`. The services intentionally have no HTTP authentication; deploy them behind a private network
+or gateway.
 
 `VITRUVIO_HTTP_LOCAL_REGISTRY` can point at a local OCI layout registry for development and tests; it is addressed
 by path, carries no credentials, and is exempt from the registry allowlist. `VITRUVIO_HTTP_INSECURE=true` allows an
