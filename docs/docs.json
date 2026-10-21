@@ -76,6 +76,10 @@
         "pages": ["catalog/classifying-evidence"]
       },
       {
+        "group": "Server",
+        "pages": ["server/index", "server/docker", "server/query-api", "server/ingest-api"]
+      },
+      {
         "group": "Under the hood",
         "pages": [
           "under-the-hood/indices",

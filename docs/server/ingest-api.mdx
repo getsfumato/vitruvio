@@ -1,0 +1,130 @@
+---
+title: "The ingest API"
+description: "Submit a job naming a brain and up to 100 items, poll it, and pull the new tag the worker published."
+---
+
+Ingestion is a job. `POST /v1/ingestions` validates it and queues it in Redis. A worker claims it, pulls the brain
+into scratch space, runs every item through the same propose → validate → commit loop the CLI runs, and — when the
+brain changed — publishes the result as a new tag, `ingest-<job_id>`, on the same repository. The input tag is never
+moved. `GET /v1/ingestions/{job_id}` says where the job is.
+
+```bash
+curl -s localhost:8081/v1/ingestions -H 'content-type: application/json' -d '{
+  "brain": {"repository": "ghcr.io/you/brain", "tag": "v1"},
+  "config": {"actor": {"id": "you@example.org"}},
+  "assisted_by": [],
+  "items": [
+    {
+      "kind": "document",
+      "uri": "https://files.example.org/signed/notes.md",
+      "origin": "https://example.org/notes.md",
+      "media_type": "text/markdown"
+    }
+  ]
+}'
+```
+
+```json
+{
+  "vitruvio": "0.32.0",
+  "command": "ingest.submit",
+  "ok": true,
+  "data": {"job_id": "3f2c…", "status": "queued", "status_url": "/v1/ingestions/3f2c…"},
+  "warnings": [],
+  "error": null
+}
+```
+
+`202 Accepted`: the job is validated, not run. The body is checked against the project schema the way a
+`vitruvio.toml` is, and the brain's registry against the server's allowlist, before anything is queued — so a
+malformed request fails here with `400`, not in a worker an hour later.
+
+## The job body
+
+| field | is |
+|---|---|
+| `brain` | repository and tag, as on every request |
+| `config` | the portable configuration. **`config.actor` is required**: every write names an actor |
+| `assisted_by` | required, possibly empty: which of the collaborators declared in `config.assisted_by` helped with this job, by id |
+| `sign_with` | fingerprints the worker signs the result with. Required for a governed brain, refused for an ungoverned one |
+| `items` | 1 to 100, of two kinds, in any mix |
+
+A **document** item is a file the worker fetches and registers, then hands to a proposer:
+
+| field | is |
+|---|---|
+| `uri` | where to fetch it: an `https://` URL, signed if it needs to be, or `s3://bucket/key` |
+| `origin` | what provenance records as the source. The URI is transport; the origin is identity |
+| `media_type` | `text/markdown`, `application/pdf`, … |
+| `proposer` | default `structure`, which uses no model. See [ingest](/brain/ingest) |
+| `allowed` | the memory types the proposer may propose into |
+| `subject`, `license`, `retention_policy`, `normalize_with` | as the CLI's flags of the same names |
+
+A **candidates** item is a proposal a model already wrote, which the worker only validates and commits: `task` is the
+object `vitruvio task define` returned, and `candidates` is the `boltzmann.candidates/v1` document written against
+it. Each item gets its own verdict; the job goes on after one fails.
+
+## Poll it
+
+```bash
+curl -s localhost:8081/v1/ingestions/<job_id>
+```
+
+| status | means |
+|---|---|
+| `queued` | in Redis; no worker has claimed it |
+| `running` | a worker holds its lease |
+| `completed` | every item succeeded |
+| `partial` | some items failed; the others were committed, and published if anything changed |
+| `failed` | the job as a whole failed; `data.error` says why |
+
+`data.items[]` fills in as the worker goes, one report per item: `index`, `kind`, `ok`, then `data` or `error`,
+and `changed`. At the end `data.result` holds the whole account: `input` (repository, tag, digests,
+authenticity), `items`, `succeeded`, `failed`, `changed`, `warnings`, `status`, and `output` — the result's
+`repository`, `tag`, `digest` and `publish` report when the brain changed, `null` when nothing was committed and
+so nothing was published. Results live seven days; after that, and for an id that never existed, the answer is
+`404 NOT_FOUND`.
+
+## Where the result goes
+
+```bash
+vitruvio dist pull ghcr.io/you/brain --tag ingest-<job_id>
+```
+
+The input tag is never moved, so adopting a result is a deliberate pull of the new tag, and a reviewer can look
+before anyone adopts it. One caveat, inherited from `ingest run`: canonical evidence is registered *before* the
+derived candidates are validated, so a document item that failed validation can still report `changed: true` — its
+evidence is in the published brain even though nothing was derived from it.
+
+## Limits
+
+- A job body over `VITRUVIO_SERVER_MAX_JOB_BYTES` (8 MiB) is `413`.
+- A document over `VITRUVIO_SERVER_MAX_DOCUMENT_BYTES` (50 MiB) is refused; a lower `config.ingest.max_bytes` wins.
+- `https://` downloads do not follow redirects and time out after sixty seconds.
+
+## Governed brains
+
+A governed brain's head must be signed to be accepted, so the job names the keys in `sign_with` and the worker
+signs the result before publishing it, then verifies from the registry before reporting the job done. The worker
+needs an SSH agent holding those keys: mount the socket and set `SSH_AUTH_SOCK`, as
+[run it with Docker](/server/docker#credentials) shows.
+
+## Documents from S3
+
+`s3://bucket/key` is read with the worker's AWS identity — the standard variables, an instance role, whatever
+boto3 finds. `VITRUVIO_SERVER_S3_ENDPOINT` points it at an S3-compatible store.
+
+## How a job survives its worker
+
+A worker holds a lease on each job it runs (two minutes, renewed every ten seconds). Every state write, the
+publication included, is conditioned on that lease inside one Redis transaction, so a worker that was paused,
+partitioned or killed and comes back late cannot overwrite the work of the worker that replaced it. A job idle
+longer than the lease is claimed by another worker and resumed from its recorded state: the request body stays in
+Redis until the job is terminal, and the exact manifest digest about to be published is recorded before the push.
+A worker that dies between pushing and reporting is therefore followed by one that checks the registry for that
+digest, finishes any signing the first one did not get to, verifies, and only then reports `completed`. When the
+registry cannot be reached to decide, the job stays `running` rather than being reported `failed`.
+
+## Next
+
+[Publishing and installing](/brain/publishing): the registry side of what the worker just did.

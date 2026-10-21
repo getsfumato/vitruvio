@@ -20,6 +20,15 @@ vitruvio --version
 npx skills add getsfumato/vitruvio
 ```
 
+## Run it as a server
+
+```console
+docker run --rm -p 8080:8080 -e VITRUVIO_SERVER_ALLOWED_REGISTRIES=ghcr.io ghcr.io/getsfumato/vitruvio-server
+```
+
+The query API, and with [`apps/server/compose.yaml`](apps/server/compose.yaml) the ingest API and its worker too:
+[vitruvio.sh/docs/server](https://vitruvio.sh/docs/server).
+
 ## Documentation
 
 [vitruvio.sh/docs](https://vitruvio.sh/docs)

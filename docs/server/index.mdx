@@ -1,0 +1,58 @@
+---
+title: "Vitruvio Server"
+description: "The runtime over HTTP: a query API, an ingest API and a worker, shipped as one Docker image and holding no brain of their own."
+---
+
+Vitruvio Server is the same runtime the CLI drives, behind HTTP. It answers what an agent, a service or a pipeline
+would otherwise shell out for — *search this brain*, *ingest these documents into that one* — without a vitruvio
+installed on the caller, and without a brain installed on the server.
+
+```bash
+docker run --rm -p 8080:8080 -e VITRUVIO_SERVER_ALLOWED_REGISTRIES=ghcr.io ghcr.io/getsfumato/vitruvio-server
+```
+
+## Three roles, one image
+
+| role | does | needs |
+|---|---|---|
+| `query` | search, explain, state and block resolution over any published brain | a registry it may read |
+| `ingest` | accepts ingestion jobs and reports on them | Redis |
+| `worker` | runs queued jobs and publishes each result as a new tag | Redis, and a registry it may write |
+
+`docker run IMAGE` is `query`; `docker run IMAGE ingest` and `docker run IMAGE worker` are the other two. Run as
+many of each as you like: nothing on one instance has to be shared with another.
+
+## The server holds no brain
+
+Every request names a brain the way `dist pull` does — an OCI repository and a tag — and the server pulls it:
+
+```json
+{"brain": {"repository": "ghcr.io/you/brain", "tag": "v1"}}
+```
+
+The query role keeps a small, disposable cache of installed layouts, keyed by the manifest digest the tag resolved
+to, so a moved tag is noticed and a stale entry is never served under the new name. The worker installs into
+scratch space, runs the job there, and publishes the result as `ingest-<job_id>` on the same repository. The input
+tag is never moved.
+
+That is what makes it stateless. There is nothing to back up except Redis, which holds the ingest queue and seven
+days of job results, and an instance that dies mid-job loses nothing another one cannot pick up.
+
+## What it needs
+
+- **A registry with a published brain.** The server reads what `vitruvio dist push` wrote. See
+  [publishing and installing](/brain/publishing).
+- **Credentials in the environment**, the same variables the CLI reads, and an explicit list of the registries the
+  server may present them to. Unset, every remote registry is refused.
+- **Redis**, for the ingest role and its worker. The query role does not use it.
+- **A private network.** The server has no HTTP authentication of its own. Put it behind a gateway that has, or keep
+  it off the public internet.
+
+## Versions
+
+The image is cut with every release, under the release's number and `latest`, and reports the same version
+`vitruvio --version` does. Pin the number in a deployment; `latest` is for trying it.
+
+## Next
+
+[Run it with Docker](/server/docker), then [query a brain](/server/query-api) or [ingest into one](/server/ingest-api).
