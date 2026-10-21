@@ -26,7 +26,7 @@ MEMBERS = (
     "vitruvio.runtime",
     "vitruvio.bench",
     "vitruvio.cli",
-    "vitruvio.http",
+    "vitruvio.server",
 )
 
 REPO = Path(__file__).resolve().parent.parent

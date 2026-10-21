@@ -1,0 +1,72 @@
+# Vitruvio Server: the query API, the ingest API, the ingest worker, and the Redis the last two share.
+#
+#   docker compose -f apps/server/compose.yaml up
+#
+# VITRUVIO_VERSION pins the image tag (default: latest). Variables listed without a value are passed through from
+# the shell or a .env next to this file, and only when set there.
+
+x-env: &env
+  VITRUVIO_SERVER_ALLOWED_REGISTRIES: ${VITRUVIO_SERVER_ALLOWED_REGISTRIES:-ghcr.io,docker.io}
+  # Read by ingest and worker; query ignores it.
+  VITRUVIO_SERVER_REDIS_URL: redis://redis:6379/0
+  # Registry credentials: the same variables the CLI reads (either pair; the VITRUVIO_* names win).
+  VITRUVIO_REGISTRY_USERNAME:
+  VITRUVIO_REGISTRY_TOKEN:
+  DOCKER_USERNAME:
+  DOCKER_TOKEN:
+  DOCKER_PASSWORD:
+
+x-server: &server
+  image: ghcr.io/getsfumato/vitruvio-server:${VITRUVIO_VERSION:-latest}
+  restart: unless-stopped
+  # The worker installs no SIGTERM handler and runs as PID 1; tini forwards the signal so `stop` is prompt.
+  init: true
+  environment: *env
+
+services:
+  redis:
+    image: redis:7-alpine
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  query:
+    <<: *server
+    command: ["query"]
+    ports: ["${VITRUVIO_QUERY_PORT:-8080}:8080"]
+    # python-slim has no curl; urlopen raises on any non-2xx, which is the non-zero exit.
+    healthcheck: &http-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  ingest:
+    <<: *server
+    command: ["ingest"]
+    ports: ["${VITRUVIO_INGEST_PORT:-8081}:8080"]
+    depends_on:
+      redis: { condition: service_healthy }
+    # Its /health/ready pings Redis, so this covers the dependency too.
+    healthcheck: *http-health
+
+  worker:
+    <<: *server
+    command: ["worker"]
+    depends_on:
+      redis: { condition: service_healthy }
+    # No healthcheck: the worker has no port, and a Redis ping would say "can reach Redis", not "is making
+    # progress". A wedged worker's deliveries are reclaimed through the job lease anyway.
+    #
+    # Governed brains need an SSH agent in the worker. Uncomment both, keeping `<<: *env` or the shared variables
+    # above are lost; pick the volume line for your host.
+    # environment: { <<: *env, SSH_AUTH_SOCK: /ssh-agent }
+    # volumes: ["${SSH_AUTH_SOCK}:/ssh-agent"]                  # Linux
+    # volumes: ["/run/host-services/ssh-auth.sock:/ssh-agent"]  # macOS Docker Desktop
+
+volumes:
+  redis-data:

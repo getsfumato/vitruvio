@@ -12,12 +12,12 @@ members = [
     "vitruvio",
     "vitruvio-bench",
     "vitruvio-embeddings",
-    "vitruvio-http",
     "vitruvio-indices",
     "vitruvio-ingest",
     "vitruvio-kernel",
     "vitruvio-planner",
     "vitruvio-runtime",
+    "vitruvio-server",
     "vitruvio-sql",
     "vitruvio-stats",
 ]
@@ -3842,31 +3842,6 @@ requires-dist = [
 provides-extras = ["local-text", "vision", "api"]
 
 [[package]]
-name = "vitruvio-http"
-version = "0.31.0"
-source = { editable = "apps/http" }
-dependencies = [
-    { name = "boto3" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "redis" },
-    { name = "tomli-w" },
-    { name = "uvicorn" },
-    { name = "vitruvio-runtime" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", specifier = ">=1.35.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "redis", specifier = ">=5.0.0" },
-    { name = "tomli-w", specifier = ">=1.0.0" },
-    { name = "uvicorn", specifier = ">=0.30.0" },
-    { name = "vitruvio-runtime", editable = "packages/runtime" },
-]
-
-[[package]]
 name = "vitruvio-indices"
 version = "0.31.0"
 source = { editable = "packages/indices" }
@@ -3997,6 +3972,31 @@ requires-dist = [
     { name = "vitruvio-stats", editable = "packages/stats" },
 ]
 provides-extras = ["keyring", "sql"]
+
+[[package]]
+name = "vitruvio-server"
+version = "0.31.0"
+source = { editable = "apps/server" }
+dependencies = [
+    { name = "boto3" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "redis" },
+    { name = "tomli-w" },
+    { name = "uvicorn" },
+    { name = "vitruvio-runtime" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.35.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "redis", specifier = ">=5.0.0" },
+    { name = "tomli-w", specifier = ">=1.0.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
+    { name = "vitruvio-runtime", editable = "packages/runtime" },
+]
 
 [[package]]
 name = "vitruvio-sql"

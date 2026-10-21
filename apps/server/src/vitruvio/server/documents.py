@@ -14,7 +14,7 @@ DEFAULT_MAX_BYTES = 50 * 1024 * 1024
 
 
 def max_document_bytes(configured: int | None) -> int:
-    deployment = int(os.environ.get("VITRUVIO_HTTP_MAX_DOCUMENT_BYTES", DEFAULT_MAX_BYTES))
+    deployment = int(os.environ.get("VITRUVIO_SERVER_MAX_DOCUMENT_BYTES", DEFAULT_MAX_BYTES))
     return min(configured, deployment) if configured else deployment
 
 
@@ -45,7 +45,7 @@ async def read_document(uri: str, max_bytes: int) -> bytes:
 def _read_s3(bucket: str, key: str, max_bytes: int) -> bytes:
     import boto3
 
-    client = boto3.client("s3", endpoint_url=os.environ.get("VITRUVIO_HTTP_S3_ENDPOINT"))
+    client = boto3.client("s3", endpoint_url=os.environ.get("VITRUVIO_SERVER_S3_ENDPOINT"))
     try:
         response = client.get_object(Bucket=bucket, Key=key)
     except Exception as error:

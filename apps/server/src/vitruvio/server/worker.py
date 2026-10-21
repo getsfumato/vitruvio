@@ -28,11 +28,11 @@ from typing import Any, cast
 import redis
 from redis.exceptions import ResponseError, WatchError
 
-from vitruvio.http.brain import InstalledBrain, install, local_registry, make_service, resolve_remote
-from vitruvio.http.ingest import JOB_PREFIX, RESULT_TTL, STREAM
-from vitruvio.http.models import BrainRef, IngestionRequest
-from vitruvio.http.processing import _sign_governed, process_job
 from vitruvio.kernel import ExitCode, VitruvioError
+from vitruvio.server.brain import InstalledBrain, install, local_registry, make_service, resolve_remote
+from vitruvio.server.ingest import JOB_PREFIX, RESULT_TTL, STREAM
+from vitruvio.server.models import BrainRef, IngestionRequest
+from vitruvio.server.processing import _sign_governed, process_job
 
 GROUP = "vitruvio-ingest-workers"
 LEASE_PREFIX = "vitruvio:ingest:lease:"
@@ -320,7 +320,7 @@ class Worker:
 
 def main() -> None:
     client: redis.Redis = redis.from_url(
-        os.environ.get("VITRUVIO_HTTP_REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
+        os.environ.get("VITRUVIO_SERVER_REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
     )
     Worker(client).run_forever()
 

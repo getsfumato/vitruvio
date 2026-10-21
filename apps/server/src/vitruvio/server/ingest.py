@@ -15,10 +15,10 @@ from typing import Any
 import redis.asyncio as redis
 from fastapi import FastAPI, HTTPException
 
-from vitruvio.http.brain import make_service
-from vitruvio.http.models import IngestionRequest
-from vitruvio.http.response import envelope, install_errors
 from vitruvio.kernel import ConfigError
+from vitruvio.server.brain import make_service
+from vitruvio.server.models import IngestionRequest
+from vitruvio.server.response import envelope, install_errors
 
 STREAM = "vitruvio:ingest:jobs"
 JOB_PREFIX = "vitruvio:ingest:job:"
@@ -28,7 +28,7 @@ RESULT_TTL = 7 * 24 * 60 * 60
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = redis.from_url(
-        os.environ.get("VITRUVIO_HTTP_REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
+        os.environ.get("VITRUVIO_SERVER_REDIS_URL", "redis://localhost:6379/0"), decode_responses=True
     )
     app.state.redis = client
     try:
@@ -57,7 +57,7 @@ async def submit(request: IngestionRequest) -> dict[str, Any]:
     if request.config.actor is None:
         raise ConfigError("ingestion requires a declared actor in config.actor")
     payload = request.model_dump_json()
-    ceiling = int(os.environ.get("VITRUVIO_HTTP_MAX_JOB_BYTES", str(8 * 1024 * 1024)))
+    ceiling = int(os.environ.get("VITRUVIO_SERVER_MAX_JOB_BYTES", str(8 * 1024 * 1024)))
     if len(payload.encode("utf-8")) > ceiling:
         raise HTTPException(status_code=413, detail=f"job request exceeds the {ceiling} byte limit")
     with tempfile.TemporaryDirectory(prefix="vitruvio-validate-") as work:

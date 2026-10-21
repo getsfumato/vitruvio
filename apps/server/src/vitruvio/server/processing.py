@@ -9,11 +9,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from vitruvio.http.brain import install, local_registry, make_service, resolve_remote
-from vitruvio.http.documents import max_document_bytes, read_document
-from vitruvio.http.models import CandidateItem, DocumentItem, IngestionRequest
 from vitruvio.kernel import ConfigError, VitruvioError
 from vitruvio.runtime import BrainService, evidence_from_bytes
+from vitruvio.server.brain import install, local_registry, make_service, resolve_remote
+from vitruvio.server.documents import max_document_bytes, read_document
+from vitruvio.server.models import CandidateItem, DocumentItem, IngestionRequest
 
 PreparedCallback = Callable[[dict[str, Any], str], None]
 logger = logging.getLogger(__name__)
