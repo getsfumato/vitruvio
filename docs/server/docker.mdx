@@ -1,0 +1,231 @@
+---
+title: "Run it with Docker"
+description: "One image. Start the query API in one command, bring up ingest and its worker with Compose, then configure the environment."
+---
+
+```bash
+docker run --rm -p 8080:8080 -e VITRUVIO_SERVER_ALLOWED_REGISTRIES=ghcr.io ghcr.io/getsfumato/vitruvio-server
+```
+
+That is the query API on `localhost:8080`, allowed to read brains from `ghcr.io`. There is nothing to install: the
+image is published with every release, for `linux/amd64` and `linux/arm64`.
+
+<Steps>
+  <Step title="Start it">
+    The command above. Docker pulls `ghcr.io/getsfumato/vitruvio-server:latest` the first time. Add
+    `-e VITRUVIO_REGISTRY_USERNAME=… -e VITRUVIO_REGISTRY_TOKEN=…` when the brain is private.
+  </Step>
+  <Step title="Check it">
+    ```bash
+    curl -s localhost:8080/health/ready
+    ```
+    `{"status":"ok"}`. `/health/live` answers the same, and `/docs` is the interactive OpenAPI page.
+  </Step>
+  <Step title="Ask it something">
+    ```bash
+    curl -s localhost:8080/v1/search -H 'content-type: application/json' -d '{
+      "brain": {"repository": "ghcr.io/you/brain", "tag": "v1"},
+      "text": "what does the paper say about cost models",
+      "limit": 5
+    }'
+    ```
+    The first request for a brain pulls it; the next ones hit the cache. The response is the envelope
+    `vitruvio search --json` prints, with the evidence bundle under `data.evidence`.
+    [The query API](/server/query-api) has the rest.
+  </Step>
+</Steps>
+
+## Everything, with Compose
+
+Ingestion needs three more pieces: the ingest API, a worker, and the Redis they share. One file brings up all four.
+It is committed as
+[`apps/server/compose.yaml`](https://github.com/getsfumato/vitruvio/blob/main/apps/server/compose.yaml); copy it
+anywhere.
+
+```yaml
+# Vitruvio Server: the query API, the ingest API, the ingest worker, and the Redis the last two share.
+#
+#   docker compose -f apps/server/compose.yaml up
+#
+# VITRUVIO_VERSION pins the image tag (default: latest). Variables listed without a value are passed through from
+# the shell or a .env next to this file, and only when set there.
+
+x-env: &env
+  VITRUVIO_SERVER_ALLOWED_REGISTRIES: ${VITRUVIO_SERVER_ALLOWED_REGISTRIES:-ghcr.io,docker.io}
+  # Read by ingest and worker; query ignores it.
+  VITRUVIO_SERVER_REDIS_URL: redis://redis:6379/0
+  # Registry credentials: the same variables the CLI reads (either pair; the VITRUVIO_* names win).
+  VITRUVIO_REGISTRY_USERNAME:
+  VITRUVIO_REGISTRY_TOKEN:
+  DOCKER_USERNAME:
+  DOCKER_TOKEN:
+  DOCKER_PASSWORD:
+
+x-server: &server
+  image: ghcr.io/getsfumato/vitruvio-server:${VITRUVIO_VERSION:-latest}
+  restart: unless-stopped
+  # The worker installs no SIGTERM handler and runs as PID 1; tini forwards the signal so `stop` is prompt.
+  init: true
+  environment: *env
+
+services:
+  redis:
+    image: redis:7-alpine
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  query:
+    <<: *server
+    command: ["query"]
+    ports: ["${VITRUVIO_QUERY_PORT:-8080}:8080"]
+    # python-slim has no curl; urlopen raises on any non-2xx, which is the non-zero exit.
+    healthcheck: &http-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  ingest:
+    <<: *server
+    command: ["ingest"]
+    ports: ["${VITRUVIO_INGEST_PORT:-8081}:8080"]
+    depends_on:
+      redis: { condition: service_healthy }
+    # Its /health/ready pings Redis, so this covers the dependency too.
+    healthcheck: *http-health
+
+  worker:
+    <<: *server
+    command: ["worker"]
+    depends_on:
+      redis: { condition: service_healthy }
+    # No healthcheck: the worker has no port, and a Redis ping would say "can reach Redis", not "is making
+    # progress". A wedged worker's deliveries are reclaimed through the job lease anyway.
+    #
+    # Governed brains need an SSH agent in the worker. Uncomment both, keeping `<<: *env` or the shared variables
+    # above are lost; pick the volume line for your host.
+    # environment: { <<: *env, SSH_AUTH_SOCK: /ssh-agent }
+    # volumes: ["${SSH_AUTH_SOCK}:/ssh-agent"]                  # Linux
+    # volumes: ["/run/host-services/ssh-auth.sock:/ssh-agent"]  # macOS Docker Desktop
+
+volumes:
+  redis-data:
+```
+
+```bash
+docker compose up                       # query on 8080, ingest on 8081, a worker, Redis
+curl -s localhost:8081/health/ready     # ingest's readiness also pings Redis
+```
+
+The file reads a few things from the shell, or from a `.env` beside it:
+
+| variable | does |
+|---|---|
+| `VITRUVIO_VERSION` | the image tag; default `latest`. Pin it in a deployment |
+| `VITRUVIO_SERVER_ALLOWED_REGISTRIES` | default `ghcr.io,docker.io` |
+| `VITRUVIO_REGISTRY_USERNAME`, `VITRUVIO_REGISTRY_TOKEN` | passed through to the containers only when set; never written into the file |
+| `VITRUVIO_QUERY_PORT`, `VITRUVIO_INGEST_PORT` | the published ports, default `8080` and `8081` |
+
+## One image, three roles
+
+The image's entrypoint is the `vitruvio-server` command and its default argument is `query`:
+
+```bash
+docker run --rm -p 8080:8080 ghcr.io/getsfumato/vitruvio-server             # query
+docker run --rm -p 8081:8080 ghcr.io/getsfumato/vitruvio-server ingest      # ingest API
+docker run --rm --init       ghcr.io/getsfumato/vitruvio-server worker      # ingest worker
+docker run --rm              ghcr.io/getsfumato/vitruvio-server --help
+```
+
+`--init` for the worker: it installs no signal handler and runs as PID 1, so without an init process `docker stop`
+waits out the grace period. Compose sets `init: true` for the same reason. A worker killed mid-job loses nothing —
+its job is reclaimed through a lease — it is only slow to stop.
+
+Anything that is not a role goes through the command's argument parser, so to run something else inside the image
+pass `--entrypoint`:
+
+```bash
+docker run --rm --entrypoint python ghcr.io/getsfumato/vitruvio-server -c 'import vitruvio.kernel; print(vitruvio.kernel.__version__)'
+```
+
+## Configuration
+
+Everything is read from the environment. `query` and `ingest` also take `--host` and `--port`.
+
+| variable | default | does |
+|---|---|---|
+| `VITRUVIO_SERVER_HOST` | `127.0.0.1`; `0.0.0.0` in the image | interface query and ingest bind |
+| `VITRUVIO_SERVER_PORT` | `8080` | port they bind |
+| `VITRUVIO_SERVER_ALLOWED_REGISTRIES` | unset: **every remote registry is refused** | comma-separated hosts a request may name in `brain.repository`; `docker.io` covers Docker Hub |
+| `VITRUVIO_SERVER_ALLOWED_EMBEDDING_URLS` | unset | endpoints a request may name in `config.embedding.<kind>.base_url`, compared exactly |
+| `VITRUVIO_SERVER_REDIS_URL` | `redis://localhost:6379/0` | the Redis the ingest API and worker share |
+| `VITRUVIO_SERVER_MAX_JOB_BYTES` | 8 MiB | ceiling on a job body; over it is 413 |
+| `VITRUVIO_SERVER_MAX_DOCUMENT_BYTES` | 50 MiB | ceiling on one document download; a lower `config.ingest.max_bytes` also applies |
+| `VITRUVIO_SERVER_S3_ENDPOINT` | AWS | an S3-compatible endpoint for `s3://` documents |
+| `VITRUVIO_SERVER_LOCAL_REGISTRY` | unset | a filesystem registry of OCI layouts, for development and tests; exempt from the allowlist |
+| `VITRUVIO_SERVER_INSECURE` | false | `true` allows a plain-HTTP registry |
+
+Do not set the CLI's selection variables — `VITRUVIO_ACTOR_ID`, `VITRUVIO_BRAIN`, `VITRUVIO_CONFIG`,
+`VITRUVIO_PROJECT` — in the server's environment. The request supplies the brain and the actor; an override is
+refused (`ACTOR_OVERRIDE_REFUSED`) and every request fails.
+
+## Credentials
+
+The server presents credentials on the caller's behalf, which is why the destinations are bound to a list the
+operator wrote rather than to the request:
+
+- **Registry**: `VITRUVIO_REGISTRY_USERNAME` and `VITRUVIO_REGISTRY_TOKEN`, or `DOCKER_USERNAME` and
+  `DOCKER_TOKEN`. Docker Hub wants a personal access token, as [publishing](/brain/publishing) explains. The token
+  goes only to hosts in `VITRUVIO_SERVER_ALLOWED_REGISTRIES`.
+- **Embedding providers**: the provider's own variable — `OPENAI_API_KEY`, `VOYAGE_API_KEY`, `COHERE_API_KEY`,
+  `ANTHROPIC_API_KEY`, `HF_TOKEN` — or its `VITRUVIO_`-prefixed form. A request may name a `base_url` only when it
+  is in `VITRUVIO_SERVER_ALLOWED_EMBEDDING_URLS`.
+- **S3 documents**: the standard AWS variables, plus `VITRUVIO_SERVER_S3_ENDPOINT` for a compatible store.
+- **Signing, for governed brains**: the worker needs an SSH agent. Mount the socket and point `SSH_AUTH_SOCK` at
+  it. On Linux: `-v "$SSH_AUTH_SOCK:/ssh-agent" -e SSH_AUTH_SOCK=/ssh-agent`. On macOS Docker Desktop the host
+  socket cannot be mounted; use `-v /run/host-services/ssh-auth.sock:/ssh-agent` instead.
+
+**The server has no HTTP authentication.** Anyone who can reach the port can read every brain the credentials can.
+Deploy it on a private network or behind a gateway that authenticates.
+
+## Pin, upgrade, build
+
+Pin the version on anything that is not a laptop:
+
+```bash
+docker pull ghcr.io/getsfumato/vitruvio-server:<version>
+```
+
+Upgrading is changing the tag. There is no state on the instance to migrate, and two versions can run side by side
+during a rollout.
+
+To build the image yourself, from a checkout of the repository:
+
+```bash
+docker build -f apps/server/Dockerfile -t ghcr.io/getsfumato/vitruvio-server:latest .
+```
+
+It installs the workspace from `uv.lock`, so it builds exactly what the tree says. Compose uses a locally built
+`latest` rather than pulling one.
+
+## Without Docker
+
+From a checkout, the same command runs directly:
+
+```bash
+uv sync --all-packages
+uv run vitruvio-server query                  # 127.0.0.1:8080
+uv run vitruvio-server ingest --port 8081     # needs a Redis on VITRUVIO_SERVER_REDIS_URL
+uv run vitruvio-server worker
+```
+
+Outside the image the default bind is loopback; pass `--host 0.0.0.0` or set `VITRUVIO_SERVER_HOST` to expose it.
+
+## Next
+
+[The query API](/server/query-api): what to send, and how to read what comes back.

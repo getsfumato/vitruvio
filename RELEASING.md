@@ -13,7 +13,7 @@ One workflow, [`.github/workflows/release.yml`](.github/workflows/release.yml), 
 | `plan` | whether the commits since the last tag call for a release, and which version |
 | `gate` | that the commit deserves a tag: lint, types, layering, skills reference, fast tests |
 | `release` | bumps every member's version, relocks, writes the changelog, tags, builds, publishes |
-| `images` | builds the two HTTP service images from the tag and publishes them under the same version |
+| `images` | builds the server image from the tag and publishes it under the same version |
 | `smoke` | that `install.sh` installs the release it just published, on three runners |
 
 `smoke` runs on ubuntu-latest, **ubuntu-22.04** and macos-latest, and the middle one is not padding: its
@@ -65,25 +65,24 @@ The release is created as a **draft**. `releases/latest` — which is what `inst
 resolves to a draft, so the assets are uploaded, counted, and installed from before the release becomes
 visible to anyone's installer. A build that cannot be installed stays a draft.
 
-## The HTTP services ship as images, not through the bundle
+## The server ships as an image, not through the bundle
 
-`vitruvio-http` is a workspace member, so its wheel and sdist are in the bundle like every other — but nothing
+`vitruvio-server` is a workspace member, so its wheel and sdist are in the bundle like every other — but nothing
 in the CLI depends on it, so `install.sh` and `vitruvio update` never install it. A user upgrading the CLI gets
-the eight distributions the CLI needs and not the service. The service is deployed as a container, and the
+the eight distributions the CLI needs and not the server. The server is deployed as a container, and the
 container is what a deployment pins.
 
-The `images` job therefore builds the two targets of `apps/http/Dockerfile` and publishes them to the GitHub
-container registry, for `linux/amd64` and `linux/arm64`:
+The `images` job therefore builds `apps/server/Dockerfile` and publishes it to the GitHub container registry,
+for `linux/amd64` and `linux/arm64`:
 
 ```
-ghcr.io/getsfumato/vitruvio-query:<version>    also :latest
-ghcr.io/getsfumato/vitruvio-ingest:<version>   also :latest  (API and worker: same image, different command)
+ghcr.io/getsfumato/vitruvio-server:<version>   also :latest  (query, ingest and worker: one image, three roles)
 ```
 
 Three details carry weight. The build checks out the **tag**, not the commit that started the run: the tag
 names the tree whose manifests carry the new version and whose `uv.lock` was relocked for it, and the
 Dockerfile's `uv sync --frozen` would refuse the lock of the triggering commit. The job asserts
-`apps/http/pyproject.toml` at that tag carries the version before building, and after pushing it pulls the
+`apps/server/pyproject.toml` at that tag carries the version before building, and after pushing it pulls the
 image back and asserts the version *inside* it — the same check `install.sh` makes on the bundle, for the same
 reason: a number on the tag that the artifact does not agree with is the failure nobody notices. And the job
 runs after `release` has published, so an image never exists for a version that stayed a draft.

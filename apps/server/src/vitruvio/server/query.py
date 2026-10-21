@@ -14,10 +14,10 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from vitruvio.http.brain import InstalledBrain, RemoteManifest, install, make_service, portable_config, resolve_remote
-from vitruvio.http.models import BrainRequest, ResolveRequest, SearchRequest
-from vitruvio.http.response import envelope, install_errors
 from vitruvio.kernel import ExitCode, VitruvioError
+from vitruvio.server.brain import InstalledBrain, RemoteManifest, install, make_service, portable_config, resolve_remote
+from vitruvio.server.models import BrainRequest, ResolveRequest, SearchRequest
+from vitruvio.server.response import envelope, install_errors
 
 
 class InstallInterruptedError(VitruvioError):

@@ -1,0 +1,131 @@
+---
+title: "The query API"
+description: "Search, explain, state and resolve over any published brain, each request naming the repository and tag it reads."
+---
+
+Every call is a `POST` whose JSON body names the brain, the way `dist pull` would, and may carry a portable
+configuration:
+
+```json
+{
+  "brain": {"repository": "ghcr.io/you/brain", "tag": "v1"},
+  "config": {"embedding": {"text": {"provider": "ollama", "model": "nomic-embed-text"}}}
+}
+```
+
+| path | does | the CLI's |
+|---|---|---|
+| `POST /v1/search` | rank evidence for a question | `query search` |
+| `POST /v1/explain` | the plan the planner chose, the ones it rejected, and why | `query explain` |
+| `POST /v1/brain/state` | which modules, which version, where it came from | `brain state` |
+| `POST /v1/blocks/resolve` | one block by id | `query resolve` |
+| `GET /health/live`, `GET /health/ready` | liveness; readiness | |
+| `GET /docs`, `GET /openapi.json` | the OpenAPI description, interactive and raw | |
+
+## Search
+
+Beside `brain` and `config`, the body takes what `query search` takes, under the flags' names:
+
+| field | default | is |
+|---|---|---|
+| `text` | `""` | the question. Empty, with a time window, is a date scan |
+| `memory_types` | every module | a filter: `["semantic", "procedural"]` |
+| `subject`, `tags` | | filters |
+| `since`, `until` | | a time window, `YYYY-MM-DD` or a protocol timestamp. A block with no `occurred_at` fails it |
+| `classes` | | require evidence placed in every listed `scheme/label` class |
+| `evidence` | | restrict to blocks derived from these evidence blocks |
+| `include_superseded` | `false` | also return blocks a later one replaced |
+| `mode` | | a hint that narrows the admissible plans; never a selection |
+| `limit` | `10` | 1 to 100 |
+| `expand_depth` | `0` | follow graph edges this many hops from the strongest hits, up to 10 |
+| `diagnostics` | `false` | add the planner's diagnostics to the bundle |
+
+```bash
+curl -s localhost:8080/v1/search -H 'content-type: application/json' -d '{
+  "brain": {"repository": "ghcr.io/you/brain", "tag": "v1"},
+  "text": "decompose a periodic function into sines",
+  "memory_types": ["semantic"],
+  "limit": 5
+}'
+```
+
+```json
+{
+  "vitruvio": "0.32.0",
+  "command": "query.search",
+  "ok": true,
+  "data": {
+    "manifest_digest": "sha256:…",
+    "snapshot_digest": "sha256:…",
+    "authenticity": {"trust_root": null, "head": "unsigned"},
+    "attribution": {"actor": "…"},
+    "evidence": {"matches": [], "truncated": false, "verified_against": {}, "all_verified": true, "plan": {}}
+  },
+  "warnings": [],
+  "error": null
+}
+```
+
+`data.evidence` is the bundle `vitruvio search --json` prints, read the same way: `score` is agreement between
+strategies, not a probability; `truncated` must be checked before saying the brain lacks something;
+`superseded_by` names a successor. [Searching](/brain/searching) explains each field. Around it, every query
+response carries the manifest digest the tag resolved to, the snapshot digest inside it, the brain's authenticity,
+and the actor the request was served as — so a result can be tied to exactly the version that produced it.
+
+## Explain, state, resolve
+
+```bash
+curl -s localhost:8080/v1/explain -H 'content-type: application/json' \
+  -d '{"brain": {"repository": "ghcr.io/you/brain", "tag": "v1"}, "text": "decompose a periodic function"}'
+curl -s localhost:8080/v1/brain/state -H 'content-type: application/json' \
+  -d '{"brain": {"repository": "ghcr.io/you/brain", "tag": "v1"}}'
+curl -s localhost:8080/v1/blocks/resolve -H 'content-type: application/json' \
+  -d '{"brain": {"repository": "ghcr.io/you/brain", "tag": "v1"}, "block_id": "sha256:…"}'
+```
+
+`/v1/explain` takes the search body (`diagnostics` is ignored) and answers with `data.explanation`;
+`/v1/brain/state` answers with `data.state`; `/v1/blocks/resolve` takes `block_id` and answers with `data.block`.
+
+## The portable config
+
+`config` is the part of a `vitruvio.toml` that is about the brain rather than about a machine: `actor`,
+`assisted_by`, `authenticity`, `policy`, `embedding`, `index`, `planner` and `ingest`. Paths, source commands and
+credentials have no field, because the server owns those. The server writes it into a temporary `vitruvio.toml`
+and loads it with the same loader a project uses, so a request is checked the way a config file is: a `null` field
+means what an absent one means, an unknown field inside a known section is `400 CONFIG_INVALID`, and an unknown
+top-level key is `422 USAGE`.
+
+Reads need no actor; `config.actor` is for ingestion. An embedding `base_url` must be one the operator listed in
+`VITRUVIO_SERVER_ALLOWED_EMBEDDING_URLS`, or the request is refused before any key is sent anywhere.
+
+## One envelope
+
+Every answer, success or failure, is the [envelope](/concepts/how-vitruvio-runs-a-brain#one-output-contract) the
+CLI prints under `--json`. Branch on `ok`, then on `error.code`, and read `warnings` even when `ok` is true: a
+governed brain served from an unsigned head says so there.
+
+| http | `error.code` | means | retry |
+|---|---|---|---|
+| 400 | `CONFIG_INVALID` | the config fails the project schema | no |
+| 403 | `DESTINATION_REFUSED` | the registry or embedding endpoint is not on the operator's list | no |
+| 404 | `REFERENCE_NOT_FOUND` | the registry holds nothing under that repository and tag | no |
+| 409 | `OCI_TAG_MOVED` | the tag changed between resolving it and pulling it | yes |
+| 422 | `USAGE` | the body is malformed: a missing field, an unknown key, `limit` out of range | no |
+| 503 | `INSTALL_INTERRUPTED` | the request that was pulling the brain went away mid-pull | yes |
+| 500 | `INTERNAL` | a bug; the message is deliberately bare | no |
+
+## How a brain is cached
+
+Each request resolves its tag against the registry, so a moved tag is noticed at once. The resolved manifest
+digest, together with the request's config, is the cache key: at most four installed layouts are kept, in
+temporary directories, and the least recently used is dropped. Two requests that miss on the same key share one
+pull. A pull whose downloaded manifest is not the one that was resolved is refused with `OCI_TAG_MOVED` rather than
+served under the wrong digest.
+
+A governed brain is also checked for signatures published after it was cached. Signatures are referrers, so they
+do not move the manifest digest; a head whose referrers changed is re-installed so the new authenticity is seen.
+An unsigned governed head is served with a warning; a head the pull gate does not authorize is refused.
+
+## Next
+
+[The ingest API](/server/ingest-api): jobs, items, and the tag the worker publishes.

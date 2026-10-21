@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vitruvio-http"
+name = "vitruvio-server"
 version = "0.31.0"
-description = "Stateless HTTP adapters for querying and ingesting OCI brains"
+description = "Vitruvio Server: query and ingest APIs over OCI-backed brains"
 requires-python = ">=3.11"
 dependencies = [
     "vitruvio-runtime",
@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.scripts]
-vitruvio-ingest-worker = "vitruvio.http.worker:main"
+vitruvio-server = "vitruvio.server.main:main"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["src/vitruvio/http"]
+only-include = ["src/vitruvio/server"]
 sources = ["src"]

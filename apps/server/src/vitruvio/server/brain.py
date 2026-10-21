@@ -17,17 +17,17 @@ from urllib.parse import urlsplit
 
 import tomli_w
 
-from vitruvio.http.models import BrainConfig, BrainRef
 from vitruvio.kernel import ConfigError, ExitCode, ProjectConfig, UsageError, VitruvioError, load_project, resolve
 from vitruvio.runtime import BrainService
 from vitruvio.runtime.ops.remote import PreparedRemote, RemoteOps
 from vitruvio.runtime.registry import host_of
 from vitruvio.runtime.wire import manifest as manifest_wire
+from vitruvio.server.models import BrainConfig, BrainRef
 
-ENV_ALLOWED_REGISTRIES = "VITRUVIO_HTTP_ALLOWED_REGISTRIES"
+ENV_ALLOWED_REGISTRIES = "VITRUVIO_SERVER_ALLOWED_REGISTRIES"
 """Registry hosts a request may name. The deployment's registry credentials are offered to these and to nothing else."""
 
-ENV_ALLOWED_EMBEDDING_URLS = "VITRUVIO_HTTP_ALLOWED_EMBEDDING_URLS"
+ENV_ALLOWED_EMBEDDING_URLS = "VITRUVIO_SERVER_ALLOWED_EMBEDDING_URLS"
 """Embedding endpoints a request may select with ``embedding.<kind>.base_url``; the provider's API key goes with it."""
 
 REF_NAME_ANNOTATION = "org.opencontainers.image.ref.name"
@@ -101,12 +101,12 @@ class RemoteManifest:
 
 
 def local_registry() -> Path | None:
-    value = os.environ.get("VITRUVIO_HTTP_LOCAL_REGISTRY")
+    value = os.environ.get("VITRUVIO_SERVER_LOCAL_REGISTRY")
     return Path(value) if value else None
 
 
 def _insecure() -> bool:
-    return os.environ.get("VITRUVIO_HTTP_INSECURE", "").lower() in {"1", "true", "yes"}
+    return os.environ.get("VITRUVIO_SERVER_INSECURE", "").lower() in {"1", "true", "yes"}
 
 
 def _listed(variable: str) -> list[str]:
@@ -123,7 +123,7 @@ def require_approved_registry(repository: str) -> None:
     """
     Refuse a repository whose host the deployment has not approved.
 
-    A filesystem registry (``VITRUVIO_HTTP_LOCAL_REGISTRY``) is exempt: it is addressed by path, carries no
+    A filesystem registry (``VITRUVIO_SERVER_LOCAL_REGISTRY``) is exempt: it is addressed by path, carries no
     credentials, and the SDK refuses a path outside its root.
 
     Args:
@@ -131,7 +131,7 @@ def require_approved_registry(repository: str) -> None:
 
     Raises:
         UsageError: If the repository is not a well-formed reference.
-        DestinationRefusedError: If its host is not listed in ``VITRUVIO_HTTP_ALLOWED_REGISTRIES``.
+        DestinationRefusedError: If its host is not listed in ``VITRUVIO_SERVER_ALLOWED_REGISTRIES``.
     """
     if local_registry() is not None:
         return
@@ -160,7 +160,7 @@ def require_approved_embedding(project: ProjectConfig) -> None:
         project (ProjectConfig): The validated request configuration.
 
     Raises:
-        DestinationRefusedError: If any embedder names an endpoint outside ``VITRUVIO_HTTP_ALLOWED_EMBEDDING_URLS``.
+        DestinationRefusedError: If any embedder names an endpoint outside ``VITRUVIO_SERVER_ALLOWED_EMBEDDING_URLS``.
     """
     allowed = {_endpoint(item) for item in _listed(ENV_ALLOWED_EMBEDDING_URLS)}
     for kind, spec in project.embedding.items():
@@ -215,7 +215,7 @@ def make_service(
     document = portable_config(config)
     # Pull opens a WRITE view even for a read-only consumer. This identity is used only for its
     # disposable bootstrap genesis; the installed snapshot keeps its original provenance.
-    document.setdefault("actor", {"id": "vitruvio/http-reader", "kind": "service"})
+    document.setdefault("actor", {"id": "vitruvio/server-reader", "kind": "service"})
     document["brain"] = {"path": str(layout), "publish": True}
     document["registry"] = {"reference": brain.repository, "tag": brain.tag, "insecure": _insecure()}
     config_path = root / "vitruvio.toml"

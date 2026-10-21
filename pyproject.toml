@@ -19,7 +19,7 @@ vitruvio-sql = { workspace = true }
 vitruvio-ingest = { workspace = true }
 vitruvio-runtime = { workspace = true }
 vitruvio-bench = { workspace = true }
-vitruvio-http = { workspace = true }
+vitruvio-server = { workspace = true }
 # Local co-development against an unreleased SDK. A workspace-root source applies to every member, so
 # uncommenting this and running `uv lock` switches all nine at once. CI runs one job with
 # `uv sync --no-sources` so the PyPI path stays proven rather than assumed.
@@ -204,7 +204,7 @@ mypy_path = [
     "packages/runtime/src",
     "packages/bench/src",
     "apps/cli/src",
-    "apps/http/src",
+    "apps/server/src",
 ]
 
 # Untyped or optional third-party libraries. Listed only once something actually imports them: with
@@ -298,7 +298,7 @@ version_toml = [
     "packages/runtime/pyproject.toml:project.version",
     "packages/bench/pyproject.toml:project.version",
     "apps/cli/pyproject.toml:project.version",
-    "apps/http/pyproject.toml:project.version",
+    "apps/server/pyproject.toml:project.version",
 ]
 version_variables = ["packages/kernel/src/vitruvio/kernel/version.py:__version__"]
 # `python -m build` cannot run here: the workspace root is virtual and has no [project] table, so there

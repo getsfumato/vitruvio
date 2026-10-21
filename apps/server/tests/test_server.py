@@ -17,11 +17,11 @@ import fakeredis.aioredis
 import httpx
 import pytest
 
-from vitruvio.http import brain, ingest, processing, query, worker
-from vitruvio.http.models import BrainConfig, BrainRef, IngestionRequest, SearchRequest
 from vitruvio.ingest.evidence import Evidence
 from vitruvio.kernel import ConfigError, SourceError, UsageError, VitruvioError, resolve
 from vitruvio.runtime import BrainService
+from vitruvio.server import brain, ingest, processing, query, worker
+from vitruvio.server.models import BrainConfig, BrainRef, IngestionRequest, SearchRequest
 
 ed25519 = pytest.importorskip("cryptography.hazmat.primitives.asymmetric.ed25519")
 serialization = pytest.importorskip("cryptography.hazmat.primitives.serialization")
@@ -31,7 +31,7 @@ serialization = pytest.importorskip("cryptography.hazmat.primitives.serializatio
 def published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Path, str, BrainService]]:
     registry = tmp_path / "registry"
     registry.mkdir()
-    monkeypatch.setenv("VITRUVIO_HTTP_LOCAL_REGISTRY", str(registry))
+    monkeypatch.setenv("VITRUVIO_SERVER_LOCAL_REGISTRY", str(registry))
     source = BrainService(resolve(brain=tmp_path / "source", actor_id="source@example.org", require_layout=False))
     source.init(write_config=False)
     source.register(
@@ -79,7 +79,7 @@ def governed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[
     """A governed brain whose signed head is published; the source stays open for signing and republishing."""
     registry = tmp_path / "registry"
     registry.mkdir()
-    monkeypatch.setenv("VITRUVIO_HTTP_LOCAL_REGISTRY", str(registry))
+    monkeypatch.setenv("VITRUVIO_SERVER_LOCAL_REGISTRY", str(registry))
     party = Party()
     agent = Agent(party)
     monkeypatch.setattr("boltzmann.authenticity.AgentSigner", agent)
@@ -181,12 +181,12 @@ async def test_query_refreshes_a_moved_tag(published: tuple[Path, str, BrainServ
 async def test_a_registry_outside_the_allowlist_is_refused_before_any_credential_is_offered(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("VITRUVIO_HTTP_LOCAL_REGISTRY", raising=False)
+    monkeypatch.delenv("VITRUVIO_SERVER_LOCAL_REGISTRY", raising=False)
     request = SearchRequest.model_validate({"brain": {"repository": "ghcr.io/team/brain", "tag": "v1"}, "text": "x"})
     with pytest.raises(brain.DestinationRefusedError):
         brain.make_service(tmp_path / "unlisted", request.brain, request.config)
 
-    monkeypatch.setenv("VITRUVIO_HTTP_ALLOWED_REGISTRIES", "GHCR.io, registry.example:5000")
+    monkeypatch.setenv("VITRUVIO_SERVER_ALLOWED_REGISTRIES", "GHCR.io, registry.example:5000")
     brain.make_service(tmp_path / "listed", request.brain, request.config)
     # Docker Hub's shorthand is judged by the host it actually goes to.
     with pytest.raises(brain.DestinationRefusedError):
@@ -218,7 +218,7 @@ def test_an_embedding_endpoint_outside_the_allowlist_is_refused(
     # No endpoint named means the provider's own, which is where the server's key for it belongs.
     brain.make_service(tmp_path / "default", ref, config(None))
 
-    monkeypatch.setenv("VITRUVIO_HTTP_ALLOWED_EMBEDDING_URLS", "https://Gateway.example/v1/")
+    monkeypatch.setenv("VITRUVIO_SERVER_ALLOWED_EMBEDDING_URLS", "https://Gateway.example/v1/")
     brain.make_service(tmp_path / "listed", ref, config("https://gateway.example/v1"))
     with pytest.raises(brain.DestinationRefusedError):
         brain.make_service(tmp_path / "sibling", ref, config("https://gateway.example/v2"))
@@ -594,7 +594,7 @@ async def test_a_push_whose_outcome_cannot_be_checked_leaves_the_job_recoverable
 
 
 def test_an_interrupted_attempt_keeps_the_request_for_the_next_claim(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VITRUVIO_HTTP_ALLOWED_REGISTRIES", "docker.io")
+    monkeypatch.setenv("VITRUVIO_SERVER_ALLOWED_REGISTRIES", "docker.io")
     client = fakeredis.FakeRedis(decode_responses=True)
     key, message_id, fields = _queue(client, _document_request("example/brain"), "interrupted")
     consumer = worker.Worker(client)
@@ -623,7 +623,7 @@ def test_an_interrupted_attempt_keeps_the_request_for_the_next_claim(monkeypatch
 
 
 def test_a_stale_attempt_cannot_write_over_its_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VITRUVIO_HTTP_ALLOWED_REGISTRIES", "docker.io")
+    monkeypatch.setenv("VITRUVIO_SERVER_ALLOWED_REGISTRIES", "docker.io")
     client = fakeredis.FakeRedis(decode_responses=True)
     key, message_id, fields = _queue(client, _document_request("example/brain"), "fenced")
     consumer = worker.Worker(client)
@@ -671,7 +671,7 @@ def test_abandoned_deliveries_are_scanned_from_the_returned_cursor(monkeypatch: 
 
 @pytest.mark.asyncio
 async def test_redis_job_submission_and_worker_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VITRUVIO_HTTP_ALLOWED_REGISTRIES", "docker.io")
+    monkeypatch.setenv("VITRUVIO_SERVER_ALLOWED_REGISTRIES", "docker.io")
     server = fakeredis.FakeServer()
     sync_client = fakeredis.FakeRedis(server=server, decode_responses=True)
     async_client = fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
@@ -746,3 +746,53 @@ def test_governed_publish_requires_an_explicit_authorized_ssh_key() -> None:
     service.authorized = True
     processing._sign_governed(service, ["SHA256:good"], result)  # type: ignore[arg-type]
     assert result["attribution"]["fully_vouched"] is True
+
+
+# --- the vitruvio-server command ---
+
+
+def test_the_command_serves_query_and_ingest_through_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The role picks the app; host and port come from the flags, else the environment, else loopback and 8080."""
+    from vitruvio.server import main as command
+
+    calls: list[tuple[str, str, int]] = []
+    monkeypatch.setattr("uvicorn.run", lambda target, *, host, port: calls.append((target, host, port)))
+    monkeypatch.delenv("VITRUVIO_SERVER_HOST", raising=False)
+    monkeypatch.delenv("VITRUVIO_SERVER_PORT", raising=False)
+
+    command.main(["query"])
+    command.main(["ingest", "--port", "8081"])
+    monkeypatch.setenv("VITRUVIO_SERVER_HOST", "0.0.0.0")
+    monkeypatch.setenv("VITRUVIO_SERVER_PORT", "9000")
+    command.main(["query"])
+    command.main(["query", "--host", "10.0.0.1"])
+
+    assert calls == [
+        ("vitruvio.server.query:app", "127.0.0.1", 8080),
+        ("vitruvio.server.ingest:app", "127.0.0.1", 8081),
+        ("vitruvio.server.query:app", "0.0.0.0", 9000),
+        ("vitruvio.server.query:app", "10.0.0.1", 9000),
+    ]
+
+
+def test_the_command_runs_the_worker_without_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The worker is a loop, not an ASGI app: the command calls it directly and never starts a server."""
+    from vitruvio.server import main as command
+
+    ran: list[str] = []
+    monkeypatch.setattr(worker, "main", lambda: ran.append("worker"))
+    monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: pytest.fail("the worker is not served by uvicorn"))
+
+    command.main(["worker"])
+
+    assert ran == ["worker"]
+
+
+def test_the_command_refuses_a_word_that_is_not_a_role() -> None:
+    """`docker run IMAGE python` reaches this: the entrypoint is the command, so a stray word is a usage error, not
+    a shell. The release workflow passes `--entrypoint` for that reason."""
+    from vitruvio.server import main as command
+
+    with pytest.raises(SystemExit) as refused:
+        command.main(["python"])
+    assert refused.value.code == 2
