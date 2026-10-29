@@ -1082,8 +1082,9 @@ class BrainBrowser(App[None]):
     def _row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Follow the cursor: the highlighted row is the selected block."""
         # Textual lets the cursor go to row -1 on an empty table (up, page down, ctrl+end), and when rows arrive
-        # it reports that row first, with no key, before the real one. There is nothing to follow there.
-        if event.row_key is None:
+        # it reports that row first, with no key, before the real one. There is nothing to follow there. Tested on
+        # the row rather than the key because Textual types the key as never None.
+        if event.cursor_row < 0:
             return
         key = event.row_key.value
         for row in self.rows:
