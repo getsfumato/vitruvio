@@ -763,6 +763,26 @@ class TestTheInterface:
             assert app.kind == "episodic"
             assert app.rows == []
 
+    async def test_moving_up_in_an_empty_module_does_not_take_the_browser_down(self, brain: Path) -> None:
+        """Up on an empty table leaves Textual's cursor on row -1, and the next fill reports that row with no key
+        before the real one. Reading the key off it ended the application with an AttributeError."""
+        app = BrainBrowser(service_for(brain), brain=str(brain))
+        async with app.run_test(size=(140, 40)) as pilot:
+            await _settle(pilot)
+            await pilot.press("left")
+            await pilot.press("down")  # onto episodic, which this brain does not have
+            await _settle(pilot)
+            assert app.rows == []
+            app.query_one("#blocks", DataTable).focus()
+            await pilot.press("up")
+            await pilot.pause()
+            app.query_one("#modules", Tree).focus()
+            await pilot.press("up")  # back onto canonical
+            await _settle(pilot)
+            assert app.is_running
+            assert app.kind == "canonical"
+            assert app.selected is not None
+
     async def test_enter_on_a_module_moves_into_its_blocks(self, brain: Path) -> None:
         """Enter means "show me this one", and the answer is in the next pane."""
         app = BrainBrowser(service_for(brain), brain=str(brain))
