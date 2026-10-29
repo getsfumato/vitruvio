@@ -497,6 +497,8 @@ class SelectionScreen(ModalScreen["tuple[Path, str | None] | None"]):
     @on(DataTable.RowHighlighted, "#projects")
     def _project_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Refill the brain pane as the project cursor moves, rather than waiting to be told twice."""
+        if event.cursor_row < 0:
+            return  # the keyless row -1 an empty table reports when rows arrive; see BrainBrowser._row_highlighted
         self._fill_brains(int(str(event.row_key.value or 0)))
 
     @on(DataTable.RowSelected, "#projects")
